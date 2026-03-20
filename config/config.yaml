@@ -1,0 +1,113 @@
+# AMC 默认配置（非密钥）。敏感项见仓库根目录 `.env` / `.env.example`。
+# 规范说明：AMC_plan/12-configuration-spec.md
+# 合并优先级：进程环境变量 > .env > 本文件 > 代码默认值
+
+# ---------------------------------------------------------------------------
+# 应用进程
+# ---------------------------------------------------------------------------
+app:
+  env: dev                    # dev | staging | prod
+  host: "0.0.0.0"
+  port: 8000
+  log_level: INFO
+
+# ---------------------------------------------------------------------------
+# HTTP API
+# ---------------------------------------------------------------------------
+api:
+  prefix: "/api/v1/amc"
+  max_payload_mb: 20
+
+# ---------------------------------------------------------------------------
+# 模型端点（用于控制 Embedder / LLM 的 Base URL）
+# ---------------------------------------------------------------------------
+model_endpoints:
+  embedder_base_url: ""        # 例如: http://127.0.0.1:9997/v1（空表示使用 SDK 默认）
+  llm_base_url: ""             # 例如: https://api.openai.com/v1
+
+# ---------------------------------------------------------------------------
+# 安全（与 AMC_plan/05 对齐）
+# ---------------------------------------------------------------------------
+security:
+  acl:
+    deny_override: true
+  masking:
+    enabled: true
+
+# ---------------------------------------------------------------------------
+# 存储（开发态：LocalFS + Chroma + Neo4j + JSONL）
+# ---------------------------------------------------------------------------
+storage:
+  content_store:
+    backend: localfs
+    localfs_root: "./data/content"
+
+  vector_store:
+    backend: chroma
+    collection_name: "amc_trajectory_index"
+    distance: cosine
+    search_timeout_ms: 2000
+
+  graph_store:
+    backend: neo4j
+    database: neo4j
+    query_timeout_ms: 5000
+
+  event_log:
+    backend: jsonl
+    jsonl_path: "./data/events/amc_events.jsonl"
+
+# ---------------------------------------------------------------------------
+# 异步向量化（commit 后索引 L0/L1）
+# ---------------------------------------------------------------------------
+indexing:
+  async_enabled: true
+  include_levels: [0, 1]
+
+# ---------------------------------------------------------------------------
+# Commit（AMC_plan/03）
+# ---------------------------------------------------------------------------
+commit:
+  idempotency:
+    enabled: true
+    ttl_hours: 168
+  normalize:
+    max_action_result_chars: 12000
+  graph:
+    temporal_fallback_edge: true
+    min_edge_confidence: 0.2
+  incremental:
+    enabled: true
+
+# ---------------------------------------------------------------------------
+# Retrieve（AMC_plan/04）
+# ---------------------------------------------------------------------------
+retrieve:
+  top_k_default: 5
+  top_k_max: 20
+  semantic_top_n: 50
+  graph_top_n: 50
+  rerank:
+    with_partial:
+      w_sem: 0.45
+      w_graph: 0.45
+      w_fb: 0.10
+    without_partial:
+      w_sem: 0.90
+      w_fb: 0.10
+  stale:
+    exclude_by_default: true
+
+# ---------------------------------------------------------------------------
+# 审计
+# ---------------------------------------------------------------------------
+audit:
+  enabled: true
+  file_path: "./data/audit/amc_audit.log"
+  redact_query_text: true
+
+# ---------------------------------------------------------------------------
+# 健康检查
+# ---------------------------------------------------------------------------
+health:
+  path: "/healthz"

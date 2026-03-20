@@ -101,7 +101,7 @@
 
 | 测试目录 | 被测包（见 `10-main-code-structure.md`） |
 |----------|------------------------------------------|
-| `tests/unit/core/commit/*` | `core/commit/*` |
+| `tests/unit/commit/*` | `core/commit/*`（避免使用 `tests/unit/core/` 目录名，以免遮蔽源码包 `core`） |
 | `tests/unit/domain/*` | `domain/models/*`、`domain/value_objects/*` |
 | `tests/integration/api/*` | `api/routes/commit.py`、`app/orchestrators/commit_orchestrator.py` |
 | `tests/integration/infra/*` | `infra/storage/graph/*`、`infra/storage/vector/*`、`infra/storage/fs/*` |

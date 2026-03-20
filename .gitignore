@@ -1,1 +1,16 @@
 sample_traj/
+
+# 本地密钥（模板见 .env.example）
+.env
+
+# Python / packaging
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

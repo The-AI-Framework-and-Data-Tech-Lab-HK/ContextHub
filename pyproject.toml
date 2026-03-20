@@ -42,6 +42,11 @@ exclude = ["tests*"]
 asyncio_mode = "auto"
 testpaths = ["src/tests"]
 pythonpath = ["src"]
+markers = [
+    "unit: fast unit tests, no external services",
+    "integration: needs Neo4j/Chroma/network",
+    "m1: milestone M1 acceptance cases",
+]
 
 [tool.ruff]
 line-length = 100
