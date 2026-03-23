@@ -45,34 +45,29 @@
 │                        ▼                                 │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │           ContextStore（URI 路由层）               │   │
-│  │   ctx:// URI → PG 读写 + 向量库检索 + ACL 检查    │   │
-│  └──────────┬──────────────────┬────────────────────┘   │
-└─────────────┼──────────────────┼────────────────────────┘
-              ▼                  ▼
-┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐
-│   PostgreSQL     │  │   向量库          │  │ Catalog      │
-│                  │  │                  │  │ Connector    │
-│ ┌──────────────┐ │  │ Chroma (开发)    │  │              │
-│ │ contexts     │ │  │ Milvus (生产)    │  │ Hive/Iceberg/│
-│ │ dependencies │ │  │                  │  │ Delta/Mock   │
-│ │ change_events│ │  │ L0 embedding     │  │              │
-│ │ table_meta.. │ │  │ + 标量过滤       │  │              │
-│ │ lineage      │ │  │                  │  │              │
-│ │ table_rels.. │ │  │                  │  │              │
-│ │ query_templ..│ │  │                  │  │              │
-│ │ skill_vers.. │ │  │                  │  │              │
-│ │ access_pol.. │ │  │                  │  │              │
-│ │ audit_log    │ │  │                  │  │              │
-│ │ team_member..│ │  │                  │  │              │
-│ │ lifecycle_.. │ │  │                  │  │              │
-│ │ context_fb.. │ │  │                  │  │              │
-│ └──────────────┘ │  │                  │  │              │
-│                  │  │                  │  │              │
-│ LISTEN/NOTIFY    │  │                  │  │              │
-│ RLS (租户隔离)   │  │                  │  │              │
-│ ACID 事务        │  │                  │  │              │
-│ 递归 CTE (血缘)  │  │                  │  │              │
-└──────────────────┘  └──────────────────┘  └──────────────┘
+│  │   ctx:// URI → PG 读写 + 向量检索 + ACL 检查     │   │
+│  └──────────────────────┬────────────────────────────┘   │
+└──────────────────────────┼───────────────────────────────┘
+                           ▼
+┌──────────────────────────────────┐  ┌──────────────┐
+│   PostgreSQL + pgvector          │  │ Catalog      │
+│                                  │  │ Connector    │
+│ ┌──────────────┐ ┌─────────────┐ │  │              │
+│ │ contexts     │ │ pgvector    │ │  │ Hive/Iceberg/│
+│ │ dependencies │ │             │ │  │ Delta/Mock   │
+│ │ change_events│ │ L0 embedding│ │  │              │
+│ │ table_meta.. │ │ HNSW 索引   │ │  │              │
+│ │ lineage      │ │             │ │  │              │
+│ │ table_rels.. │ └─────────────┘ │  │              │
+│ │ query_templ..│                  │  │              │
+│ │ skill_vers.. │ PG 原生能力：    │  │              │
+│ │ access_pol.. │ LISTEN/NOTIFY   │  │              │
+│ │ audit_log    │ RLS (租户隔离)   │  │              │
+│ │ team_member..│ ACID 事务        │  │              │
+│ │ lifecycle_.. │ 递归 CTE (血缘)  │  │              │
+│ │ context_fb.. │                  │  │              │
+│ └──────────────┘                  │  │              │
+└──────────────────────────────────┘  └──────────────┘
 ```
 
 ## 与原方案的关键区别
@@ -86,15 +81,46 @@
 | 权限 | 应用层路径前缀检查 | PG RLS + `access_policies` 表 |
 | 审计 | append-only JSON 文件 | PG `audit_log` 表（事务内写入） |
 | 事务保证 | 无（内容和元数据可能不一致） | ACID（内容、元数据、事件在同一事务中） |
+| 向量索引 | 独立向量 DB（Chroma/Milvus），需双写对账 | pgvector 扩展，与元数据同库同事务 |
 
 ## DataAgent 层说明
 
-MVP 阶段采用单 OpenClaw 实例作为 DataAgent 运行时。通过 ContextHub OpenClaw Plugin 对接 ContextHub Server，模式与 OpenViking 的 openclaw-memory-plugin 一致：
+MVP 阶段采用单 OpenClaw 实例作为 DataAgent 运行时。ContextHub OpenClaw Plugin 注册为 **context-engine 插件**（占据 `plugins.slots.contextEngine` 槽位），采用增强型适配器模式（参考 OpenViking 新版 openclaw-plugin 的 context-engine 架构，详见 13-related-works.md）：
 
-- Plugin 注册 tools（`contexthub_search`、`contexthub_store`、`contexthub_promote` 等）供 Agent 调用
-- Plugin 通过 lifecycle hooks（`before_agent_start`、`agent_end`）实现自动上下文注入和反馈采集
+- Plugin 声明 `kind: "context-engine"`，通过 `api.registerContextEngine()` 注册
+- Plugin 注册 ContextTools（`ls`、`read`、`grep`、`stat`）和业务工具（`contexthub_store`、`contexthub_promote` 等）
+- 在 ContextEngine 的 `assemble` 方法中，通过 `systemPromptAddition` 注入来自 PG 的相关上下文（auto-recall），不修改 messages 数组
+- 在 ContextEngine 的 `afterTurn` 方法中，提取记忆写入 PG（auto-capture）
+- 在 ContextEngine 的 `compact` 方法中，委托给 OpenClaw 内置 LegacyContextEngine（不声明 `ownsCompaction`）
 - 多 Agent 协作通过 SDK 调用时切换 `agent_id` 参数实现，ContextHub Server 端按 `agent_id` 做隔离和协作
 - 协作逻辑（传播、ACL、记忆晋升）全部在 Server 端闭环，不依赖多个 Agent 运行时实例
+
+### OpenClaw 插件架构决策
+
+基于对 lossless-claw 和 OpenViking 两个 OpenClaw context-engine 插件的分析（详见 13-related-works.md），ContextHub 的 OpenClaw 插件采用以下架构：
+
+**1. 增强型适配器，而非完整 ContextEngine**
+
+ContextHub 的核心价值是企业上下文管理（数据湖元数据、团队记忆、Skills、权限治理），不是对话历史压缩。因此：
+- `assemble`：透传 messages（不修改对话历史），通过 `systemPromptAddition` 注入 PG 上下文
+- `compact`：委托给 OpenClaw 内置引擎或 lossless-claw（不声明 `ownsCompaction`）
+- `afterTurn`：唯一的主动逻辑——提取记忆写入 PG
+- `ingest` / `ingestBatch`：空操作
+
+**2. 上下文注入通道选择**
+
+使用 `AssembleResult.systemPromptAddition` 而非修改 messages 数组。原因：
+- PG 上下文（auto-recall 结果、数据湖元数据）应每轮动态生成，不应进入对话历史
+- 如果注入到 messages 中，compaction 引擎会将其当作普通对话消息压缩，导致上下文失真
+- `systemPromptAddition` 进入系统提示，与对话历史隔离，compaction 不会触碰
+
+**3. Compaction 委托**
+
+ContextHub 不管理对话历史压缩。compact 方法内部尝试动态 import OpenClaw 的 LegacyContextEngine 进行委托（与 OpenViking 新版的 `tryLegacyCompact()` 模式一致）。如果未来需要更高质量的压缩，可选择将 lossless-claw 的 compaction 算法作为内部依赖集成。
+
+**4. 与 lossless-claw 的共存**
+
+默认场景不需要共存——ContextHub 占据 contextEngine slot，compact 委托给 Legacy 引擎。如果用户同时需要 lossless-claw 的 DAG 无损压缩能力，采用方案 A：ContextHub 内部集成 lossless-claw 的压缩组件作为依赖，在 compact 方法中调用其 compaction 算法替代 Legacy 引擎。
 
 ## 核心模块职责
 
@@ -103,8 +129,8 @@ MVP 阶段采用单 OpenClaw 实例作为 DataAgent 运行时。通过 ContextHu
 | Context Service | 上下文 CRUD、L0/L1/L2 管理 | `contexts` |
 | Memory Service | 记忆提取、去重、热度管理、共享/提升 | `contexts`, `dependencies` |
 | Skill Service | Skill 定义、版本管理、发布/订阅 | `contexts`, `skill_versions`, `dependencies`（dep_type='skill_subscription'） |
-| Retrieval Engine | 向量检索 L0 → PG 读 L1 精排 → 按需加载 L2 | 向量库 + `contexts` |
-| Indexer | 内容变更时异步生成 L0/L1、更新向量索引 | `contexts` → 向量库 |
+| Retrieval Engine | pgvector 检索 L0 → PG 读 L1 精排 → 按需加载 L2 | `contexts`（含 pgvector 索引） |
+| Indexer | 内容变更时异步生成 L0/L1、更新 pgvector embedding | `contexts` |
 | Propagation Engine | 监听 NOTIFY → 查依赖方 → 执行规则 | `change_events`, `dependencies` |
 | Auth & ACL | 认证、RBAC、资源级权限、字段脱敏 | `access_policies`, `team_memberships` |
 | Audit Logger | 操作审计、上下文溯源 | `audit_log` |
@@ -135,7 +161,7 @@ ContextStore.write()
     │
     ├─ 3. PG NOTIFY 'context_changed'
     │
-    └─ 4. 异步：Indexer 生成 L0 embedding → 写入向量库
+    └─ 4. 异步：Indexer 生成 L0 embedding → 写入 PG pgvector 列
 ```
 
 ### 检索流程
@@ -146,7 +172,7 @@ Agent 搜索 "月度销售额统计"
     ▼
 ContextStore.search()
     │
-    ├─ 1. 向量库：L0 embedding 语义匹配 + 标量过滤 → top-K URI
+    ├─ 1. pgvector：L0 embedding 语义匹配 + 标量过滤 → top-K URI
     │
     ├─ 2. PG：批量读取 L1 内容 → Rerank
     │

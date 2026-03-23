@@ -21,19 +21,31 @@ ContextHub 的协作机制（传播、ACL、记忆晋升、反馈生命周期）
 
 ### DataAgent 对接方式
 
-采用 OpenClaw Plugin 模式（参考 OpenViking 的 openclaw-memory-plugin），Plugin 注册以下 tools：
+采用 OpenClaw context-engine 插件模式（参考 OpenViking 新版 openclaw-plugin 的 context-engine 架构，详见 13-related-works.md）。Plugin 声明 `kind: "context-engine"`，注册为 `plugins.slots.contextEngine`。
+
+**注册的 Agent 工具：**
 
 | Tool | 功能 | 对应 SDK 方法 |
 |------|------|--------------|
-| `contexthub_search` | 检索上下文（湖表、记忆、Skill） | `ctx.search()` |
+| `ls` | 列出 ctx:// 路径下的子项 | `ctx.ls()` |
+| `read` | 读取上下文内容（L0/L1/L2） | `ctx.read()` |
+| `grep` | 语义搜索上下文 | `ctx.search()` |
+| `stat` | 查看上下文元信息 | `ctx.stat()` |
 | `contexthub_store` | 写入记忆/案例 | `ctx.memory.add_case()` |
 | `contexthub_promote` | 提升记忆到团队共享 | `ctx.memory.promote()` |
 | `contexthub_skill_publish` | 发布 Skill 新版本 | `ctx.skill.publish()` |
 | `contexthub_feedback` | 报告上下文采纳/忽略 | `ctx.feedback.report()` |
 
-Lifecycle hooks：
-- `before_agent_start`：自动检索相关上下文注入 Agent 会话
-- `agent_end`：自动采集隐式反馈（哪些上下文被采纳/忽略）
+**ContextEngine 生命周期方法：**
+
+| 方法 | 行为 |
+|------|------|
+| `assemble` | 透传 messages，通过 `systemPromptAddition` 注入 PG auto-recall 结果 |
+| `afterTurn` | 自动提取记忆写入 PG（auto-capture） |
+| `compact` | 委托给 OpenClaw LegacyContextEngine |
+| `ingest` / `ingestBatch` | 空操作 |
+
+这种"增强型适配器"模式确保 ContextHub 的上下文注入不会被 compaction 引擎当作对话历史来压缩（详见 08-architecture.md "OpenClaw 插件架构决策"）。
 
 ## SDK 对接方式
 
@@ -226,7 +238,7 @@ await ctx.memory.promote(
    - 配置 RLS 策略
    - 创建索引
 3. 实现 ContextStore（URI 路由层）：ctx:// URI → PG 读写 + ACL 检查
-4. 实现向量库集成（Chroma 开发用）：L0 embedding 写入/检索
+4. 实现 pgvector 集成：L0 embedding 列 + HNSW 索引，写入/检索与 PG 事务统一
 5. 实现 MockCatalogConnector（硬编码几张表的元数据）
 6. 设计并实现 Python SDK 接口
 
@@ -278,8 +290,8 @@ await ctx.memory.promote(
 | Web 框架 | FastAPI | 异步、类型安全、OpenAPI 自动生成 |
 | 主数据库 | PostgreSQL | 元数据 + 内容统一存储，ACID 事务，LISTEN/NOTIFY 驱动传播，RLS 租户隔离，递归 CTE 血缘查询 |
 | PG 驱动 | asyncpg | 高性能异步 PG 客户端，原生支持 LISTEN/NOTIFY |
-| 向量数据库（开发） | ChromaDB | 零配置、嵌入式 |
-| 向量数据库（生产） | Milvus / Qdrant | 分布式、高可用 |
+| 向量索引 | pgvector（PG 扩展） | 向量与元数据同库，天然事务一致，无双写对账问题。L0 摘要量级（万级）HNSW 索引完全胜任。消除独立向量库依赖，MVP 架构最简 |
+| PG 扩展（可选） | pg_cron | 下沉定时任务（生命周期归档、CatalogSync）到数据库层 |
 | Embedding | text-embedding-3-small 或 BGE-M3 | 成本/效果平衡 |
 | LLM（摘要生成） | Claude / GPT-4o-mini | L0/L1 生成不需要最强模型 |
 | DB Migration | Alembic | PG schema 版本管理 |
@@ -292,6 +304,7 @@ await ctx.memory.promote(
 | ContentStore 接口（S3/LocalFS） | 移除 | 内容存 PG TEXT 列 |
 | Event Log（JSON / Redis Streams） | 移除 | 变更事件存 PG change_events 表 |
 | 独立审计日志存储 | 移除 | 审计日志存 PG audit_log 表 |
+| 独立向量数据库（ChromaDB / Milvus） | 移除 | 向量索引由 pgvector 扩展承担，与 PG 同库，消除双写对账和额外基础设施 |
 
 ## 参考资料
 

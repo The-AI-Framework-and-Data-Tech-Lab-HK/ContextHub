@@ -6,7 +6,7 @@
 
 ```
 对外接口：ctx:// URI + 文件语义（read/write/list/search）
-对内存储：PG（元数据 + 内容） + 向量库（embedding） + CatalogConnector（外部数据源）
+对内存储：PG（元数据 + 内容 + pgvector 向量索引） + CatalogConnector（外部数据源）
 ```
 
 ### 为什么不用文件系统
@@ -184,35 +184,41 @@ CREATE TABLE access_policies (
 
 ## 向量索引层
 
-L0 摘要被向量化后存入向量数据库，用于语义检索。PG 是 source of truth，向量库是检索加速层。
+L0 摘要被向量化后存入 PG 的 pgvector 列，用于语义检索。元数据、内容、向量索引全部在同一个 PG 实例中，天然事务一致。
 
 | 数据 | 存储位置 | 说明 |
 |------|----------|------|
-| URI、元数据、L0/L1/L2 内容、状态、版本 | PG | 权威数据源，支持事务 |
-| L0 embedding + 标量过滤字段 | 向量库 | 检索加速，可从 PG 重建 |
+| URI、元数据、L0/L1/L2 内容、状态、版本 | PG 结构化列 | 权威数据源，支持事务 |
+| L0 embedding | PG `l0_embedding` 列（pgvector `vector` 类型） | HNSW 索引加速检索，与内容同事务更新 |
 
-### 向量 DB 记录字段
+### pgvector 列定义
 
-```
-向量 DB 记录 = {
-    id:            md5(account_id:uri)
-    uri:           "ctx://datalake/prod/orders"
-    vector:        [0.12, -0.34, ...]      # L0 摘要的 dense embedding
-    sparse_vector: {...}                   # 可选
-    context_type:  "table_schema"          # table_schema | memory | skill | resource
-    level:         0                       # 向量库只存 L0
-    parent_uri:    "ctx://datalake/prod/"
-    account_id:    "acme"                  # 租户隔离
-    owner_space:   "engineering/backend"   # 团队路径（用于权限过滤）
-    name:          "orders"
-    abstract:      "orders 表 - 存储所有订单交易记录..."
-    tags:          "datalake,orders,交易"
-    active_count:  42                      # 热度
-    updated_at:    "2026-03-18T..."
-}
+```sql
+-- 在 contexts 表中添加 embedding 列
+ALTER TABLE contexts ADD COLUMN l0_embedding vector(1536);
+
+-- HNSW 索引（推荐，支持近似最近邻搜索）
+CREATE INDEX idx_contexts_l0_embedding ON contexts
+    USING hnsw (l0_embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
 ```
 
-**与 OpenViking 的区别：** OpenViking 将 L0/L1/L2 三个层级都入向量库（通过 `level` 字段区分）。ContextHub 只将 L0 入向量库——L1/L2 内容在 PG 中，通过 URI 直接读取。原因：向量检索的目的是找到相关上下文（L0 足够），精排和详情加载直接查 PG（更快、更一致）。
+向量检索直接在 PG 中完成，可与标量过滤在同一查询中组合：
+
+```sql
+SELECT uri, l0_content, context_type,
+       l0_embedding <=> $1 AS distance
+FROM contexts
+WHERE account_id = $2
+  AND status = 'active'
+  AND context_type = ANY($3)
+ORDER BY l0_embedding <=> $1
+LIMIT 20;
+```
+
+**与 OpenViking 的区别：** OpenViking 将 L0/L1/L2 三个层级都入向量库（通过 `level` 字段区分）。ContextHub 只对 L0 做向量化——L1/L2 内容在同一 PG 表的其他列中，通过 URI 直接读取。原因：向量检索的目的是找到相关上下文（L0 足够），精排和详情加载直接查 PG（更快、更一致）。
+
+**与独立向量库方案的区别：** 早期设计考虑过 ChromaDB/Milvus 作为独立向量库，但引入了双写一致性问题（PG 写成功但向量库写失败）和额外基础设施运维。ContextHub 只向量化 L0 摘要（~100 tokens/条，万级规模），pgvector 的 HNSW 索引完全胜任。统一到 PG 后，向量更新与内容更新可在同一事务中完成，架构最简。
 
 ### 检索流程
 
@@ -220,8 +226,8 @@ L0 摘要被向量化后存入向量数据库，用于语义检索。PG 是 sour
 用户问题："上个月销售额是多少？"
 
 1. 意图分析 → TypedQuery: {query: "月度销售额统计", context_type: "table_schema", scope: "datalake"}
-2. 向量检索（只搜 L0 embedding）+ 标量过滤（context_type, owner_space, account_id）→ top-K URI
-3. 从 PG 读取候选的 L1 内容 → Rerank
+2. pgvector 检索（L0 embedding 相似度 + 标量过滤 context_type, owner_space, account_id）→ top-K URI
+3. 从同一 PG 读取候选的 L1 内容 → Rerank
 4. 按需从 PG 加载 L2 / 关联的结构化数据（DDL、血缘、查询模板）
 ```
 
@@ -361,13 +367,18 @@ class ContextStore:
         await self.db.execute("NOTIFY context_changed, $1", uri)
 
     async def search(self, query: str, ctx: RequestContext, **filters) -> list[Context]:
-        # 1. 向量库检索 L0 → top-K URI
-        uris = await self.vector_store.search(query, account_id=ctx.account_id, **filters)
-        # 2. 从 PG 批量读取 L1 内容 → Rerank
-        rows = await self.db.fetch(
-            "SELECT * FROM contexts WHERE uri = ANY($1) AND status = 'active'", uris)
-        # 3. 权限过滤 + 字段脱敏
-        return await self.acl.filter_and_mask(rows, ctx)
+        # 1. 生成查询 embedding
+        query_embedding = await self.embedding_client.embed(query)
+        # 2. pgvector 检索 L0 + 标量过滤 → top-K 候选行（含 L1 内容，一次查询完成）
+        rows = await self.db.fetch("""
+            SELECT *, l0_embedding <=> $1 AS distance FROM contexts
+            WHERE account_id = $2 AND status = 'active'
+            ORDER BY l0_embedding <=> $1 LIMIT 20
+        """, query_embedding, ctx.account_id)
+        # 3. Rerank（基于 L1 内容）
+        reranked = await self.reranker.rerank(query, rows)
+        # 4. 权限过滤 + 字段脱敏
+        return await self.acl.filter_and_mask(reranked, ctx)
 ```
 
 ## LLM Tool 接口层：文件语义的 tool use 包装

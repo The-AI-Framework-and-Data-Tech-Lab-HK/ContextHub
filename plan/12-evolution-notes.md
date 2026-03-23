@@ -96,14 +96,14 @@ class PGNotifyConsumer(EventConsumer):
 class RedisStreamConsumer(EventConsumer):
     """未来：Redis Streams，支持消费者组、ACK、死信队列
     change_events 表仍然保留作为事件持久化层（source of truth），
-    Redis Streams 作为通知加速层（类似向量库之于 PG 的关系）。
+    Redis Streams 作为通知加速层，change_events 表仍为 source of truth。
     """
     ...
 ```
 
 ### 升级时的注意事项
 
-- `change_events` 表保留，作为事件的 source of truth（与向量库之于内容的关系一致）
+- `change_events` 表保留，作为事件的 source of truth
 - 消息队列作为通知加速层，不替代 PG 存储
 - 需要处理 exactly-once 语义（outbox + 消费者幂等）
 - 候选技术：Redis Streams（轻量）、NATS JetStream（云原生）、Kafka（重量级，大概率不需要）

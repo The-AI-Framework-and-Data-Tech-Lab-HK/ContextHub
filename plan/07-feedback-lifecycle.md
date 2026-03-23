@@ -107,8 +107,8 @@ ORDER BY active_count DESC;
 状态转换通过 PG 操作实现：
 - `active → stale`：`UPDATE contexts SET status = 'stale'`（变更传播触发，或定时任务检测未访问）
 - `stale → active`：`UPDATE contexts SET status = 'active', last_accessed_at = NOW()`（被直接访问时自动恢复）
-- `stale → archived`：从向量库删除 embedding + `UPDATE contexts SET status = 'archived'`
-- `archived → active`：重新生成 embedding 入向量库 + `UPDATE contexts SET status = 'active'`
+- `stale → archived`：清除 `l0_embedding` 列 + `UPDATE contexts SET status = 'archived'`
+- `archived → active`：重新生成 embedding 回填 `l0_embedding` + `UPDATE contexts SET status = 'active'`
 
 ### 生命周期策略配置
 
@@ -148,7 +148,7 @@ WHERE c.context_type = lp.context_type AND c.scope = lp.scope
   AND c.status = 'stale'
   AND lp.archive_after_days > 0
   AND c.updated_at < NOW() - (lp.archive_after_days || ' days')::interval;
--- 同时从向量库中删除对应的 embedding（应用层执行）
+-- 同时清除 l0_embedding 列（同一事务内执行，无跨系统问题）
 ```
 
 ### 湖表同步删除

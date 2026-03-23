@@ -165,7 +165,7 @@ async def sync_table(self, catalog: str, db: str, table: str):
 根据用户问题，组装完整的 SQL 生成上下文。利用 PG JOIN 一次查询完成：
 
 ```sql
--- 输入：向量库返回的相关表 URI 列表 $relevant_uris
+-- 输入：pgvector 检索返回的相关表 URI 列表 $relevant_uris
 SELECT
     c.uri, c.l0_content, c.l1_content,
     tm.ddl, tm.partition_info, tm.sample_data,

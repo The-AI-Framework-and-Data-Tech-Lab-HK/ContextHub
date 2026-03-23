@@ -1,6 +1,6 @@
 # 10 — 代码架构设计
 
-基于 01-09 设计文档，解决从设计到代码的 5 个关键缺失：项目结构、依赖注入、API 端点、向量库抽象、L0/L1 生成。
+基于 01-09 设计文档，解决从设计到代码的 5 个关键缺失：项目结构、依赖注入、API 端点、向量索引抽象（pgvector）、L0/L1 生成。
 
 ---
 
@@ -72,9 +72,9 @@ contexthub/
 │       │   ├── base.py                # CatalogConnector ABC
 │       │   └── mock_connector.py      # 开发用 Mock
 │       │
-│       ├── vector/                    # 向量库抽象
+│       ├── vector/                    # 向量索引抽象
 │       │   ├── base.py                # VectorStore ABC
-│       │   ├── chroma_store.py        # ChromaDB 实现
+│       │   ├── pgvector_store.py      # pgvector 实现（与 PG 同库）
 │       │   └── factory.py             # create_vector_store()
 │       │
 │       ├── llm/                       # LLM 调用抽象
@@ -126,7 +126,7 @@ contexthub/
 │       ├── plugin.py                  # 注册 tools + lifecycle hooks
 │       └── tools.py                   # contexthub_search/store/promote/feedback
 │
-├── docker-compose.yml                 # PG + ChromaDB + ContextHub Server
+├── docker-compose.yml                 # PG (with pgvector) + ContextHub Server
 ├── docker-compose.dev.yml             # 开发环境覆盖（端口映射、volume 挂载）
 │
 └── tests/
@@ -140,7 +140,7 @@ contexthub/
 模块边界原则：
 - `models/` 纯数据定义，无业务逻辑，无 IO
 - `db/` 只做 SQL 执行，不含业务判断
-- `store/` 是 URI 路由层，协调 PG + 向量库 + ACL
+- `store/` 是 URI 路由层，协调 PG（含 pgvector）+ ACL
 - `services/` 是业务逻辑层，依赖 `store/` 和 `db/`
 - `retrieval/` 是检索策略层，可插拔。`services/retrieval_service.py` 调用 `retrieval/router.py`
 - `ingestion/` 是内容入库管线，处理外部内容（长文档等）的预处理和写入
@@ -165,9 +165,8 @@ class Settings(BaseSettings):
     pg_min_pool: int = 5
     pg_max_pool: int = 20
 
-    # 向量库
-    vector_backend: str = "chroma"       # "chroma" | "milvus"
-    chroma_persist_dir: str = ".chroma_data"
+    # 向量索引（pgvector，与 PG 同库，无额外配置）
+    embedding_index_type: str = "hnsw"   # "hnsw" | "ivfflat"
 
     # LLM
     llm_backend: str = "openai"          # "openai" | "anthropic"
@@ -185,7 +184,7 @@ class Settings(BaseSettings):
     # Rerank 策略
     rerank_strategy: str = "keyword"     # "keyword" | "cross_encoder" | "llm"
 
-    # 向量库对账
+    # pgvector embedding 一致性检查
     reconcile_interval_minutes: int = 60  # 0 = 禁用
 
     # 长文档（Phase 2 可选）
@@ -493,46 +492,34 @@ class EmbeddingClient(ABC):
 对账: 定时任务 → VectorStoreReconciler.reconcile()
 ```
 
-### PG ↔ 向量库对账机制
+### pgvector embedding 一致性检查
 
-PG 事务提交后异步更新向量库，两者可能不一致（向量库写入失败、进程崩溃等）。定时对账任务检测并修复差异：
+由于 pgvector 与内容存在同一个 PG 中，大部分写入可以在同一事务中完成（L0 内容 + embedding 向量同步写入），从根本上消除了双写不一致问题。
+
+但仍需处理 embedding 异步生成的场景（如 L0 由 LLM 生成后、embedding 需要调用外部 API 异步回填）。定时任务检测缺失 embedding 并补写：
 
 ```python
-class VectorStoreReconciler:
-    """定时对账：确保 PG 中 active 状态的 context 都有对应的向量记录"""
+class EmbeddingReconciler:
+    """定时检查：确保有 l0_content 的 active context 都有对应的 embedding"""
 
     async def reconcile(self, account_id: str):
-        # 1. 从 PG 获取所有应该在向量库中的 URI
-        pg_uris = set(row['uri'] for row in await self.pg.fetch("""
-            SELECT uri FROM contexts
+        missing = await self.pg.fetch("""
+            SELECT uri, l0_content FROM contexts
             WHERE account_id = $1 AND status IN ('active', 'stale')
               AND l0_content IS NOT NULL
-        """, account_id))
+              AND l0_embedding IS NULL
+        """, account_id)
 
-        # 2. 从向量库获取已有的 URI
-        vector_count = await self.vector_store.get_count(account_id)
-        # 如果数量差异超过阈值，触发全量重建
-        if abs(len(pg_uris) - vector_count) > len(pg_uris) * 0.1:
-            logger.warning(f"Large discrepancy: PG={len(pg_uris)}, Vector={vector_count}. Triggering rebuild.")
-            await self.vector_store.rebuild_from_pg(self.pg, account_id, self.embed_fn)
-            return
-
-        # 3. 增量修复：找出 PG 有但向量库缺失的记录，补写
-        # 通过 VectorStore.search 逐批验证存在性（或向量库提供 exists_batch API）
-        missing = await self.find_missing_in_vector(pg_uris, account_id)
         if missing:
-            logger.info(f"Reconciling {len(missing)} missing vector records")
-            rows = await self.pg.fetch(
-                "SELECT uri, l0_content, context_type, owner_space FROM contexts WHERE uri = ANY($1)",
-                list(missing))
-            records = []
-            for row in rows:
+            logger.info(f"Backfilling {len(missing)} missing embeddings")
+            for row in missing:
                 embedding = await self.embed_fn(row['l0_content'])
-                records.append(VectorRecord(uri=row['uri'], vector=embedding, ...))
-            await self.vector_store.upsert_batch(records)
+                await self.pg.execute(
+                    "UPDATE contexts SET l0_embedding = $1 WHERE uri = $2",
+                    embedding, row['uri'])
 ```
 
-建议运行频率：每小时一次（可配置 `CTX_RECONCILE_INTERVAL_MINUTES=60`）。
+建议运行频率：每小时一次（可配置 `CTX_RECONCILE_INTERVAL_MINUTES=60`）。相比原来的跨系统对账，逻辑大幅简化。
 
 ---
 
@@ -620,7 +607,7 @@ L1 生成分两步，最大化确定性内容、最小化 LLM 调用：
 2. `config.py` + `models/` 全部
 3. `db/pool.py` + `db/repository.py`（含 RLS SET LOCAL 逻辑）+ `db/queries/`
 4. `alembic/versions/001_initial_schema.py`（所有核心表 + RLS + 索引）
-5. `vector/base.py` + `vector/chroma_store.py` + `vector/factory.py`
+5. `vector/base.py` + `vector/pgvector_store.py` + `vector/factory.py`
 6. `llm/base.py` + `llm/openai_client.py` + `llm/factory.py`
 7. `generation/` 全部
 8. `retrieval/rerank.py`（KeywordRerankStrategy）
@@ -647,7 +634,7 @@ L1 生成分两步，最大化确定性内容、最小化 LLM 调用：
 
 ### Phase 2D（最小权限 + 运维）
 23. `services/acl_service.py` 补充 owner_space 多团队可见性检查
-24. `services/reconciler_service.py`（向量库对账）
+24. `services/reconciler_service.py`（pgvector 索引一致性检查）
 
 ### Phase 2E（SDK + Plugin，与 2A/2B 并行）
 25. `sdk/` 全部
@@ -676,7 +663,7 @@ L1 生成分两步，最大化确定性内容、最小化 LLM 调用：
 # docker-compose.yml
 services:
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ctx
       POSTGRES_PASSWORD: ctx
@@ -691,21 +678,12 @@ services:
       timeout: 3s
       retries: 5
 
-  chroma:
-    image: chromadb/chroma:latest
-    ports:
-      - "8100:8000"
-    volumes:
-      - chroma_data:/chroma/chroma
-
   contexthub:
     build: .
     ports:
       - "8000:8000"
     environment:
       CTX_PG_DSN: postgresql://ctx:ctx@postgres:5432/contexthub
-      CTX_VECTOR_BACKEND: chroma
-      CTX_CHROMA_PERSIST_DIR: /chroma_data
       CTX_OPENAI_API_KEY: ${OPENAI_API_KEY}
     depends_on:
       postgres:
@@ -713,7 +691,6 @@ services:
 
 volumes:
   pg_data:
-  chroma_data:
 ```
 
 ### Alembic Migration 要点

@@ -6,7 +6,7 @@
 
 | 层级 | Token 量 | 用途 | 存储位置 | 数据湖表示例 |
 |------|----------|------|----------|-------------|
-| L0 Abstract | ~100 | 向量检索、快速过滤 | PG `l0_content` 列 + 向量库 embedding | 表名 + 一句话描述 |
+| L0 Abstract | ~100 | 向量检索、快速过滤 | PG `l0_content` 列 + `l0_embedding` pgvector 列 | 表名 + 一句话描述 |
 | L1 Overview | ~2k | Rerank、内容导航 | PG `l1_content` 列 | schema + 字段说明 + 样例数据 |
 | L2 Detail | 不限 | 按需加载 | PG `l2_content` 列（通用）或结构化子表（datalake） | 完整 DDL + 血缘 + 查询模板 |
 
@@ -17,12 +17,12 @@
 
 ### 向量化策略
 
-只有 L0 摘要被向量化并存入向量库。L1/L2 不入向量库——检索命中后直接从 PG 读取。
+只有 L0 摘要被向量化，存入同一 PG 表的 `l0_embedding` 列（pgvector 类型）。L1/L2 不做向量化——检索命中后直接从同表其他列读取。
 
 原因：
 - 向量检索的目的是"找到相关上下文"，L0 的 ~100 tokens 摘要足够
-- L1/L2 用于精排和详情展示，从 PG 按 URI 直接读取比从向量库取更快、更一致
-- 减少向量库的存储和索引维护成本
+- L1/L2 用于精排和详情展示，从同一 PG 表按 URI 直接读取，无跨系统开销
+- pgvector 与内容同库同事务，消除双写一致性问题
 
 ## 记忆分类
 
@@ -46,7 +46,7 @@
 
 采用两阶段检索：
 
-1. **向量检索**（向量库）：用 L0 embedding 做语义匹配，标量过滤（account_id、scope、context_type、owner_space），返回 top-K URI
+1. **向量检索**（pgvector）：用 L0 embedding 做语义匹配，标量过滤（account_id、scope、context_type、owner_space），返回 top-K URI
 2. **精排 + 加载**（PG）：批量读取候选的 L1 内容做 Rerank，按需加载 L2 或关联结构化数据
 
 跨上下文的关联检索通过 PG `dependencies` 和 `table_relationships` 表实现（替代 `.relations.json` 文件遍历）。
