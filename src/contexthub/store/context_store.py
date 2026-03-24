@@ -78,7 +78,7 @@ class ContextStore:
         ctx: RequestContext,
     ) -> int:
         if not await self._acl.check_write(db, uri, ctx):
-            raise ForbiddenError()
+            await self._raise_for_missing_or_forbidden(db, uri)
 
         if ctx.expected_version is None:
             raise PreconditionRequiredError()

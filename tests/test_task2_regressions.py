@@ -90,6 +90,20 @@ async def test_store_read_returns_not_found_when_acl_denies_missing_context():
 
 
 @pytest.mark.asyncio
+async def test_store_write_returns_not_found_when_acl_denies_missing_context():
+    store = ContextStore(DenyWriteACL())
+
+    with pytest.raises(NotFoundError, match="ctx://team/engineering/doc"):
+        await store.write(
+            MissingContextDB(),
+            "ctx://team/engineering/doc",
+            ContextLevel.L1,
+            "updated content",
+            RequestContext(account_id="acme", agent_id="query-agent", expected_version=1),
+        )
+
+
+@pytest.mark.asyncio
 async def test_service_update_returns_not_found_when_acl_denies_missing_context():
     acl = DenyWriteACL()
     service = ContextService(ContextStore(ACLService()), acl)
