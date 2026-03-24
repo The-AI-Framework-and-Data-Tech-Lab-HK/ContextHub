@@ -58,7 +58,7 @@ class DependencyEdge:
     trajectory_id: str             # 所属轨迹 ID
     src_node_id: str               # 源节点 ID（依赖提供方）
     dst_node_id: str               # 目标节点 ID（依赖使用方）
-    dep_type: str                  # 依赖类型：dataflow | controlflow | temporal
+    dep_type: str                  # 依赖类型：dataflow | controlflow(retry) | temporal
     signal: str | None             # 依赖证据（可选；MVP 可先不落，后续用于可解释增强）
     confidence: float              # 边置信度（0~1）
 ```
@@ -71,11 +71,21 @@ class DependencyEdge:
 ### Rule-2：节点间 dataflow 依赖
 在后续节点 `tool_args` 中匹配前序节点 `tool_output` 的关键字段/值（如表名、列名、SQL 片段、文件路径），建立 `dataflow` 边。
 
+补充示例：
+- A 节点 `tool_output.data` 返回表名列表（如 `["ch___company_info", ...]`）；
+- B 节点 `tool_args.command` 中出现 `PRAGMA table_info(ch___company_info)`；
+- 判定 A -> B 为 `dataflow`（`signal=evidence_type: enum_to_command`）。
+
 ### Rule-3：失败-修正链
 若前序节点 `output_status=failed`，且后续出现同工具修正调用，建立 `controlflow(retry)` 边。
 
 ### Rule-4：时间顺序兜底
-无法识别数据依赖时保留低置信度 `temporal` 边，避免图断裂。
+若无法识别“前序输出被后续输入消费”的证据，则创建低置信度 `temporal` 边以避免图断裂。
+
+口径要求：
+- `dep_type=dataflow`：表示“真实 output->input 依赖”；
+- `dep_type=temporal`：仅表示顺序相邻/时序兜底，不可等价为数据依赖；
+- 下游检索与传播必须按 `dep_type` 做差异化权重或过滤。
 
 ## 2.4 双版本计算图（raw / clean）
 

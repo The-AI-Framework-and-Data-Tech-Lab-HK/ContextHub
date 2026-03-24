@@ -55,6 +55,20 @@ pytest src/tests -m integration          # 集成测试（需 Neo4j 等，部分
 ```
 
 Phase 1 用例说明见 `AMC_plan/13-phase1-test-design.md`。
+运行与部署方式见 `docs/run-and-test.md`。
+
+## 命令行提交轨迹（无 HTTP）
+
+```bash
+amc-commit-trajectory sample_traj/traj1.json --pretty
+```
+
+该命令会直接运行 Phase 1 commit pipeline，并输出 L0/L1 与图文件落盘位置。
+如需在同目录生成 `raw_graph.png` 和 `clean_graph.png`，可增加参数：
+
+```bash
+amc-commit-trajectory sample_traj/traj1.json --visualize-graph-png --pretty
+```
 
 ## 依赖变更记录
 

@@ -89,7 +89,7 @@ commit:
   normalize:
     max_action_result_chars: 12000   # Tool 输出过长时截断，避免图节点爆内存
   graph:
-    temporal_fallback_edge: true   # 无法判定数据流依赖时是否加低置信 temporal 边
+    temporal_fallback_edge: true   # 识别不到输出->输入依赖时是否加 low-confidence temporal 边
     min_edge_confidence: 0.2        # 低于此置信度的边不参与高权重图相似分
   incremental:
     enabled: true             # 是否允许 is_incremental 多次追加同 trajectory

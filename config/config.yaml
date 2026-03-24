@@ -24,6 +24,7 @@ api:
 model_endpoints:
   embedder_base_url: ""        # 例如: http://127.0.0.1:9997/v1（空表示使用 SDK 默认）
   llm_base_url: ""             # 例如: https://api.openai.com/v1
+  llm_model: "gpt-4.1-mini"    # 统一 LLM 模型名（当前 dataflow 也复用这个）
 
 # ---------------------------------------------------------------------------
 # 安全（与 AMC_plan/05 对齐）
@@ -69,12 +70,14 @@ indexing:
 # ---------------------------------------------------------------------------
 commit:
   idempotency:
-    enabled: true
+    enabled: false
     ttl_hours: 168
   normalize:
     max_action_result_chars: 12000
   graph:
     temporal_fallback_edge: true
+    dataflow_extractor: llm       # llm | rule_based；推荐 llm，由模型判断 dataflow
+    llm_temperature: 0.0          # 建图应尽量稳定，建议 0.0
     min_edge_confidence: 0.2
   incremental:
     enabled: true

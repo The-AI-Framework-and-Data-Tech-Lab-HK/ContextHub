@@ -23,6 +23,7 @@ dependencies = [
     "neo4j>=5.0",
     "chromadb>=0.5",
     "openai>=1.0",
+    "matplotlib>=3.8",
 ]
 
 [project.optional-dependencies]
@@ -33,9 +34,13 @@ dev = [
     "mypy>=1.0",
 ]
 
+[project.scripts]
+amc-commit-trajectory = "cli.commit_trajectory:main"
+amc-check-llm = "cli.check_llm_connectivity:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["api*", "app*", "core*", "domain*", "infra*"]
+include = ["api*", "app*", "core*", "domain*", "infra*", "cli*"]
 exclude = ["tests*"]
 
 [tool.pytest.ini_options]
