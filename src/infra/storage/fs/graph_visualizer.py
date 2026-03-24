@@ -71,6 +71,8 @@ def render_graph_png(graph: dict[str, Any], output_path: str, title: str) -> Non
             edge_color = "#2ca02c"
         elif dep_type == "temporal":
             edge_color = "#999999"
+        elif dep_type == "reasoning":
+            edge_color = "#9467bd"
         elif dep_type == "controlflow":
             edge_color = "#d62728"
         else:
@@ -105,6 +107,19 @@ def render_graph_png(graph: dict[str, Any], output_path: str, title: str) -> Non
                 mx,
                 my,
                 f"{confidence:.2f}\n{token_text}" if token_text else f"{confidence:.2f}",
+                fontsize=7,
+                color=edge_color,
+                ha="center",
+                va="center",
+                bbox={"boxstyle": "round,pad=0.18", "facecolor": "white", "alpha": 0.8, "edgecolor": "none"},
+                zorder=5,
+            )
+        elif dep_type == "reasoning":
+            mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+            ax.text(
+                mx,
+                my,
+                f"R {confidence:.2f}",
                 fontsize=7,
                 color=edge_color,
                 ha="center",

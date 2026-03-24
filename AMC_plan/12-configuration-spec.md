@@ -91,6 +91,9 @@ commit:
   graph:
     temporal_fallback_edge: true   # 识别不到输出->输入依赖时是否加 low-confidence temporal 边
     min_edge_confidence: 0.2        # 低于此置信度的边不参与高权重图相似分
+    dataflow_extractor: llm         # rule_based | llm（当前建议 llm）
+    reasoning_min_confidence: 0.55  # reasoning 边最小置信度阈值
+    # 说明：reasoning 抽取默认开启，且默认与 dataflow 同次 LLM 联合抽取（当前不暴露开关）
   incremental:
     enabled: true             # 是否允许 is_incremental 多次追加同 trajectory
 
@@ -186,6 +189,10 @@ AMC_NEO4J_DATABASE=neo4j
 AMC_EMBEDDING_PROVIDER=openai
 AMC_EMBEDDING_MODEL=text-embedding-3-small
 AMC_OPENAI_API_KEY=请替换
+
+# ---------- LLM：用于 dataflow/reasoning 边抽取（统一模型配置）----------
+AMC_LLM_BASE_URL=
+AMC_LLM_MODEL=gpt-4.1-mini
 
 # ---------- 事件与审计路径（与 config.yaml 中路径保持一致即可）----------
 AMC_EVENT_JSONL_PATH=./data/events/amc_events.jsonl

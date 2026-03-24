@@ -61,11 +61,15 @@ def _dataflow_probe(api_key: str, base_url: str | None, model: str) -> dict[str,
             "output_status": "success",
         },
     ]
-    edges = extractor.extract(nodes=nodes, threshold=0.45, top_k_per_dst=2)
+    result = extractor.extract(nodes=nodes, threshold=0.45, top_k_per_dst=2, reasoning_threshold=0.55)
+    dataflow_edges = result.get("dataflow_edges", [])
+    reasoning_edges = result.get("reasoning_edges", [])
     return {
         "ok": True,
-        "edge_count": len(edges),
-        "edges_preview": edges[:2],
+        "dataflow_edge_count": len(dataflow_edges),
+        "reasoning_edge_count": len(reasoning_edges),
+        "dataflow_edges_preview": dataflow_edges[:2],
+        "reasoning_edges_preview": reasoning_edges[:2],
     }
 
 

@@ -28,6 +28,7 @@ class CommitSection(BaseModel):
     temporal_fallback_edge: bool = True
     dataflow_extractor: str = "rule_based"  # rule_based | llm
     dataflow_llm_temperature: float = 0.0
+    reasoning_min_confidence: float = 0.55
     max_action_result_chars: int = 12000
 
 
@@ -105,6 +106,7 @@ def load_settings(config_path: str | None = None) -> AppSettings:
             temporal_fallback_edge=bool(graph_raw.get("temporal_fallback_edge", True)),
             dataflow_extractor=str(graph_raw.get("dataflow_extractor", "rule_based")),
             dataflow_llm_temperature=float(graph_raw.get("llm_temperature", 0.0)),
+            reasoning_min_confidence=float(graph_raw.get("reasoning_min_confidence", 0.55)),
             max_action_result_chars=int(normalize_raw.get("max_action_result_chars", 12000)),
         ),
         storage=StorageSection(
@@ -147,6 +149,12 @@ def load_settings(config_path: str | None = None) -> AppSettings:
         os.getenv(
             "AMC_COMMIT_DATAFLOW_LLM_TEMPERATURE",
             str(settings.commit.dataflow_llm_temperature),
+        )
+    )
+    settings.commit.reasoning_min_confidence = float(
+        os.getenv(
+            "AMC_COMMIT_REASONING_MIN_CONFIDENCE",
+            str(settings.commit.reasoning_min_confidence),
         )
     )
 

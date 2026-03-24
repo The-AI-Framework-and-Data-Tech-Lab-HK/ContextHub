@@ -60,6 +60,7 @@ def run_commit(
         max_action_result_chars=settings.commit.max_action_result_chars,
         temporal_fallback_edge=settings.commit.temporal_fallback_edge,
         dataflow_extractor=dataflow_extractor,
+        reasoning_min_confidence=settings.commit.reasoning_min_confidence,
     )
     idempotency_enabled = (
         False if disable_idempotency else settings.commit.idempotency_enabled

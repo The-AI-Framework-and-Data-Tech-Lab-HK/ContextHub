@@ -37,6 +37,8 @@ def test_u05_traj1_raw_contains_failed_and_retry(sample_traj_dir: Path) -> None:
     # Tool output from ToolMessage should be carried into node payload.
     assert any(n.tool_output for n in nodes), "expected at least one node with tool_output"
     assert all((n.tool_output is None or isinstance(n.tool_output, dict)) for n in nodes)
+    # Thinking content from AIMessage should be preserved in graph nodes.
+    assert all(isinstance(n.thinking, str) for n in nodes)
 
 
 def test_u06_clean_no_more_nodes_than_raw(sample_traj_dir: Path) -> None:
@@ -369,3 +371,74 @@ def test_llm_dataflow_requires_token_in_source_effective_output() -> None:
     )
     assert not any(e.dep_type == "dataflow" for e in edges)
     assert any(e.dep_type == "temporal" for e in edges)
+
+
+def test_llm_reasoning_edge_is_added_when_evidence_in_output_and_thinking() -> None:
+    steps = [
+        {
+            "Step": 1,
+            "Thinking": "",
+            "Action": "tool_a()",
+            "Action_result": "",
+            "Response": "",
+            "meta": {"role": "AIMessage"},
+        },
+        {
+            "Step": 2,
+            "Thinking": "",
+            "Action": "",
+            "Action_result": "{'status':'success','data':['token_y']}",
+            "Response": "",
+            "meta": {"role": "ToolMessage"},
+        },
+        {
+            "Step": 3,
+            "Thinking": "I should use token_y from previous results.",
+            "Action": "tool_b(command='consume token_y')",
+            "Action_result": "",
+            "Response": "",
+            "meta": {"role": "AIMessage"},
+        },
+        {
+            "Step": 4,
+            "Thinking": "",
+            "Action": "",
+            "Action_result": "{'status':'success'}",
+            "Response": "",
+            "meta": {"role": "ToolMessage"},
+        },
+    ]
+    pairs = pair_ai_tool_steps(steps)
+
+    def _fake_joint_extractor(
+        *,
+        nodes: list[dict],
+        threshold: float,
+        top_k_per_dst: int,
+        reasoning_threshold: float,
+    ) -> dict[str, list[dict]]:
+        _ = threshold, top_k_per_dst, reasoning_threshold
+        return {
+            "dataflow_edges": [],
+            "reasoning_edges": [
+                {
+                    "src_node_id": nodes[0]["node_id"],
+                    "dst_node_id": nodes[1]["node_id"],
+                    "confidence": 0.86,
+                    "reason_summary": "thinking mentions token from prior output",
+                    "matched_evidence": ["token_y"],
+                }
+            ],
+        }
+
+    _nodes, edges = build_raw_graph(
+        "tid-llm-reasoning",
+        pairs,
+        temporal_fallback_edge=True,
+        dataflow_extractor=_fake_joint_extractor,
+    )
+    reasoning_edges = [e for e in edges if e.dep_type == "reasoning"]
+    assert reasoning_edges
+    detail = reasoning_edges[0].signal_detail or {}
+    assert detail.get("reason_summary")
+    assert "token_y" in (detail.get("matched_evidence") or [])

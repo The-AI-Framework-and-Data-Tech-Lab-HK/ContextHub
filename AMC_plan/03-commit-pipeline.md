@@ -62,8 +62,8 @@ Receive -> Validate -> Normalize -> Pair AI/Tool -> Build Raw Graph -> Build Cle
 ### (4) Graph Build（raw + clean）
 - 基于配对后的节点构建 Raw Graph（保留失败/重试/分支）；
 - 从 Raw Graph 派生 Clean Graph（移除失败噪音，仅保留有效完成路径）；
-- 依据 02 文档规则抽取 `dataflow/controlflow(retry)/temporal` 边；
-- `dep_type` 必须显式区分：`dataflow`（真实 output->input）与 `temporal`（时序兜底）；
+- 依据 02 文档规则抽取 `dataflow/reasoning/controlflow(retry)/temporal` 边；
+- `dep_type` 必须显式区分：`dataflow`（真实 output->input）/ `reasoning`（thinking 参考执行结果）/ `temporal`（时序兜底）；
 - 若发现环，保留环信息并标注 `graph_has_cycle=true`（不阻断入库）。
 
 #### (4.1) Dataflow 提取策略（实现草案）
@@ -191,6 +191,62 @@ if enum_hit:
 - 避免“一词命中即连边”（最低 token 数与组合证据阈值）；
 - `signal` 必须记录命中证据类型，便于调试；
 - `dataflow` 与 `temporal` 置信度分布要明显分层（例如 >0.6 vs <0.3）。
+
+#### (4.3) Reasoning 边提取策略（LLM）
+
+目标：让 `A -> B` 的 `reasoning` 边表示“`B.thinking` 是基于 `A` 的执行结果形成的”。
+
+建议输入（按时间顺序）：
+- `node.thinking`
+- `node.tool_output`
+- `node.effective_tool_output`（去除输入回显后）
+- `node.tool_args`（仅作为 dst 侧上下文，不可作为 src 输出证据）
+
+建议由 LLM 与 dataflow **同次调用联合抽取**，一次返回两类边：
+
+```json
+{
+  "dataflow_edges": [...],
+  "reasoning_edges": [
+    {
+      "src_node_id": "...",
+      "dst_node_id": "...",
+      "confidence": 0.0,
+      "reason_summary": "...",
+      "matched_evidence": ["..."]
+    }
+  ]
+}
+```
+
+抽取约束（必须）：
+1. `src.ai_step < dst.ai_step`；
+2. `reasoning` 证据优先来自 `src.effective_tool_output` 与 `dst.thinking` 的对应；
+3. **禁止**把 `src.tool_args` 当作 source 证据；
+4. 若无法给出简短可解释原因，不建 `reasoning` 边。
+
+后处理校验（建议）：
+- 保留时序约束：`src.ai_step < dst.ai_step`；
+- `reason_summary` 不能为空；
+- `matched_evidence` 优先给可回溯短语，但不强制要求逐字命中（允许语义归纳）。
+
+`reasoning.confidence` 计算建议（MVP）：
+- 由 LLM 先给出 `base_confidence`（0~1）；
+- 再由后处理做证据校正（示例）：
+  - `+0.10`：`matched_evidence` 命中 >= 2 个独立证据；
+  - `+0.05`：`matched_evidence` 同时覆盖结构字段与值（如 `columns` + 具体列名）；
+  - `-0.10`：证据仅为高频泛词（如 `status/success/data`）；
+  - `-0.15`：`dst.thinking` 仅弱提及（无明确引用语义）。
+- 最终 `confidence = clamp(base + adjust, 0, 1)`。
+
+`reasoning_min_confidence=0.55` 的设置理由：
+- 低于 `0.5` 时，LLM 容易产出“语义相关但证据不足”的边（噪声明显增加）；
+- 设为 `0.55` 能保留多数可解释推理边，同时抑制弱相关边；
+- 后续可通过离线评估再调参（建议在 `0.50~0.65` 区间网格搜索）。
+
+关于 `reasoning` 与 `dataflow` 的关系：
+- 两者可以并存：`dataflow` 说明参数消费，`reasoning` 说明思考依据；
+- 检索与可视化要用不同颜色区分，避免语义混淆。
 
 ### (5) Summarize
 - 仅生成 **trajectory-level** L0/L1（当前不生成 node-level L0/L1）；

@@ -78,6 +78,7 @@ commit:
     temporal_fallback_edge: true
     dataflow_extractor: llm       # llm | rule_based；推荐 llm，由模型判断 dataflow
     llm_temperature: 0.0          # 建图应尽量稳定，建议 0.0
+    reasoning_min_confidence: 0.55 # reasoning(thinking) 边最小置信度
     min_edge_confidence: 0.2
   incremental:
     enabled: true

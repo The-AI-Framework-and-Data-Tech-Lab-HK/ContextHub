@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -72,12 +73,14 @@ class CommitService:
         *,
         max_action_result_chars: int = 12000,
         temporal_fallback_edge: bool = True,
-        dataflow_extractor: Callable[[list[dict[str, Any]], float, int], list[dict[str, Any]]]
+        dataflow_extractor: Callable[..., list[dict[str, Any]] | dict[str, list[dict[str, Any]]]]
         | None = None,
+        reasoning_min_confidence: float = 0.55,
     ) -> None:
         self.max_action_result_chars = max_action_result_chars
         self.temporal_fallback_edge = temporal_fallback_edge
         self.dataflow_extractor = dataflow_extractor
+        self.reasoning_min_confidence = reasoning_min_confidence
 
     def run(self, cmd: CommitCommand) -> CommitResult:
         # 1) Validate request structure.
@@ -97,8 +100,16 @@ class CommitService:
             pairs,
             temporal_fallback_edge=self.temporal_fallback_edge,
             dataflow_extractor=self.dataflow_extractor,
+            reasoning_min_confidence=self.reasoning_min_confidence,
         )
         clean_nodes, clean_edges = derive_clean_graph(raw_nodes, raw_edges)
+        # If LLM extractor is used, persist its latest extraction trace for debugging/audit.
+        llm_traces: list[dict[str, Any]] | None = None
+        extractor_obj = getattr(self.dataflow_extractor, "__self__", None) if self.dataflow_extractor else None
+        if extractor_obj is not None and hasattr(extractor_obj, "last_traces"):
+            raw_traces = getattr(extractor_obj, "last_traces")
+            if isinstance(raw_traces, list):
+                llm_traces = deepcopy([t for t in raw_traces if isinstance(t, dict)])
         # 5) Produce L0/L1 summaries for replay/indexing.
         l0, l1 = summarize_trajectory(normalized_steps)
         payload = {
@@ -118,6 +129,8 @@ class CommitService:
             "nodes": len(raw_nodes),
             "edges": len(raw_edges),
         }
+        if llm_traces:
+            payload["llm_extraction_traces"] = llm_traces
         return CommitResult(
             trajectory_id=trajectory_id,
             idempotency_key=idem_key,

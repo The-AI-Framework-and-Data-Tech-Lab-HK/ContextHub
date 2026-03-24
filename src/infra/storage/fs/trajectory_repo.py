@@ -86,6 +86,24 @@ class LocalFSTrajectoryRepository:
             json.dumps(_to_jsonable(payload["clean_graph"]), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        llm_traces = payload.get("llm_extraction_traces")
+        if isinstance(llm_traces, list) and llm_traces:
+            extraction_dir = base / "llm_extraction"
+            extraction_dir.mkdir(parents=True, exist_ok=True)
+            trace_files: list[str] = []
+            for idx, trace in enumerate(llm_traces, start=1):
+                if not isinstance(trace, dict):
+                    continue
+                call_type = str(trace.get("call_type") or f"call{idx}")
+                safe_type = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in call_type)
+                file_path = extraction_dir / f"{idx:02d}_{safe_type}.json"
+                file_path.write_text(
+                    json.dumps(_to_jsonable(trace), ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                trace_files.append(str(file_path))
+            graph_pointer["llm_extraction_dir"] = str(extraction_dir)
+            graph_pointer["llm_extraction_files"] = trace_files
         if visualize_graph_png:
             from infra.storage.fs.graph_visualizer import render_graph_png
 

@@ -58,9 +58,10 @@ class DependencyEdge:
     trajectory_id: str             # 所属轨迹 ID
     src_node_id: str               # 源节点 ID（依赖提供方）
     dst_node_id: str               # 目标节点 ID（依赖使用方）
-    dep_type: str                  # 依赖类型：dataflow | controlflow(retry) | temporal
+    dep_type: str                  # 依赖类型：dataflow | reasoning | controlflow(retry) | temporal
     signal: str | None             # 依赖证据（可选；MVP 可先不落，后续用于可解释增强）
     confidence: float              # 边置信度（0~1）
+    signal_detail: dict | None     # 结构化证据（如 matched_tokens/reason_summary/source）
 ```
 
 ## 2.3 依赖边判定规则（MVP）
@@ -82,8 +83,17 @@ class DependencyEdge:
 ### Rule-4：时间顺序兜底
 若无法识别“前序输出被后续输入消费”的证据，则创建低置信度 `temporal` 边以避免图断裂。
 
+### Rule-5：思维推理依赖（reasoning）
+当节点 `B.thinking` 明确参考了前序节点 `A` 的执行结果（通常来自 `A.tool_output`）时，建立 `A -> B` 的 `reasoning` 有向边。
+
+口径：
+- `reasoning` 表示“思考依据依赖”，不是输入参数消费关系；
+- `dataflow` 与 `reasoning` 可同时存在于同一对节点（语义不同，不互斥）；
+- `reasoning` 的证据说明建议落在 `signal_detail.reason_summary`。
+
 口径要求：
 - `dep_type=dataflow`：表示“真实 output->input 依赖”；
+- `dep_type=reasoning`：表示“B.thinking 参考了 A 的执行结果”；
 - `dep_type=temporal`：仅表示顺序相邻/时序兜底，不可等价为数据依赖；
 - 下游检索与传播必须按 `dep_type` 做差异化权重或过滤。
 

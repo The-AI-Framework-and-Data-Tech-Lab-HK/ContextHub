@@ -18,6 +18,7 @@ class GraphNode:
     trajectory_id: str
     ai_step: int
     tool_step: int | None
+    thinking: str
     tool_name: str | None
     tool_args: dict[str, Any] | None
     tool_output: dict[str, Any] | None
@@ -66,7 +67,7 @@ _STOPWORDS = frozenset(
 )
 DATAFLOW_THRESHOLD = 0.45
 MAX_DATAFLOW_HITS_PER_DST = 2
-ExtractorCallable = Callable[[list[dict[str, Any]], float, int], list[dict[str, Any]]]
+ExtractorCallable = Callable[..., list[dict[str, Any]] | dict[str, list[dict[str, Any]]]]
 
 
 def _infer_output_status(tool_output: dict[str, Any] | None, action_result_text: str) -> str | None:
@@ -297,6 +298,7 @@ def build_raw_graph(
     *,
     temporal_fallback_edge: bool = True,
     dataflow_extractor: ExtractorCallable | None = None,
+    reasoning_min_confidence: float = 0.55,
 ) -> tuple[list[GraphNode], list[GraphEdge]]:
     """Create raw graph: dataflow, controlflow(retry), and optional temporal fallback."""
     nodes: list[GraphNode] = []
@@ -318,6 +320,7 @@ def build_raw_graph(
                 trajectory_id=trajectory_id,
                 ai_step=p.ai_step,
                 tool_step=p.tool_step,
+                thinking=p.thinking,
                 tool_name=tool_name,
                 tool_args=tool_args,
                 tool_output=tool_output,
@@ -380,15 +383,32 @@ def build_raw_graph(
             )
             output_blob_by_node[n.node_id] = _output_blob(effective_out)
         try:
-            llm_edges = dataflow_extractor(
-                nodes=payload_nodes,
-                threshold=DATAFLOW_THRESHOLD,
-                top_k_per_dst=MAX_DATAFLOW_HITS_PER_DST,
-            )
+            try:
+                llm_result = dataflow_extractor(
+                    nodes=payload_nodes,
+                    threshold=DATAFLOW_THRESHOLD,
+                    top_k_per_dst=MAX_DATAFLOW_HITS_PER_DST,
+                    reasoning_threshold=reasoning_min_confidence,
+                )
+            except TypeError:
+                # Backward compatibility for older extractors without reasoning_threshold.
+                llm_result = dataflow_extractor(
+                    nodes=payload_nodes,
+                    threshold=DATAFLOW_THRESHOLD,
+                    top_k_per_dst=MAX_DATAFLOW_HITS_PER_DST,
+                )
         except Exception:
-            llm_edges = []
+            llm_result = []
 
-        for e in llm_edges:
+        # Backward compatibility: old extractor may return plain list[dataflow_edge].
+        if isinstance(llm_result, list):
+            llm_dataflow_edges = llm_result
+            llm_reasoning_edges: list[dict[str, Any]] = []
+        else:
+            llm_dataflow_edges = llm_result.get("dataflow_edges") or []
+            llm_reasoning_edges = llm_result.get("reasoning_edges") or []
+
+        for e in llm_dataflow_edges:
             src_id = str(e.get("src_node_id", ""))
             dst_id = str(e.get("dst_node_id", ""))
             if src_id not in idx_of or dst_id not in idx_of:
@@ -428,6 +448,38 @@ def build_raw_graph(
                 },
             )
             incoming_dataflow.add(dst_id)
+
+        for e in llm_reasoning_edges:
+            src_id = str(e.get("src_node_id", ""))
+            dst_id = str(e.get("dst_node_id", ""))
+            if src_id not in idx_of or dst_id not in idx_of:
+                continue
+            if idx_of[src_id] >= idx_of[dst_id]:
+                continue
+            conf = float(e.get("confidence", 0.0) or 0.0)
+            if conf < reasoning_min_confidence:
+                continue
+            matched_evidence = e.get("matched_evidence") or []
+            if not isinstance(matched_evidence, list):
+                matched_evidence = [str(matched_evidence)]
+            # NOTE:
+            # For reasoning edges, we intentionally do not hard-filter by
+            # token presence in src output / dst thinking. LLM may summarize
+            # evidence at a semantic level rather than verbatim token match.
+            # We keep matched_evidence as provided for explainability.
+            filtered_evidence = [str(ev) for ev in matched_evidence if str(ev).strip()]
+            add_edge(
+                src_id,
+                dst_id,
+                "reasoning",
+                "thinking_reference",
+                conf,
+                signal_detail={
+                    "matched_evidence": filtered_evidence,
+                    "reason_summary": str(e.get("reason_summary") or ""),
+                    "source": "llm",
+                },
+            )
     else:
         # Rule-based dataflow extraction: match src tool_output -> dst tool_args.
         for j in range(1, len(nodes)):

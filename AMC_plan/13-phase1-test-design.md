@@ -11,7 +11,7 @@
 |---|------|----------|------------|
 | 1 | trajectory / node / edge 数据模型与校验 | `02-trajectory-information-model.md` | Pydantic/JSON Schema、必填字段、ID 确定性 |
 | 2 | commit API + 校验 + 幂等 | `03-commit-pipeline.md`、`09` | HTTP 契约、错误码、重复提交行为 |
-| 3 | 规则版图构建（raw + clean） | `02` §2.4、`03` §3.3–3.4 | 配对、dataflow/controlflow(retry)/temporal、环标注；`dep_type` 区分真实依赖与兜底边 |
+| 3 | 图构建（raw + clean） | `02` §2.4、`03` §3.3–3.4 | 配对、dataflow/reasoning/controlflow(retry)/temporal、环标注；`dep_type` 区分真实依赖与兜底边 |
 | 4 | Graph Store 写入 + FS `graph_pointer` | `03` §3.6、`10` | Neo4j 节点/边属性、指针 JSON 可解析 |
 | 5 | trajectory-level L0/L1 + 向量索引 | `03` §3.5、`12` | 仅 L0/L1；IndexDoc 无冗余字段；upsert 幂等 |
 | 6 | 审计日志 | `05`、`03` | commit 写审计、敏感字段脱敏/摘要 |
@@ -50,6 +50,8 @@
 | U-06 | `clean_deriver` | traj1 | clean 节点数 ≤ raw；失败被替代路径在 clean 中弱化或移除（按 02 规则） |
 | U-07 | 边类型 | traj1 + traj2 | 至少存在 temporal 或 dataflow；traj1 存在 retry 类 controlflow，且 `dep_type` 明确区分 |
 | U-10 | 枚举输出到命令命中 | traj1（Step2 输出表名 -> Step3/5/7/11 的 command） | 命中 `enum_to_command`，`signal_detail.matched_tokens` 包含具体表名（如 `ch___company_info`） |
+| U-11 | reasoning 边（thinking 依据） | traj1 + traj5 | 存在 `dep_type=reasoning`；`signal_detail.reason_summary` 非空；`src.ai_step < dst.ai_step` |
+| U-12 | reasoning 证据来源约束 | 构造样例 | 若命中 token 仅来自 `src.tool_args` 而非 `src.effective_tool_output`，则拒绝该 reasoning 边 |
 | U-08 | 确定性 ID | 同一轨迹两次构建 | 相同输入 → 相同 `trajectory_id`（若由输入哈希决定）或相同 `node_id` 规则 |
 | U-09 | 幂等键 | 相同 `tenant_id+task_id+trajectory` | 第二次 commit 返回 **idempotent** 或相同 `trajectory_id`（与 API 设计一致） |
 
@@ -63,6 +65,7 @@
 | I-04 | Chroma 索引 | Chroma + Embedding（可用 fake embedding 注入） | collection 中存在 doc id 与 `tenant_id` metadata；重复 commit 不重复脏行 |
 | I-05 | 审计 | 文件 audit sink | commit 产生一条审计；`query_text` 按策略 redact |
 | I-06 | 单轨迹详情/回放 | `GET .../replay/{trajectory_id}` 或内部 repo | 能读回与 sample 一致的 step 序列或 raw_refs |
+| I-07 | reasoning 可视化颜色区分 | 图渲染 + PNG | `reasoning` 边使用独立颜色（与 dataflow/temporal/controlflow 不同） |
 
 ### C. 样例集「构建成功率」验收（M1）
 

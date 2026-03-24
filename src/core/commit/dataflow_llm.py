@@ -1,9 +1,9 @@
-"""LLM-based dataflow extractor for commit graph building."""
+"""LLM-based extractor for dataflow/reasoning edges."""
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from openai import OpenAI
@@ -11,12 +11,13 @@ from openai import OpenAI
 
 @dataclass
 class LLMDataflowExtractor:
-    """Extract dataflow edges from node IO using an LLM."""
+    """Extract dataflow/reasoning edges from node IO using an LLM."""
 
     api_key: str
     model: str = "gpt-4.1-mini"
     base_url: str | None = None
     temperature: float = 0.0
+    last_traces: list[dict[str, Any]] = field(default_factory=list)
 
     def _client(self) -> OpenAI:
         if self.base_url:
@@ -35,26 +36,40 @@ class LLMDataflowExtractor:
             return json.loads(raw[start : end + 1])
         return {"edges": []}
 
-    def extract(
+    def clear_traces(self) -> None:
+        self.last_traces = []
+
+    def _record_trace(
+        self,
+        *,
+        call_type: str,
+        threshold: float,
+        top_k_per_dst: int,
+        raw_response_text: str,
+        parsed_result: Any,
+        error: str | None = None,
+    ) -> None:
+        self.last_traces.append(
+            {
+                "call_type": call_type,
+                "model": self.model,
+                "base_url": self.base_url or "",
+                "temperature": self.temperature,
+                "threshold": threshold,
+                "top_k_per_dst": top_k_per_dst,
+                "raw_response_text": raw_response_text,
+                "parsed_result": parsed_result,
+                "error": error or "",
+            }
+        )
+
+    def _extract_dataflow(
         self,
         *,
         nodes: list[dict[str, Any]],
         threshold: float,
         top_k_per_dst: int,
     ) -> list[dict[str, Any]]:
-        """
-        Returns edge suggestions:
-        [
-          {
-            "src_node_id": "...",
-            "dst_node_id": "...",
-            "confidence": 0.78,
-            "evidence_type": "enum_to_command",
-            "matched_tokens": ["..."],
-            "reason": "..."
-          }
-        ]
-        """
         prompt = (
             "You are extracting dataflow dependencies between action nodes.\n"
             "A -> B means some OUTPUT of A is consumed by INPUT of B.\n"
@@ -66,7 +81,7 @@ class LLMDataflowExtractor:
             "3) Source-side evidence must come from src.effective_tool_output only. "
             "Do NOT use src.tool_args as output evidence.\n"
             "Return JSON only with schema:\n"
-            "{'edges':[{'src_node_id':str,'dst_node_id':str,'confidence':float,"
+            "{'dataflow_edges':[{'src_node_id':str,'dst_node_id':str,'confidence':float,"
             "'evidence_type':str,'matched_tokens':[str],'reason':str}]}\n"
             f"Only include edges with confidence >= {threshold}. "
             f"For each dst node, keep at most {top_k_per_dst} best edges."
@@ -81,15 +96,113 @@ class LLMDataflowExtractor:
                 {"role": "user", "content": json.dumps({"nodes": nodes}, ensure_ascii=False)},
             ],
         )
-        content = resp.choices[0].message.content or '{"edges":[]}'
+        content = resp.choices[0].message.content or '{"dataflow_edges":[]}'
         data = self._extract_json(content)
-        edges = data.get("edges")
-        if not isinstance(edges, list):
-            return []
-        out: list[dict[str, Any]] = []
-        for e in edges:
-            if not isinstance(e, dict):
-                continue
-            out.append(e)
-        return out
+        # Backward compatibility if model returns old {'edges': [...]} format.
+        if isinstance(data.get("edges"), list):
+            edges = [e for e in data.get("edges", []) if isinstance(e, dict)]
+            self._record_trace(
+                call_type="dataflow",
+                threshold=threshold,
+                top_k_per_dst=top_k_per_dst,
+                raw_response_text=content,
+                parsed_result={"dataflow_edges": edges},
+            )
+            return edges
+        dataflow_raw = data.get("dataflow_edges")
+        edges = [e for e in (dataflow_raw or []) if isinstance(e, dict)] if isinstance(dataflow_raw, list) else []
+        self._record_trace(
+            call_type="dataflow",
+            threshold=threshold,
+            top_k_per_dst=top_k_per_dst,
+            raw_response_text=content,
+            parsed_result={"dataflow_edges": edges},
+        )
+        return edges
+
+    def _extract_reasoning(
+        self,
+        *,
+        nodes: list[dict[str, Any]],
+        threshold: float,
+        top_k_per_dst: int,
+    ) -> list[dict[str, Any]]:
+        prompt = (
+            "You are extracting reasoning dependencies between action nodes.\n"
+            "A -> B reasoning means B.thinking references execution evidence from A.\n"
+            "Important constraints:\n"
+            "1) A must occur before B.\n"
+            "2) Prefer evidence from src.effective_tool_output.\n"
+            "3) Do NOT use src.tool_args as source output evidence.\n"
+            "Return JSON only with schema:\n"
+            "{'reasoning_edges':[{'src_node_id':str,'dst_node_id':str,'confidence':float,"
+            "'reason_summary':str,'matched_evidence':[str]}]}\n"
+            f"Only include edges with confidence >= {threshold}. "
+            f"For each dst node, keep at most {top_k_per_dst} best edges."
+        )
+        client = self._client()
+        resp = client.chat.completions.create(
+            model=self.model,
+            temperature=self.temperature,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": json.dumps({"nodes": nodes}, ensure_ascii=False)},
+            ],
+        )
+        content = resp.choices[0].message.content or '{"reasoning_edges":[]}'
+        data = self._extract_json(content)
+        reasoning_raw = data.get("reasoning_edges")
+        edges = [e for e in (reasoning_raw or []) if isinstance(e, dict)] if isinstance(reasoning_raw, list) else []
+        self._record_trace(
+            call_type="reasoning",
+            threshold=threshold,
+            top_k_per_dst=top_k_per_dst,
+            raw_response_text=content,
+            parsed_result={"reasoning_edges": edges},
+        )
+        return edges
+
+    def extract(
+        self,
+        *,
+        nodes: list[dict[str, Any]],
+        threshold: float,
+        top_k_per_dst: int,
+        reasoning_threshold: float = 0.55,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """
+        Run two independent LLM calls:
+        - dataflow extraction
+        - reasoning extraction
+        """
+        self.clear_traces()
+        dataflow_edges: list[dict[str, Any]] = []
+        reasoning_edges: list[dict[str, Any]] = []
+        try:
+            dataflow_edges = self._extract_dataflow(
+                nodes=nodes, threshold=threshold, top_k_per_dst=top_k_per_dst
+            )
+        except Exception as exc:
+            self._record_trace(
+                call_type="dataflow",
+                threshold=threshold,
+                top_k_per_dst=top_k_per_dst,
+                raw_response_text="",
+                parsed_result={},
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        try:
+            reasoning_edges = self._extract_reasoning(
+                nodes=nodes, threshold=reasoning_threshold, top_k_per_dst=top_k_per_dst
+            )
+        except Exception as exc:
+            self._record_trace(
+                call_type="reasoning",
+                threshold=reasoning_threshold,
+                top_k_per_dst=top_k_per_dst,
+                raw_response_text="",
+                parsed_result={},
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        return {"dataflow_edges": dataflow_edges, "reasoning_edges": reasoning_edges}
 

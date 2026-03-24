@@ -38,6 +38,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         max_action_result_chars=cfg.commit.max_action_result_chars,
         temporal_fallback_edge=cfg.commit.temporal_fallback_edge,
         dataflow_extractor=dataflow_extractor,
+        reasoning_min_confidence=cfg.commit.reasoning_min_confidence,
     )
     orchestrator = CommitOrchestrator(
         commit_service=service,
