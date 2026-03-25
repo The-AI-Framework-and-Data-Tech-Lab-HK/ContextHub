@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     api_key: str = "changeme"
     embedding_model: str = "text-embedding-3-small"
     propagation_enabled: bool = True
+    propagation_sweep_interval: int = 30    # 秒，周期补扫间隔
+    propagation_lease_timeout: int = 300    # 秒，processing 超时后回收
     openai_api_key: str = ""
     embedding_dimensions: int = 1536
     rerank_strategy: str = "keyword"

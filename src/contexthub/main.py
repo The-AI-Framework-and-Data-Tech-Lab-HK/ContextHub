@@ -23,54 +23,81 @@ from contexthub.services.memory_service import MemoryService
 from contexthub.services.retrieval_service import RetrievalService
 from contexthub.services.skill_service import SkillService
 from contexthub.store.context_store import ContextStore
+from contexthub.propagation.registry import PropagationRuleRegistry
+from contexthub.services.propagation_engine import PropagationEngine
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = Settings()
     pool = await create_pool(settings)
-    repo = PgRepository(pool)
+    embedding_client = None
+    propagation_engine = None
+    propagation_started = False
 
-    acl_service = ACLService()
-    context_store = ContextStore(acl_service)
+    try:
+        repo = PgRepository(pool)
 
-    # Task 3 services
-    embedding_client = create_embedding_client(settings)
-    content_generator = ContentGenerator()
-    indexer_service = IndexerService(
-        content_generator,
-        embedding_client,
-        embedding_dimensions=settings.embedding_dimensions,
-    )
+        acl_service = ACLService()
+        context_store = ContextStore(acl_service)
 
-    # Inject indexer into ContextService for embedding consistency
-    context_service = ContextService(context_store, acl_service, indexer_service)
-    memory_service = MemoryService(indexer_service, acl_service)
-    skill_service = SkillService(indexer_service, acl_service)
+        # Task 3 services
+        embedding_client = create_embedding_client(settings)
+        content_generator = ContentGenerator()
+        indexer_service = IndexerService(
+            content_generator,
+            embedding_client,
+            embedding_dimensions=settings.embedding_dimensions,
+        )
 
-    # Task 4: retrieval
-    retrieval_router = RetrievalRouter.default()
-    retrieval_service = RetrievalService(
-        retrieval_router, embedding_client, acl_service,
-        over_retrieve_factor=settings.search_over_retrieve_factor,
-    )
+        # Inject indexer into ContextService for embedding consistency
+        context_service = ContextService(context_store, acl_service, indexer_service)
+        memory_service = MemoryService(indexer_service, acl_service)
+        skill_service = SkillService(indexer_service, acl_service)
 
-    app.state.settings = settings
-    app.state.repo = repo
-    app.state.acl_service = acl_service
-    app.state.context_store = context_store
-    app.state.context_service = context_service
-    app.state.memory_service = memory_service
-    app.state.skill_service = skill_service
-    app.state.indexer_service = indexer_service
-    app.state.retrieval_service = retrieval_service
-    app.state.embedding_client = embedding_client
+        # Task 4: retrieval
+        retrieval_router = RetrievalRouter.default()
+        retrieval_service = RetrievalService(
+            retrieval_router, embedding_client, acl_service,
+            over_retrieve_factor=settings.search_over_retrieve_factor,
+        )
 
-    yield
+        app.state.settings = settings
+        app.state.repo = repo
+        app.state.acl_service = acl_service
+        app.state.context_store = context_store
+        app.state.context_service = context_service
+        app.state.memory_service = memory_service
+        app.state.skill_service = skill_service
+        app.state.indexer_service = indexer_service
+        app.state.retrieval_service = retrieval_service
+        app.state.embedding_client = embedding_client
 
-    if hasattr(embedding_client, "close"):
-        await embedding_client.close()
-    await pool.close()
+        # Task 5: PropagationEngine
+        rule_registry = PropagationRuleRegistry.default()
+        propagation_engine = PropagationEngine(
+            repo=repo,
+            pool=pool,
+            dsn=settings.asyncpg_database_url,
+            rule_registry=rule_registry,
+            indexer=indexer_service,
+            sweep_interval=settings.propagation_sweep_interval,
+            lease_timeout=settings.propagation_lease_timeout,
+        )
+
+        if settings.propagation_enabled:
+            await propagation_engine.start()
+            propagation_started = True
+
+        try:
+            yield
+        finally:
+            if propagation_started:
+                await propagation_engine.stop()
+    finally:
+        if embedding_client is not None and hasattr(embedding_client, "close"):
+            await embedding_client.close()
+        await pool.close()
 
 
 app = FastAPI(title="ContextHub", lifespan=lifespan)
