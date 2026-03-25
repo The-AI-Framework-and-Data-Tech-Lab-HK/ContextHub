@@ -51,9 +51,9 @@
 | U-07 | 边类型 | traj1 + traj2 | 至少存在 temporal 或 dataflow；traj1 存在 retry 类 controlflow，且 `dep_type` 明确区分 |
 | U-10 | 枚举输出到命令命中 | traj1（Step2 输出表名 -> Step3/5/7/11 的 command） | 命中 `enum_to_command`，`signal_detail.matched_tokens` 包含具体表名（如 `ch___company_info`） |
 | U-11 | reasoning 边（thinking 依据） | traj1 + traj5 | 存在 `dep_type=reasoning`；`signal_detail.reason_summary` 非空；`src.ai_step < dst.ai_step` |
-| U-12 | reasoning 证据来源约束 | 构造样例 | 若命中 token 仅来自 `src.tool_args` 而非 `src.effective_tool_output`，则拒绝该 reasoning 边 |
+| U-12 | reasoning 证据来源约束（弱约束） | 构造样例 | `reason_summary` 必填；禁止把 `src.tool_args` 作为 source 输出证据主来源；`matched_evidence` 允许语义归纳，不强制逐字命中 |
 | U-08 | 确定性 ID | 同一轨迹两次构建 | 相同输入 → 相同 `trajectory_id`（若由输入哈希决定）或相同 `node_id` 规则 |
-| U-09 | 幂等键 | 相同 `tenant_id+task_id+trajectory` | 第二次 commit 返回 **idempotent** 或相同 `trajectory_id`（与 API 设计一致） |
+| U-09 | 幂等键 | 相同 `tenant_id+task_id+trajectory` | 当幂等开启时第二次 commit 返回 **idempotent** 或相同 `trajectory_id`；默认关闭时两次均 `accepted` |
 
 ### B. 集成测试（`src/tests/integration/`，需 Neo4j / Chroma / 本地 FS）
 

@@ -19,10 +19,10 @@
 ### Phase 1：基础数据模型 + Commit 可用
 
 1. 定义 trajectory/node/edge schema（见 02）；
-2. 实现 commit API + 校验 + 幂等；
-3. 实现规则版图构建器（raw/clean 双版本，显式绑定 + 参数重用 + retry 链）；
+2. 实现 commit API + 校验 + 幂等（默认关闭幂等，支持显式开启去重）；
+3. 实现图构建器（raw/clean 双版本，LLM 抽取 dataflow/reasoning + rule-based/temporal fallback，含 retry 链）；
 4. 对接 Graph Store（Neo4j）并写入 `graph_pointer` 到 `ctx://agent/{agent_id}/memories/trajectories/`；
-5. 仅生成 trajectory-level `.abstract/.overview` 并建立向量索引（IndexDoc 不包含 `context_type/abstract` 冗余字段）；
+5. 仅生成 trajectory-level `.abstract/.overview` 并建立向量索引（L0/L1 优先 LLM 生成，失败回退 rule-based；IndexDoc 不包含 `context_type/abstract` 冗余字段）；
 6. 接入审计日志。
 
 **里程碑 M1**：可稳定提交并查询单条轨迹详情，图构建成功率 > 95%（样例集）。

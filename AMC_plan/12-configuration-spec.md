@@ -84,7 +84,7 @@ indexing:
 # ---------------------------------------------------------------------------
 commit:
   idempotency:
-    enabled: true             # 是否启用 tenant+task+hash 幂等
+    enabled: false            # 默认关闭：重复 commit 也会重算并更新落盘
     ttl_hours: 168            # 幂等键保留时间（小时）
   normalize:
     max_action_result_chars: 12000   # Tool 输出过长时截断，避免图节点爆内存
@@ -93,7 +93,7 @@ commit:
     min_edge_confidence: 0.2        # 低于此置信度的边不参与高权重图相似分
     dataflow_extractor: llm         # rule_based | llm（当前建议 llm）
     reasoning_min_confidence: 0.55  # reasoning 边最小置信度阈值
-    # 说明：reasoning 抽取默认开启，且默认与 dataflow 同次 LLM 联合抽取（当前不暴露开关）
+    # 说明：reasoning 抽取默认开启；当前实现为 dataflow/reasoning 两次独立 LLM 调用（不暴露开关）
   incremental:
     enabled: true             # 是否允许 is_incremental 多次追加同 trajectory
 
@@ -190,7 +190,7 @@ AMC_EMBEDDING_PROVIDER=openai
 AMC_EMBEDDING_MODEL=text-embedding-3-small
 AMC_OPENAI_API_KEY=请替换
 
-# ---------- LLM：用于 dataflow/reasoning 边抽取（统一模型配置）----------
+# ---------- LLM：用于 dataflow/reasoning 边抽取 + L0/L1 摘要（统一模型配置）----------
 AMC_LLM_BASE_URL=
 AMC_LLM_MODEL=gpt-4.1-mini
 

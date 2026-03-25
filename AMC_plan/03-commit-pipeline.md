@@ -202,7 +202,7 @@ if enum_hit:
 - `node.effective_tool_output`（去除输入回显后）
 - `node.tool_args`（仅作为 dst 侧上下文，不可作为 src 输出证据）
 
-建议由 LLM 与 dataflow **同次调用联合抽取**，一次返回两类边：
+当前实现由 LLM **两次独立调用** 抽取（先 dataflow、再 reasoning），以提升稳定性并便于排查：
 
 ```json
 {
@@ -250,7 +250,11 @@ if enum_hit:
 
 ### (5) Summarize
 - 仅生成 **trajectory-level** L0/L1（当前不生成 node-level L0/L1）；
-- 失败轨迹额外生成 `failure_signature`（如 no such function/column/syntax）。
+- 优先使用 LLM 生成：
+  - L0（`.abstract.md`）：100-150 字，覆盖任务目标、关键步骤、执行效果；
+  - L1（`.overview.md`）：600-800 字，覆盖主要路径、阶段动作、关键输出、失败/重试与最终效果；
+- 若未配置可用 LLM 凭据或调用失败，自动回退到 rule-based 摘要，保证 commit 可用性；
+- 失败轨迹可额外生成 `failure_signature`（如 no such function/column/syntax）。
 
 ### (6) Persist
 - Raw/Clean 节点与边写入 Graph Store（如 Neo4j）；
@@ -259,6 +263,7 @@ if enum_hit:
   - `graph_pointer.json`
   - `.abstract.md`
   - `.overview.md`
+  - `llm_extraction/`（可选；按调用落盘，如 `01_dataflow.json`、`02_reasoning.json`、`03_summary.json`）
   - `raw_steps.jsonl`（可选，保留回放原文）
 - 将 `Trajectory-L0/L1` 写入向量索引（不依赖 node-level 摘要）；
 - 标量索引字段：`tenant_id, agent_id, task_type, tool_set, lifecycle_status, stale_flag, created_at`。
