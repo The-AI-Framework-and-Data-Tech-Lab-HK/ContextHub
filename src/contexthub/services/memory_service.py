@@ -59,10 +59,7 @@ class MemoryService:
 
         # Embedding consistency
         if generated.l0:
-            try:
-                await self._indexer.update_embedding(db, row["id"], generated.l0)
-            except Exception:
-                pass
+            await self._indexer.update_embedding(db, row["id"], generated.l0)
 
         return _row_to_context(row)
 
@@ -174,10 +171,7 @@ class MemoryService:
 
         # Embedding consistency for promoted memory
         if generated.l0:
-            try:
-                await self._indexer.update_embedding(db, promoted["id"], generated.l0)
-            except Exception:
-                pass
+            await self._indexer.update_embedding(db, promoted["id"], generated.l0)
 
         return _row_to_context(promoted)
 

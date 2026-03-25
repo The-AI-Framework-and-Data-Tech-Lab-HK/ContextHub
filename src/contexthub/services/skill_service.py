@@ -93,10 +93,7 @@ class SkillService:
 
         # Embedding consistency for skill head
         if generated.l0:
-            try:
-                await self._indexer.update_embedding(db, skill_id, generated.l0)
-            except Exception:
-                pass
+            await self._indexer.update_embedding(db, skill_id, generated.l0)
 
         return SkillVersion(
             skill_id=skill_id,

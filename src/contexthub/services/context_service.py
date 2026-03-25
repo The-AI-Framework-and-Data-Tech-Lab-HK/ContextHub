@@ -76,10 +76,7 @@ class ContextService:
 
         # Embedding consistency: new active context with l0_content
         if self._indexer and body.l0_content:
-            try:
-                await self._indexer.update_embedding(db, row["id"], body.l0_content)
-            except Exception:
-                pass  # embedding failure must not block create
+            await self._indexer.update_embedding(db, row["id"], body.l0_content)
 
         return self._row_to_context(row)
 
@@ -165,16 +162,13 @@ class ContextService:
 
         # Embedding consistency after update
         if self._indexer:
-            try:
-                new_status = row["status"]
-                if new_status == "archived":
-                    await self._indexer.clear_embedding(db, row["id"])
-                elif row["l0_content"] and new_status in ("active", "stale"):
-                    # Re-embed if content changed or status restored to active
-                    if content_changed or (body.status == ContextStatus.ACTIVE):
-                        await self._indexer.update_embedding(db, row["id"], row["l0_content"])
-            except Exception:
-                pass  # embedding failure must not block update
+            new_status = row["status"]
+            if new_status == "archived":
+                await self._indexer.clear_embedding(db, row["id"])
+            elif row["l0_content"] and new_status in ("active", "stale"):
+                # Re-embed if content changed or status restored to active
+                if content_changed or (body.status == ContextStatus.ACTIVE):
+                    await self._indexer.update_embedding(db, row["id"], row["l0_content"])
 
         return self._row_to_context(row)
 

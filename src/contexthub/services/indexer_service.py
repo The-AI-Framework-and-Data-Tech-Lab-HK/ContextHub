@@ -13,9 +13,15 @@ logger = logging.getLogger(__name__)
 
 
 class IndexerService:
-    def __init__(self, content_generator: ContentGenerator, embedding_client: EmbeddingClient):
+    def __init__(
+        self,
+        content_generator: ContentGenerator,
+        embedding_client: EmbeddingClient,
+        embedding_dimensions: int | None = None,
+    ):
         self._generator = content_generator
         self._embedding = embedding_client
+        self._embedding_dimensions = embedding_dimensions
 
     async def generate(
         self,
@@ -32,22 +38,22 @@ class IndexerService:
         self, db: ScopedRepo, context_id: UUID, l0_text: str
     ) -> bool:
         """Generate and write l0_embedding for a single context. Returns success."""
-        embedding = await self._embedding.embed(l0_text)
-        if embedding is None:
+        try:
+            embedding = await self._embedding.embed(l0_text)
+        except Exception:
+            logger.exception("Failed to generate embedding for context_id=%s", context_id)
             return False
-        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
-        await db.execute(
-            "UPDATE contexts SET l0_embedding = $1::vector WHERE id = $2",
-            embedding_str, context_id,
-        )
-        return True
+        return await self._write_embedding(db, context_id, embedding)
 
     async def clear_embedding(self, db: ScopedRepo, context_id: UUID) -> None:
         """Clear l0_embedding for a context (e.g. on archive)."""
-        await db.execute(
-            "UPDATE contexts SET l0_embedding = NULL WHERE id = $1",
-            context_id,
-        )
+        try:
+            await db.execute(
+                "UPDATE contexts SET l0_embedding = NULL WHERE id = $1",
+                context_id,
+            )
+        except Exception:
+            logger.exception("Failed to clear embedding for context_id=%s", context_id)
 
     async def backfill_embeddings(
         self, db: ScopedRepo, batch_size: int = 100
@@ -69,15 +75,24 @@ class IndexerService:
         # Try batch if client supports it
         if hasattr(self._embedding, "embed_batch"):
             texts = [r["l0_content"] for r in rows]
-            embeddings = await self._embedding.embed_batch(texts)
+            try:
+                embeddings = await self._embedding.embed_batch(texts)
+            except Exception:
+                logger.exception("Failed to batch-generate embeddings during backfill")
+                embeddings = [None] * len(rows)
+
+            if len(embeddings) != len(rows):
+                logger.error(
+                    "Embedding batch result count mismatch during backfill: expected=%s got=%s",
+                    len(rows),
+                    len(embeddings),
+                )
+                embeddings = [None] * len(rows)
+
             count = 0
             for row, emb in zip(rows, embeddings):
-                if emb is not None:
-                    embedding_str = "[" + ",".join(str(x) for x in emb) + "]"
-                    await db.execute(
-                        "UPDATE contexts SET l0_embedding = $1::vector WHERE id = $2",
-                        embedding_str, row["id"],
-                    )
+                success = await self._write_embedding(db, row["id"], emb)
+                if success:
                     count += 1
             return count
 
@@ -88,3 +103,47 @@ class IndexerService:
             if success:
                 count += 1
         return count
+
+    async def _write_embedding(
+        self,
+        db: ScopedRepo,
+        context_id: UUID,
+        embedding: list[float] | None,
+    ) -> bool:
+        embedding_str = self._serialize_embedding(embedding, context_id=context_id)
+        if embedding_str is None:
+            return False
+
+        try:
+            await db.execute(
+                "UPDATE contexts SET l0_embedding = $1::vector WHERE id = $2",
+                embedding_str,
+                context_id,
+            )
+        except Exception:
+            logger.exception("Failed to persist embedding for context_id=%s", context_id)
+            return False
+        return True
+
+    def _serialize_embedding(
+        self,
+        embedding: list[float] | None,
+        *,
+        context_id: UUID,
+    ) -> str | None:
+        if embedding is None:
+            return None
+
+        if (
+            self._embedding_dimensions is not None
+            and len(embedding) != self._embedding_dimensions
+        ):
+            logger.error(
+                "Embedding dimension mismatch for context_id=%s: expected=%s got=%s",
+                context_id,
+                self._embedding_dimensions,
+                len(embedding),
+            )
+            return None
+
+        return "[" + ",".join(str(x) for x in embedding) + "]"

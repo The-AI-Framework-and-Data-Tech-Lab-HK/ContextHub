@@ -48,13 +48,19 @@ class MockEmbeddingClient:
         pass
 
 
+class WrongDimensionEmbeddingClient:
+    async def embed(self, text: str) -> list[float] | None:
+        return [1.0, 2.0]
+
+
 # --- Fake DB for keyword search ---
 
-class KeywordSearchDB:
-    """Simulates DB for keyword_search and RetrievalService with NoOp embedding."""
+class SearchFlowDB:
+    """Simulates DB interactions for RetrievalService tests."""
 
-    def __init__(self, rows=None):
+    def __init__(self, rows=None, l2_rows=None):
         self._rows = rows or []
+        self._l2_rows = l2_rows or []
         self.executed = []
 
     async def fetch(self, sql, *args):
@@ -64,6 +70,8 @@ class KeywordSearchDB:
                 FakeRecord(path="engineering"),
                 FakeRecord(path=""),
             ]
+        if "SELECT id, l2_content FROM contexts WHERE id IN" in sql:
+            return self._l2_rows
         if "cosine_similarity" in sql or "LIKE" in sql.upper():
             return self._rows
         raise AssertionError(f"Unexpected fetch: {sql}")
@@ -123,47 +131,95 @@ def _make_retrieval_service(embedding_client=None):
 
 
 @pytest.mark.asyncio
-async def test_keyword_fallback_when_no_embedding():
-    """When embedding client returns None, search falls back to keyword."""
+async def test_keyword_fallback_returns_visible_results_and_updates_active_count():
+    visible_id = uuid.uuid4()
+    hidden_id = uuid.uuid4()
     rows = [
         FakeRecord(
-            id=uuid.uuid4(), uri="ctx://datalake/prod/orders",
+            id=visible_id, uri="ctx://datalake/prod/orders",
             context_type="table_schema", scope="datalake", owner_space=None,
             status="active", version=1,
             l0_content="Orders table schema",
             l1_content="Orders table with columns: id, customer_id, total, created_at",
             tags=[], cosine_similarity=0.5,
         ),
+        FakeRecord(
+            id=hidden_id, uri="ctx://agent/other-agent/memories/orders",
+            context_type="memory", scope="agent", owner_space="other-agent",
+            status="active", version=1,
+            l0_content="Orders private note",
+            l1_content="Orders table issue private note",
+            tags=[], cosine_similarity=0.4,
+        ),
     ]
-    db = KeywordSearchDB(rows)
+    db = SearchFlowDB(rows)
     svc = _make_retrieval_service()
     ctx = RequestContext(account_id="acme", agent_id="query-agent")
     request = SearchRequest(query="orders table")
 
     response = await svc.search(db, request, ctx)
 
-    assert response.total >= 0  # May be 0 or 1 depending on keyword match
+    assert response.total == 1
+    assert response.results[0].uri == "ctx://datalake/prod/orders"
+    assert len(db.executed) == 1
+    assert "active_count = active_count + 1" in db.executed[0][0]
+    assert db.executed[0][1][0] == [visible_id]
 
 
 # --- Stale / Archived semantics ---
 
 @pytest.mark.asyncio
-async def test_stale_gets_penalty_in_ranking():
-    """Stale candidates should be penalized relative to active ones."""
-    strategy = KeywordRerankStrategy()
-    candidates = [
+async def test_search_penalizes_stale_results_after_rerank():
+    stale_id = uuid.uuid4()
+    active_id = uuid.uuid4()
+    rows = [
         {"l1_content": "database query optimization", "uri": "active", "status": "active",
-         "scope": "datalake", "owner_space": None},
+         "scope": "datalake", "owner_space": None, "id": active_id,
+         "context_type": "table_schema", "version": 1, "l0_content": "database query optimization",
+         "tags": [], "cosine_similarity": 0.9},
         {"l1_content": "database query optimization", "uri": "stale", "status": "stale",
-         "scope": "datalake", "owner_space": None},
+         "scope": "datalake", "owner_space": None, "id": stale_id,
+         "context_type": "table_schema", "version": 1, "l0_content": "database query optimization",
+         "tags": [], "cosine_similarity": 0.9},
     ]
+    # stale row comes first from retrieval so the test proves penalty reshuffles it
+    db = SearchFlowDB([FakeRecord(**rows[1]), FakeRecord(**rows[0])])
+    svc = _make_retrieval_service()
+    ctx = RequestContext(account_id="acme", agent_id="query-agent")
 
-    result = await strategy.rerank("database query", candidates)
+    response = await svc.search(db, SearchRequest(query="database query", top_k=2), ctx)
 
-    # Both have same content, so same BM25 score
-    # The stale penalty is applied in RetrievalService, not in rerank
-    # Just verify rerank doesn't crash with status field
-    assert len(result) == 2
+    assert [r.uri for r in response.results] == ["active", "stale"]
+    assert response.results[0].score > response.results[1].score
+
+
+@pytest.mark.asyncio
+async def test_search_level_l2_loads_l2_content_for_final_results():
+    row_id = uuid.uuid4()
+    db = SearchFlowDB(
+        rows=[
+            FakeRecord(
+                id=row_id, uri="ctx://datalake/prod/orders",
+                context_type="table_schema", scope="datalake", owner_space=None,
+                status="active", version=1,
+                l0_content="Orders table schema",
+                l1_content="Orders table with columns",
+                tags=[], cosine_similarity=0.6,
+            ),
+        ],
+        l2_rows=[FakeRecord(id=row_id, l2_content="CREATE TABLE orders (...);")],
+    )
+    svc = _make_retrieval_service()
+    ctx = RequestContext(account_id="acme", agent_id="query-agent")
+
+    response = await svc.search(
+        db,
+        SearchRequest(query="orders", level=ContextLevel.L2),
+        ctx,
+    )
+
+    assert response.total == 1
+    assert response.results[0].l2_content == "CREATE TABLE orders (...);"
 
 
 # --- IndexerService embedding methods ---
@@ -191,7 +247,7 @@ class EmbeddingWriteDB:
 @pytest.mark.asyncio
 async def test_update_embedding_writes_vector():
     client = MockEmbeddingClient()
-    indexer = IndexerService(ContentGenerator(), client)
+    indexer = IndexerService(ContentGenerator(), client, embedding_dimensions=1536)
     db = EmbeddingWriteDB()
     ctx_id = uuid.uuid4()
 
@@ -204,7 +260,7 @@ async def test_update_embedding_writes_vector():
 
 @pytest.mark.asyncio
 async def test_update_embedding_returns_false_on_noop():
-    indexer = IndexerService(ContentGenerator(), NoOpEmbeddingClient())
+    indexer = IndexerService(ContentGenerator(), NoOpEmbeddingClient(), embedding_dimensions=1536)
     db = EmbeddingWriteDB()
 
     success = await indexer.update_embedding(db, uuid.uuid4(), "test")
@@ -215,7 +271,7 @@ async def test_update_embedding_returns_false_on_noop():
 
 @pytest.mark.asyncio
 async def test_clear_embedding():
-    indexer = IndexerService(ContentGenerator(), NoOpEmbeddingClient())
+    indexer = IndexerService(ContentGenerator(), NoOpEmbeddingClient(), embedding_dimensions=1536)
     db = EmbeddingWriteDB()
     ctx_id = uuid.uuid4()
 
@@ -228,7 +284,7 @@ async def test_clear_embedding():
 @pytest.mark.asyncio
 async def test_backfill_embeddings():
     client = MockEmbeddingClient()
-    indexer = IndexerService(ContentGenerator(), client)
+    indexer = IndexerService(ContentGenerator(), client, embedding_dimensions=1536)
     db = EmbeddingWriteDB()
 
     row1_id = uuid.uuid4()
@@ -246,13 +302,28 @@ async def test_backfill_embeddings():
 
 @pytest.mark.asyncio
 async def test_backfill_with_noop_returns_zero():
-    indexer = IndexerService(ContentGenerator(), NoOpEmbeddingClient())
+    indexer = IndexerService(ContentGenerator(), NoOpEmbeddingClient(), embedding_dimensions=1536)
     db = EmbeddingWriteDB()
     db.set_backfill_rows([])
 
     count = await indexer.backfill_embeddings(db)
 
     assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_update_embedding_returns_false_on_dimension_mismatch():
+    indexer = IndexerService(
+        ContentGenerator(),
+        WrongDimensionEmbeddingClient(),
+        embedding_dimensions=1536,
+    )
+    db = EmbeddingWriteDB()
+
+    success = await indexer.update_embedding(db, uuid.uuid4(), "database schema")
+
+    assert success is False
+    assert len(db.updates) == 0
 
 
 # --- RetrievalRouter ---

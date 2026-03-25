@@ -37,7 +37,11 @@ async def lifespan(app: FastAPI):
     # Task 3 services
     embedding_client = create_embedding_client(settings)
     content_generator = ContentGenerator()
-    indexer_service = IndexerService(content_generator, embedding_client)
+    indexer_service = IndexerService(
+        content_generator,
+        embedding_client,
+        embedding_dimensions=settings.embedding_dimensions,
+    )
 
     # Inject indexer into ContextService for embedding consistency
     context_service = ContextService(context_store, acl_service, indexer_service)
