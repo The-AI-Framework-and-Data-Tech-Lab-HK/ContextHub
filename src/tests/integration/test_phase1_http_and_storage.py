@@ -139,7 +139,7 @@ def test_i03_neo4j_raw_clean_graph_kinds(sample_traj_dir: Path, tmp_path: Path) 
                 """
                 MATCH (:AMCNode {trajectory_id:$tid})-[r]->(:AMCNode {trajectory_id:$tid})
                 RETURN count(r) AS rel_total,
-                       count(CASE WHEN type(r) IN ['DATAFLOW','REASONING','TEMPORAL','CONTROLFLOW'] THEN 1 END) AS typed_total
+                       count(CASE WHEN type(r) IN ['DATAFLOW','REASONING','TEMPORAL','RETRY','CONTROLFLOW'] THEN 1 END) AS typed_total
                 """,
                 tid=tid,
             ).single()

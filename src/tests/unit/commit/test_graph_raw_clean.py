@@ -31,8 +31,8 @@ def test_u05_traj1_raw_contains_failed_and_retry(sample_traj_dir: Path) -> None:
     assert "failed" in statuses
     assert "success" in statuses
 
-    retry_edges = [e for e in edges if e.dep_type == "controlflow" and e.signal == "retry"]
-    assert retry_edges, "expected controlflow(retry) on failed SQL then fix (traj1)"
+    retry_edges = [e for e in edges if e.dep_type == "retry" and e.signal == "retry"]
+    assert retry_edges, "expected retry edge on failed SQL then fix (traj1)"
 
     # Tool output from ToolMessage should be carried into node payload.
     assert any(n.tool_output for n in nodes), "expected at least one node with tool_output"
@@ -78,10 +78,10 @@ def test_u07_temporal_or_dataflow_present(sample_traj_dir: Path) -> None:
                 assert e.confidence <= 0.35
 
 
-def test_u07_traj1_has_controlflow_retry(sample_traj_dir: Path) -> None:
+def test_u07_traj1_has_retry_edge(sample_traj_dir: Path) -> None:
     steps = _load("traj1.json", sample_traj_dir)
     _nodes, edges = build_raw_graph("tid", pair_ai_tool_steps(steps))
-    assert any(e.dep_type == "controlflow" for e in edges)
+    assert any(e.dep_type == "retry" for e in edges)
 
 
 def test_u08_node_ids_deterministic(sample_traj_dir: Path) -> None:

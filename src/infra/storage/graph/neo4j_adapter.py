@@ -34,7 +34,7 @@ class Neo4jGraphWriter:
     - :AMCNode + :RawNode / :CleanNode
 
     Relationship types:
-    - :DATAFLOW | :REASONING | :TEMPORAL | :CONTROLFLOW
+    - :DATAFLOW | :REASONING | :TEMPORAL | :RETRY
     """
 
     def __init__(
@@ -185,8 +185,11 @@ class Neo4jGraphWriter:
             return "DATAFLOW"
         if key == "reasoning":
             return "REASONING"
+        if key == "retry":
+            return "RETRY"
         if key == "controlflow":
-            return "CONTROLFLOW"
+            # Backward compatibility for older graphs.
+            return "RETRY"
         return "TEMPORAL"
 
     @staticmethod

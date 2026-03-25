@@ -73,7 +73,10 @@ def render_graph_png(graph: dict[str, Any], output_path: str, title: str) -> Non
             edge_color = "#999999"
         elif dep_type == "reasoning":
             edge_color = "#9467bd"
+        elif dep_type == "retry":
+            edge_color = "#d62728"
         elif dep_type == "controlflow":
+            # Backward compatibility for older graphs.
             edge_color = "#d62728"
         else:
             edge_color = "#1f77b4"

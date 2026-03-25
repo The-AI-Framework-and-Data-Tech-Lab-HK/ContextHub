@@ -11,7 +11,7 @@
 |---|------|----------|------------|
 | 1 | trajectory / node / edge 数据模型与校验 | `02-trajectory-information-model.md` | Pydantic/JSON Schema、必填字段、ID 确定性 |
 | 2 | commit API + 校验 + 幂等 | `03-commit-pipeline.md`、`09` | HTTP 契约、错误码、重复提交行为 |
-| 3 | 图构建（raw + clean） | `02` §2.4、`03` §3.3–3.4 | 配对、dataflow/reasoning/controlflow(retry)/temporal、环标注；`dep_type` 区分真实依赖与兜底边 |
+| 3 | 图构建（raw + clean） | `02` §2.4、`03` §3.3–3.4 | 配对、dataflow/reasoning/retry/temporal、环标注；`dep_type` 区分真实依赖与兜底边 |
 | 4 | Graph Store 写入 + FS `graph_pointer` | `03` §3.6、`10` | Neo4j 节点/边属性、指针 JSON 可解析 |
 | 5 | trajectory-level L0/L1 + 向量索引 | `03` §3.5、`12` | 仅 L0/L1；IndexDoc 无冗余字段；upsert 幂等 |
 | 6 | 审计日志 | `05`、`03` | commit 写审计、敏感字段脱敏/摘要 |
@@ -26,7 +26,7 @@
 
 | 文件 | 典型特征 | 建议覆盖的测试意图 |
 |------|----------|---------------------|
-| `traj1.json` | 英文思考；含 **Tool 失败**（如表名含 `&` 导致语法错误）及 **后续修正成功** | raw 保留失败边；clean 主路径；`controlflow(retry)`；`failure_signature` 相关（若实现） |
+| `traj1.json` | 英文思考；含 **Tool 失败**（如表名含 `&` 导致语法错误）及 **后续修正成功** | raw 保留失败边；clean 主路径；`retry`；`failure_signature` 相关（若实现） |
 | `traj2.json` | 中文思考；多步探索 + 长 `Action_result` | 规范化截断/摘要；dataflow 跨表名；编码 UTF-8 |
 | `traj3.json` | 连续多步 **仅有 AIMessage、无紧随 ToolMessage**（配对缺口） | `pending_output`、质量标签、图不崩溃 |
 | `traj4.json` | 中文；步数多、结构复杂 | 大图构建性能与稳定性；temporal 兜底边数量上界（可选） |
@@ -48,7 +48,7 @@
 | U-04 | `normalizer`：超长 `Action_result` | traj2 中长 result | 截断后仍有摘要或引用；不超过配置上限 |
 | U-05 | `graph_builder` raw | traj1 | 失败节点存在；retry 边存在（与实现命名一致） |
 | U-06 | `clean_deriver` | traj1 | clean 节点数 ≤ raw；失败被替代路径在 clean 中弱化或移除（按 02 规则） |
-| U-07 | 边类型 | traj1 + traj2 | 至少存在 temporal 或 dataflow；traj1 存在 retry 类 controlflow，且 `dep_type` 明确区分 |
+| U-07 | 边类型 | traj1 + traj2 | 至少存在 temporal 或 dataflow；traj1 存在 `dep_type=retry`，且 `dep_type` 明确区分 |
 | U-10 | 枚举输出到命令命中 | traj1（Step2 输出表名 -> Step3/5/7/11 的 command） | 命中 `enum_to_command`，`signal_detail.matched_tokens` 包含具体表名（如 `ch___company_info`） |
 | U-11 | reasoning 边（thinking 依据） | traj1 + traj5 | 存在 `dep_type=reasoning`；`signal_detail.reason_summary` 非空；`src.ai_step < dst.ai_step` |
 | U-12 | reasoning 证据来源约束（弱约束） | 构造样例 | `reason_summary` 必填；禁止把 `src.tool_args` 作为 source 输出证据主来源；`matched_evidence` 允许语义归纳，不强制逐字命中 |
@@ -65,7 +65,7 @@
 | I-04 | Chroma 索引 | Chroma + Embedding（可用 fake embedding 注入） | collection 中存在 doc id 与 `tenant_id` metadata；重复 commit 不重复脏行 |
 | I-05 | 审计 | 文件 audit sink | commit 产生一条审计；`query_text` 按策略 redact |
 | I-06 | 单轨迹详情/回放 | `GET .../replay/{trajectory_id}` 或内部 repo | 能读回与 sample 一致的 step 序列或 raw_refs |
-| I-07 | reasoning 可视化颜色区分 | 图渲染 + PNG | `reasoning` 边使用独立颜色（与 dataflow/temporal/controlflow 不同） |
+| I-07 | reasoning 可视化颜色区分 | 图渲染 + PNG | `reasoning` 边使用独立颜色（与 dataflow/temporal/retry 不同） |
 
 ### C. 样例集「构建成功率」验收（M1）
 

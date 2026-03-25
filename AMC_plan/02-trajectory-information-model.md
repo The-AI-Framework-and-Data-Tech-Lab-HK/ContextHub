@@ -58,7 +58,7 @@ class DependencyEdge:
     trajectory_id: str             # 所属轨迹 ID
     src_node_id: str               # 源节点 ID（依赖提供方）
     dst_node_id: str               # 目标节点 ID（依赖使用方）
-    dep_type: str                  # 依赖类型：dataflow | reasoning | controlflow(retry) | temporal
+    dep_type: str                  # 依赖类型：dataflow | reasoning | retry | temporal
     signal: str | None             # 依赖证据（可选；MVP 可先不落，后续用于可解释增强）
     confidence: float              # 边置信度（0~1）
     signal_detail: dict | None     # 结构化证据（如 matched_tokens/reason_summary/source）
@@ -78,7 +78,7 @@ class DependencyEdge:
 - 判定 A -> B 为 `dataflow`（`signal=evidence_type: enum_to_command`）。
 
 ### Rule-3：失败-修正链
-若前序节点 `output_status=failed`，且后续出现同工具修正调用，建立 `controlflow(retry)` 边。
+若前序节点 `output_status=failed`，且后续出现同工具修正调用，建立 `retry` 边（`signal=retry`）。
 
 ### Rule-4：时间顺序兜底
 若无法识别“前序输出被后续输入消费”的证据，则创建低置信度 `temporal` 边以避免图断裂。

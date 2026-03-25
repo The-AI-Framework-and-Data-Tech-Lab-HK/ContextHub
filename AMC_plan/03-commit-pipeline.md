@@ -62,8 +62,8 @@ Receive -> Validate -> Normalize -> Pair AI/Tool -> Build Raw Graph -> Build Cle
 ### (4) Graph Build（raw + clean）
 - 基于配对后的节点构建 Raw Graph（保留失败/重试/分支）；
 - 从 Raw Graph 派生 Clean Graph（移除失败噪音，仅保留有效完成路径）；
-- 依据 02 文档规则抽取 `dataflow/reasoning/controlflow(retry)/temporal` 边；
-- `dep_type` 必须显式区分：`dataflow`（真实 output->input）/ `reasoning`（thinking 参考执行结果）/ `temporal`（时序兜底）；
+- 依据 02 文档规则抽取 `dataflow/reasoning/retry/temporal` 边；
+- `dep_type` 必须显式区分：`dataflow`（真实 output->input）/ `reasoning`（thinking 参考执行结果）/ `retry`（失败后的同工具重试）/ `temporal`（时序兜底）；
 - 若发现环，保留环信息并标注 `graph_has_cycle=true`（不阻断入库）。
 
 #### (4.1) Dataflow 提取策略（实现草案）

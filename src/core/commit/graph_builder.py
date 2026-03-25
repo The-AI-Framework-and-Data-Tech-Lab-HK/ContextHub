@@ -300,7 +300,7 @@ def build_raw_graph(
     dataflow_extractor: ExtractorCallable | None = None,
     reasoning_min_confidence: float = 0.55,
 ) -> tuple[list[GraphNode], list[GraphEdge]]:
-    """Create raw graph: dataflow, controlflow(retry), and optional temporal fallback."""
+    """Create raw graph: dataflow, retry, reasoning, and optional temporal fallback."""
     nodes: list[GraphNode] = []
     for idx, p in enumerate(pairs):
         parsed = parse_local_db_sql_action(p.action) if p.action else None
@@ -544,7 +544,7 @@ def build_raw_graph(
             add_edge(
                 prev.node_id,
                 cur.node_id,
-                "controlflow",
+                "retry",
                 "retry",
                 0.9,
                 signal_detail={"reason": "failed_then_same_tool_retry"},
