@@ -13,6 +13,7 @@ from core.commit.service import CommitService
 from core.commit.summary_llm import LLMTrajectorySummarizer
 from infra.audit.audit_logger import JsonlAuditLogger
 from infra.storage.fs.trajectory_repo import LocalFSTrajectoryRepository
+from infra.storage.graph.factory import build_graph_store_writer
 
 
 def create_app(settings: AppSettings | None = None) -> FastAPI:
@@ -22,6 +23,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
 
     repo = LocalFSTrajectoryRepository(root=cfg.storage.localfs_root)
     audit = JsonlAuditLogger(file_path=cfg.storage.audit_file_path)
+    graph_store = build_graph_store_writer(cfg)
     dataflow_extractor = None
     llm_summarizer = None
     if cfg.openai_api_key:
@@ -55,6 +57,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         commit_service=service,
         repo=repo,
         audit=audit,
+        graph_store=graph_store,
         idempotency_enabled=cfg.commit.idempotency_enabled,
     )
 

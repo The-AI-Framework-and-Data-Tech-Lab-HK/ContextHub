@@ -14,6 +14,7 @@ from core.commit.service import CommitCommand, CommitService
 from core.commit.summary_llm import LLMTrajectorySummarizer
 from infra.audit.audit_logger import JsonlAuditLogger
 from infra.storage.fs.trajectory_repo import LocalFSTrajectoryRepository
+from infra.storage.graph.factory import build_graph_store_writer
 
 
 def _load_trajectory(path: Path) -> list[dict[str, Any]]:
@@ -42,6 +43,7 @@ def run_commit(
     settings = load_settings(config_path=config_path)
     repo = LocalFSTrajectoryRepository(root=settings.storage.localfs_root)
     audit = JsonlAuditLogger(file_path=settings.storage.audit_file_path)
+    graph_store = build_graph_store_writer(settings)
     dataflow_extractor = None
     llm_summarizer = None
     if settings.openai_api_key:
@@ -80,6 +82,7 @@ def run_commit(
         commit_service=service,
         repo=repo,
         audit=audit,
+        graph_store=graph_store,
         idempotency_enabled=idempotency_enabled,
     )
 
@@ -108,6 +111,7 @@ def run_commit(
         "nodes": commit_result.nodes,
         "edges": commit_result.edges,
         "warnings": commit_result.warnings,
+        "neo4j": commit_result.payload.get("neo4j_summary", {"enabled": False}),
         "storage": {
             "base_path": str(base),
             "l0_abstract_path": str(base / ".abstract.md"),

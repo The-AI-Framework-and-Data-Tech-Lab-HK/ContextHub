@@ -1,3 +1,7 @@
-"""AMC src.infra.storage.vector.package placeholder."""
+"""Vector storage adapters and factories."""
 
-# TODO: implement
+from infra.storage.vector.base import VectorStoreAdapter
+from infra.storage.vector.chroma_adapter import ChromaVectorAdapter
+from infra.storage.vector.factory import build_vector_store_adapter
+
+__all__ = ["VectorStoreAdapter", "ChromaVectorAdapter", "build_vector_store_adapter"]

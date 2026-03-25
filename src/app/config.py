@@ -56,6 +56,8 @@ class AppSettings(BaseModel):
     neo4j_user: str = "neo4j"
     neo4j_password: str = ""
     neo4j_database: str = "neo4j"
+    graph_store_backend: str = "neo4j"
+    vector_store_backend: str = "chroma"
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
     llm_model: str = "gpt-4.1-mini"
@@ -87,6 +89,8 @@ def load_settings(config_path: str | None = None) -> AppSettings:
     normalize_raw = (commit_raw.get("normalize") or {}) if isinstance(commit_raw, dict) else {}
     event_raw = (storage_raw.get("event_log") or {}) if isinstance(storage_raw, dict) else {}
     content_raw = (storage_raw.get("content_store") or {}) if isinstance(storage_raw, dict) else {}
+    graph_store_raw = (storage_raw.get("graph_store") or {}) if isinstance(storage_raw, dict) else {}
+    vector_store_raw = (storage_raw.get("vector_store") or {}) if isinstance(storage_raw, dict) else {}
     audit_raw = raw.get("audit") or {}
     model_raw = raw.get("model_endpoints") or {}
 
@@ -163,6 +167,14 @@ def load_settings(config_path: str | None = None) -> AppSettings:
     settings.neo4j_user = os.getenv("AMC_NEO4J_USER", settings.neo4j_user)
     settings.neo4j_password = os.getenv("AMC_NEO4J_PASSWORD", settings.neo4j_password)
     settings.neo4j_database = os.getenv("AMC_NEO4J_DATABASE", settings.neo4j_database)
+    settings.graph_store_backend = os.getenv(
+        "AMC_GRAPH_STORE_BACKEND",
+        str(graph_store_raw.get("backend", settings.graph_store_backend)),
+    ).strip()
+    settings.vector_store_backend = os.getenv(
+        "AMC_VECTOR_STORE_BACKEND",
+        str(vector_store_raw.get("backend", settings.vector_store_backend)),
+    ).strip()
     settings.embedding_provider = os.getenv("AMC_EMBEDDING_PROVIDER", settings.embedding_provider)
     settings.embedding_model = os.getenv("AMC_EMBEDDING_MODEL", settings.embedding_model)
     # Unified LLM model shared across LLM-powered features.

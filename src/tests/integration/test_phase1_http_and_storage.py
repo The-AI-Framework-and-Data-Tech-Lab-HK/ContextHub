@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -86,9 +87,66 @@ def test_i02_fs_writes_trajectory_bundle(sample_traj_dir: Path, tmp_path: Path) 
     assert meta["trajectory_id"] == tid
 
 
-@pytest.mark.skip(reason="I-03 requires Neo4j graph backend wiring (Phase 1.1)")
-def test_i03_neo4j_raw_clean_graph_kinds() -> None:
-    pass
+def _neo4j_ready() -> bool:
+    return bool(
+        os.environ.get("AMC_NEO4J_URI")
+        and os.environ.get("AMC_NEO4J_USER")
+        and os.environ.get("AMC_NEO4J_PASSWORD")
+    )
+
+
+@pytest.mark.skipif(not _neo4j_ready(), reason="Neo4j env not set for I-03")
+def test_i03_neo4j_raw_clean_graph_kinds(sample_traj_dir: Path, tmp_path: Path) -> None:
+    from neo4j import GraphDatabase
+
+    settings = _settings(tmp_path)
+    settings.neo4j_uri = os.environ["AMC_NEO4J_URI"]
+    settings.neo4j_user = os.environ["AMC_NEO4J_USER"]
+    settings.neo4j_password = os.environ["AMC_NEO4J_PASSWORD"]
+    settings.neo4j_database = os.environ.get("AMC_NEO4J_DATABASE", "neo4j")
+
+    app = create_app(settings)
+    client = TestClient(app)
+    body = client.post("/api/v1/amc/commit", json=_payload(sample_traj_dir, "traj1.json")).json()
+    tid = body["trajectory_id"]
+
+    driver = GraphDatabase.driver(
+        settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password)
+    )
+    try:
+        with driver.session(database=settings.neo4j_database) as session:
+            traj = session.run(
+                "MATCH (t:AMCTrajectory {trajectory_id:$tid}) RETURN count(t) AS c",
+                tid=tid,
+            ).single()
+            assert traj and traj["c"] == 1
+
+            node_counts = session.run(
+                """
+                MATCH (n:AMCNode {trajectory_id:$tid})
+                RETURN
+                  count(n) AS total,
+                  count(CASE WHEN n:RawNode THEN 1 END) AS raw_count,
+                  count(CASE WHEN n:CleanNode THEN 1 END) AS clean_count
+                """,
+                tid=tid,
+            ).single()
+            assert node_counts and node_counts["total"] > 0
+            assert node_counts["raw_count"] > 0
+            assert node_counts["clean_count"] > 0
+
+            rel_counts = session.run(
+                """
+                MATCH (:AMCNode {trajectory_id:$tid})-[r]->(:AMCNode {trajectory_id:$tid})
+                RETURN count(r) AS rel_total,
+                       count(CASE WHEN type(r) IN ['DATAFLOW','REASONING','TEMPORAL','CONTROLFLOW'] THEN 1 END) AS typed_total
+                """,
+                tid=tid,
+            ).single()
+            assert rel_counts and rel_counts["rel_total"] > 0
+            assert rel_counts["typed_total"] == rel_counts["rel_total"]
+    finally:
+        driver.close()
 
 
 @pytest.mark.skip(reason="I-04 requires Chroma upsert wiring (Phase 1.1)")

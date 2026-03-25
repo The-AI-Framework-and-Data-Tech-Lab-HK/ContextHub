@@ -134,6 +134,15 @@ Force-disable idempotency for one CLI run (useful only when config/env enabled i
 amc-commit-trajectory sample_traj/traj2.json --disable-idempotency --pretty
 ```
 
+Verify Neo4j graph write (commit + query labels/edge types in one command):
+
+```bash
+amc-verify-neo4j sample_traj/traj1.json --disable-idempotency --pretty
+```
+
+Useful option:
+- `--force-rule-based`: temporarily force `AMC_COMMIT_DATAFLOW_EXTRACTOR=rule_based` for faster verification.
+
 ## 5) Run Project as a Service (systemd)
 
 Use this for Linux server deployment.

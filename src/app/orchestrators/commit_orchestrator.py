@@ -7,6 +7,7 @@ from typing import Any
 from core.commit.service import CommitCommand, CommitResult, CommitService
 from infra.audit.audit_logger import JsonlAuditLogger
 from infra.storage.fs.trajectory_repo import LocalFSTrajectoryRepository
+from infra.storage.graph.base import GraphStoreWriter
 
 
 class CommitOrchestrator:
@@ -16,11 +17,13 @@ class CommitOrchestrator:
         commit_service: CommitService,
         repo: LocalFSTrajectoryRepository,
         audit: JsonlAuditLogger,
+        graph_store: GraphStoreWriter | None = None,
         idempotency_enabled: bool = False,
     ) -> None:
         self.commit_service = commit_service
         self.repo = repo
         self.audit = audit
+        self.graph_store = graph_store
         self.idempotency_enabled = idempotency_enabled
 
     def commit(self, command: CommitCommand) -> CommitResult:
@@ -60,6 +63,16 @@ class CommitOrchestrator:
             return out
 
         # First-seen commit: persist trajectory + raw/clean graph artifacts.
+        neo4j_summary: dict[str, Any] | None = None
+        if self.graph_store is not None:
+            neo4j_summary = self.graph_store.upsert_trajectory_graphs(
+                tenant_id=command.tenant_id,
+                agent_id=command.agent_id,
+                trajectory_id=result.trajectory_id,
+                raw_graph=result.payload["raw_graph"],
+                clean_graph=result.payload["clean_graph"],
+            )
+        result.payload["neo4j_summary"] = neo4j_summary or {"enabled": False}
         self.repo.save_bundle(
             tenant_id=command.tenant_id,
             agent_id=command.agent_id,
