@@ -62,7 +62,7 @@
 | I-01 | `POST /api/v1/amc/commit` 成功 | FastAPI + 真实或 testcontainer Neo4j + Chroma + temp 目录 | `status=accepted`；`nodes/edges` > 0；HTTP 201/200 |
 | I-02 | FS 落盘 | 同上 | 存在 `trajectory.json`、`.abstract.md`、`.overview.md`、`graph_pointer.json`；URI 形态符合 `ctx://agent/{agent_id}/memories/trajectories/{id}/` 映射（实现层路径等价即可） |
 | I-03 | Neo4j raw/clean | Neo4j | 可查询到 `graph_kind=raw|clean`（或等价标签/属性）；边含 `dep_type`、`confidence` |
-| I-04 | Chroma 索引 | Chroma + Embedding（可用 fake embedding 注入） | collection 中存在 doc id 与 `tenant_id` metadata；重复 commit 不重复脏行 |
+| I-04 | Chroma 索引 | Chroma + Embedding（可用 fake embedding 注入） | collection 中存在 `id=md5(tenant+uri)` 与 `uri/tenant_id/level/content_sha256` metadata；重复 commit 时若文件原文 hash 变化则重算并更新 embedding，未变化可跳过；不持久化正文内容；embedding 输入与 `uri` 对应文件原文一致 |
 | I-05 | 审计 | 文件 audit sink | commit 产生一条审计；`query_text` 按策略 redact |
 | I-06 | 单轨迹详情/回放 | `GET .../replay/{trajectory_id}` 或内部 repo | 能读回与 sample 一致的 step 序列或 raw_refs |
 | I-07 | reasoning 可视化颜色区分 | 图渲染 + PNG | `reasoning` 边使用独立颜色（与 dataflow/temporal/retry 不同） |

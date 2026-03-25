@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.commit.service import CommitCommand, CommitResult, CommitService
+from core.indexing.base import TrajectoryIndexer
 from infra.audit.audit_logger import JsonlAuditLogger
 from infra.storage.fs.trajectory_repo import LocalFSTrajectoryRepository
 from infra.storage.graph.base import GraphStoreWriter
@@ -18,12 +19,14 @@ class CommitOrchestrator:
         repo: LocalFSTrajectoryRepository,
         audit: JsonlAuditLogger,
         graph_store: GraphStoreWriter | None = None,
+        vector_indexer: TrajectoryIndexer | None = None,
         idempotency_enabled: bool = False,
     ) -> None:
         self.commit_service = commit_service
         self.repo = repo
         self.audit = audit
         self.graph_store = graph_store
+        self.vector_indexer = vector_indexer
         self.idempotency_enabled = idempotency_enabled
 
     def commit(self, command: CommitCommand) -> CommitResult:
@@ -39,6 +42,24 @@ class CommitOrchestrator:
             bundle = self.repo.load_trajectory(existing_id)
             nodes = int((bundle or {}).get("meta", {}).get("nodes", 0))
             edges = int((bundle or {}).get("meta", {}).get("edges", 0))
+            vector_summary: dict[str, Any] = {"enabled": False}
+            if self.vector_indexer is not None and bundle and bundle.get("base_path"):
+                try:
+                    vector_summary = self.vector_indexer.index_trajectory(
+                        tenant_id=command.tenant_id,
+                        agent_id=command.agent_id,
+                        trajectory_id=existing_id,
+                        task_type=str(command.labels.get("task_type", "") or ""),
+                        base_path=str(bundle["base_path"]),
+                        lifecycle_status="active",
+                        stale_flag=False,
+                    )
+                except Exception as exc:
+                    vector_summary = {
+                        "enabled": True,
+                        "ok": False,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
             out = CommitResult(
                 trajectory_id=existing_id,
                 idempotency_key=result.idempotency_key,
@@ -50,6 +71,7 @@ class CommitOrchestrator:
                 summary_l1=(bundle or {}).get("overview", result.summary_l1),
                 payload=result.payload,
             )
+            out.payload["vector_index_summary"] = vector_summary
             self.audit.write(
                 action="commit",
                 result="idempotent",
@@ -73,7 +95,7 @@ class CommitOrchestrator:
                 clean_graph=result.payload["clean_graph"],
             )
         result.payload["neo4j_summary"] = neo4j_summary or {"enabled": False}
-        self.repo.save_bundle(
+        base_path = self.repo.save_bundle(
             tenant_id=command.tenant_id,
             agent_id=command.agent_id,
             trajectory_id=result.trajectory_id,
@@ -81,6 +103,22 @@ class CommitOrchestrator:
             payload=result.payload,
             visualize_graph_png=command.visualize_graph_png,
         )
+        vector_summary: dict[str, Any] = {"enabled": False}
+        if self.vector_indexer is not None:
+            try:
+                vector_summary = self.vector_indexer.index_trajectory(
+                    tenant_id=command.tenant_id,
+                    agent_id=command.agent_id,
+                    trajectory_id=result.trajectory_id,
+                    task_type=str(command.labels.get("task_type", "") or ""),
+                    base_path=base_path,
+                    lifecycle_status="active",
+                    stale_flag=False,
+                )
+            except Exception as exc:
+                result.warnings.append(f"vector indexing skipped: {type(exc).__name__}")
+                vector_summary = {"enabled": True, "ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        result.payload["vector_index_summary"] = vector_summary
         self.audit.write(
             action="commit",
             result="accepted" if self.idempotency_enabled else "accepted_idempotency_disabled",

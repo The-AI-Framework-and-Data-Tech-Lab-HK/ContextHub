@@ -57,9 +57,18 @@ class AppSettings(BaseModel):
     neo4j_password: str = ""
     neo4j_database: str = "neo4j"
     graph_store_backend: str = "neo4j"
-    vector_store_backend: str = "chroma"
+    vector_store_backend: str = "pgvector"
+    vector_collection_name: str = "amc_trajectory_index"
+    vector_distance: str = "cosine"
+    chroma_persist_dir: str = "./data/chroma"
+    pgvector_dsn: str = ""
+    pgvector_schema: str = "public"
+    pgvector_table: str = "amc_trajectory_index"
+    indexing_async_enabled: bool = True
+    indexing_include_levels: list[int] = Field(default_factory=lambda: [0, 1])
     embedding_provider: str = "openai"
-    embedding_model: str = "text-embedding-3-small"
+    embedding_model: str = "doubao-embedding-vision-251215"
+    embedding_mode: str = "multimodal"  # text | multimodal
     llm_model: str = "gpt-4.1-mini"
     openai_api_key: str = ""
 
@@ -93,6 +102,7 @@ def load_settings(config_path: str | None = None) -> AppSettings:
     vector_store_raw = (storage_raw.get("vector_store") or {}) if isinstance(storage_raw, dict) else {}
     audit_raw = raw.get("audit") or {}
     model_raw = raw.get("model_endpoints") or {}
+    indexing_raw = raw.get("indexing") or {}
 
     settings = AppSettings(
         app=AppSection(
@@ -175,8 +185,40 @@ def load_settings(config_path: str | None = None) -> AppSettings:
         "AMC_VECTOR_STORE_BACKEND",
         str(vector_store_raw.get("backend", settings.vector_store_backend)),
     ).strip()
+    settings.vector_collection_name = str(
+        vector_store_raw.get("collection_name", settings.vector_collection_name)
+    )
+    settings.vector_distance = str(vector_store_raw.get("distance", settings.vector_distance))
+    settings.chroma_persist_dir = os.getenv("AMC_CHROMA_PERSIST_DIR", settings.chroma_persist_dir)
+    settings.pgvector_dsn = os.getenv(
+        "AMC_PGVECTOR_DSN",
+        str(vector_store_raw.get("pgvector_dsn", settings.pgvector_dsn)),
+    )
+    settings.pgvector_schema = os.getenv(
+        "AMC_PGVECTOR_SCHEMA",
+        str(vector_store_raw.get("pgvector_schema", settings.pgvector_schema)),
+    )
+    settings.pgvector_table = os.getenv(
+        "AMC_PGVECTOR_TABLE",
+        str(vector_store_raw.get("pgvector_table", settings.pgvector_table)),
+    )
+    settings.indexing_async_enabled = bool(indexing_raw.get("async_enabled", settings.indexing_async_enabled))
+    settings.indexing_async_enabled = os.getenv(
+        "AMC_INDEXING_ASYNC_ENABLED", str(settings.indexing_async_enabled)
+    ).lower() in {"1", "true", "yes", "on"}
+    include_levels_raw = indexing_raw.get("include_levels", settings.indexing_include_levels)
+    if isinstance(include_levels_raw, list):
+        parsed_levels: list[int] = []
+        for lv in include_levels_raw:
+            try:
+                parsed_levels.append(int(lv))
+            except Exception:
+                continue
+        if parsed_levels:
+            settings.indexing_include_levels = parsed_levels
     settings.embedding_provider = os.getenv("AMC_EMBEDDING_PROVIDER", settings.embedding_provider)
     settings.embedding_model = os.getenv("AMC_EMBEDDING_MODEL", settings.embedding_model)
+    settings.embedding_mode = os.getenv("AMC_EMBEDDING_MODE", settings.embedding_mode).strip().lower()
     # Unified LLM model shared across LLM-powered features.
     settings.llm_model = os.getenv("AMC_LLM_MODEL", str(model_raw.get("llm_model", settings.llm_model))).strip()
     settings.openai_api_key = os.getenv("AMC_OPENAI_API_KEY", settings.openai_api_key)

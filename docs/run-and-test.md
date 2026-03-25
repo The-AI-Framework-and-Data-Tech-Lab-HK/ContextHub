@@ -12,7 +12,7 @@ This document records how to run AMC in development and production-like modes.
 
 Optional external services:
 - Neo4j service (for graph backend in later phases)
-- Chroma service (optional; Phase 1 can run without remote Chroma service)
+- PostgreSQL + pgvector extension (default vector backend)
 
 ## 2) Install Dependencies
 
@@ -32,6 +32,30 @@ source .venv/bin/activate
 pip install -U pip
 pip install -e ".[dev]"
 ```
+
+## 2.1) Prepare pgvector (default vector DB)
+
+AMC now defaults to `pgvector` for vector storage.
+
+1) Ensure PostgreSQL is running.
+2) Create/verify extension:
+
+```bash
+psql "postgresql://<user>:<password>@127.0.0.1:5432/postgres" -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+3) Configure `.env`:
+
+```bash
+AMC_VECTOR_STORE_BACKEND=pgvector
+AMC_PGVECTOR_DSN=postgresql://<user>:<password>@127.0.0.1:5432/postgres
+AMC_PGVECTOR_SCHEMA=public
+AMC_PGVECTOR_TABLE=amc_trajectory_index
+```
+
+Notes:
+- If `AMC_PGVECTOR_DSN` is empty while backend is `pgvector`, vector indexing is auto-disabled.
+- You can still switch back to Chroma via `AMC_VECTOR_STORE_BACKEND=chroma`.
 
 ## 3) Run Tests
 
@@ -143,6 +167,12 @@ amc-verify-neo4j sample_traj/traj1.json --disable-idempotency --pretty
 Useful option:
 - `--force-rule-based`: temporarily force `AMC_COMMIT_DATAFLOW_EXTRACTOR=rule_based` for faster verification.
 
+Verify pgvector rows after one commit:
+
+```bash
+psql "$AMC_PGVECTOR_DSN" -c "SELECT id, metadata->>'uri' AS uri FROM public.amc_trajectory_index LIMIT 5;"
+```
+
 ## 5) Run Project as a Service (systemd)
 
 Use this for Linux server deployment.
@@ -198,6 +228,7 @@ sudo systemctl restart amc
   - `storage.content_store.localfs_root`
   - `audit.file_path`
 - Neo4j connection errors: verify `AMC_NEO4J_URI/USER/PASSWORD` and service status.
+- pgvector connection errors: verify `AMC_PGVECTOR_DSN` and that `CREATE EXTENSION vector` succeeded.
 
 ### Repeated commit is skipped (idempotent)
 

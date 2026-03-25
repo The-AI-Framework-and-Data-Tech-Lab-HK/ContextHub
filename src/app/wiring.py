@@ -10,10 +10,12 @@ from app.config import AppSettings, load_settings
 from app.orchestrators.commit_orchestrator import CommitOrchestrator
 from core.commit.dataflow_llm import LLMDataflowExtractor
 from core.commit.service import CommitService
+from core.indexing.trajectory_vector_indexer import TrajectoryVectorIndexer
 from core.commit.summary_llm import LLMTrajectorySummarizer
 from infra.audit.audit_logger import JsonlAuditLogger
 from infra.storage.fs.trajectory_repo import LocalFSTrajectoryRepository
 from infra.storage.graph.factory import build_graph_store_writer
+from infra.storage.vector.factory import build_vector_store_adapter
 
 
 def create_app(settings: AppSettings | None = None) -> FastAPI:
@@ -24,6 +26,18 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     repo = LocalFSTrajectoryRepository(root=cfg.storage.localfs_root)
     audit = JsonlAuditLogger(file_path=cfg.storage.audit_file_path)
     graph_store = build_graph_store_writer(cfg)
+    vector_indexer = None
+    if cfg.indexing_async_enabled and cfg.embedding_provider.lower() == "openai" and cfg.openai_api_key:
+        vector_store = build_vector_store_adapter(cfg)
+        if vector_store is not None and cfg.indexing_include_levels:
+            vector_indexer = TrajectoryVectorIndexer(
+                vector_store=vector_store,
+                embedding_model=cfg.embedding_model,
+                api_key=cfg.openai_api_key,
+                embedder_base_url=cfg.model_endpoints.embedder_base_url or None,
+                embedding_mode=cfg.embedding_mode,
+                include_levels=tuple(int(x) for x in cfg.indexing_include_levels),
+            )
     dataflow_extractor = None
     llm_summarizer = None
     if cfg.openai_api_key:
@@ -58,6 +72,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         repo=repo,
         audit=audit,
         graph_store=graph_store,
+        vector_indexer=vector_indexer,
         idempotency_enabled=cfg.commit.idempotency_enabled,
     )
 

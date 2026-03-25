@@ -22,6 +22,7 @@ dependencies = [
     "httpx>=0.27",
     "neo4j>=5.0",
     "chromadb>=0.5",
+    "psycopg[binary]",
     "openai>=1.0",
     "matplotlib>=3.8",
 ]
@@ -38,6 +39,7 @@ dev = [
 amc-commit-trajectory = "cli.commit_trajectory:main"
 amc-check-llm = "cli.check_llm_connectivity:main"
 amc-verify-neo4j = "cli.verify_neo4j:main"
+amc-check-embedding = "cli.check_embedding_connectivity:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

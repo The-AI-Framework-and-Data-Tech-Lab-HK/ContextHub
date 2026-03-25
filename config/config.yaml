@@ -36,7 +36,7 @@ security:
     enabled: true
 
 # ---------------------------------------------------------------------------
-# 存储（开发态：LocalFS + Chroma + Neo4j + JSONL）
+# 存储（开发态：LocalFS + pgvector + Neo4j + JSONL）
 # ---------------------------------------------------------------------------
 storage:
   content_store:
@@ -44,10 +44,13 @@ storage:
     localfs_root: "./data/content"
 
   vector_store:
-    backend: chroma
+    backend: pgvector
     collection_name: "amc_trajectory_index"
     distance: cosine
     search_timeout_ms: 2000
+    pgvector_dsn: ""            # 例如: postgresql://postgres:password@127.0.0.1:5432/postgres
+    pgvector_schema: "public"
+    pgvector_table: "amc_trajectory_index"
 
   graph_store:
     backend: neo4j

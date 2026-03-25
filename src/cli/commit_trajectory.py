@@ -11,10 +11,12 @@ from app.config import load_settings
 from app.orchestrators.commit_orchestrator import CommitOrchestrator
 from core.commit.dataflow_llm import LLMDataflowExtractor
 from core.commit.service import CommitCommand, CommitService
+from core.indexing.trajectory_vector_indexer import TrajectoryVectorIndexer
 from core.commit.summary_llm import LLMTrajectorySummarizer
 from infra.audit.audit_logger import JsonlAuditLogger
 from infra.storage.fs.trajectory_repo import LocalFSTrajectoryRepository
 from infra.storage.graph.factory import build_graph_store_writer
+from infra.storage.vector.factory import build_vector_store_adapter
 
 
 def _load_trajectory(path: Path) -> list[dict[str, Any]]:
@@ -44,6 +46,22 @@ def run_commit(
     repo = LocalFSTrajectoryRepository(root=settings.storage.localfs_root)
     audit = JsonlAuditLogger(file_path=settings.storage.audit_file_path)
     graph_store = build_graph_store_writer(settings)
+    vector_indexer = None
+    if (
+        settings.indexing_async_enabled
+        and settings.embedding_provider.lower() == "openai"
+        and settings.openai_api_key
+    ):
+        vector_store = build_vector_store_adapter(settings)
+        if vector_store is not None and settings.indexing_include_levels:
+            vector_indexer = TrajectoryVectorIndexer(
+                vector_store=vector_store,
+                embedding_model=settings.embedding_model,
+                api_key=settings.openai_api_key,
+                embedder_base_url=settings.model_endpoints.embedder_base_url or None,
+                embedding_mode=settings.embedding_mode,
+                include_levels=tuple(int(x) for x in settings.indexing_include_levels),
+            )
     dataflow_extractor = None
     llm_summarizer = None
     if settings.openai_api_key:
@@ -83,6 +101,7 @@ def run_commit(
         repo=repo,
         audit=audit,
         graph_store=graph_store,
+        vector_indexer=vector_indexer,
         idempotency_enabled=idempotency_enabled,
     )
 
@@ -112,6 +131,7 @@ def run_commit(
         "edges": commit_result.edges,
         "warnings": commit_result.warnings,
         "neo4j": commit_result.payload.get("neo4j_summary", {"enabled": False}),
+        "vector_index": commit_result.payload.get("vector_index_summary", {"enabled": False}),
         "storage": {
             "base_path": str(base),
             "l0_abstract_path": str(base / ".abstract.md"),

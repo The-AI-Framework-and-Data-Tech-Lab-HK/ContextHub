@@ -276,13 +276,17 @@ if enum_hit:
 - 仅索引 trajectory-level 两个文档：
   - L0: `.../.abstract.md`
   - L1: `.../.overview.md`
+- 向量库记录以 `uri` 为主键锚点（`id = md5(tenant_id + uri)`），**不直接持久化文件全文**；
+- Embedding 计算时由 worker 按 `uri` 回文件系统读取文本（运行时读取，向量库仅存 embedding + metadata）；
+- **Embedding 输入必须是目标文件原文全文**（按文件编码解码后的完整字符串），禁止改用摘要字段副本、清洗重写文本、截断文本；
+- metadata 至少包含：`uri/level/tenant_id/trajectory_id/agent_id/task_type`（可选 `content_sha256` 用于变更检测）；
 - 不索引 node-level 摘要（当前阶段）。
 
 推荐流水线（异步）：
 1. commit 完成后发布 `TrajectoryCommitted` 事件；
 2. Indexer 从 FS 读取 `.abstract.md/.overview.md`；
-3. 构造两条 `IndexDoc` 并入 `EmbeddingQueue`；
-4. Embed worker 产出向量并执行 `upsert` 到 Vector Store。
+3. 构造两条 `IndexDoc`（以 `uri` 为锚，不内嵌正文）并入 `EmbeddingQueue`；
+4. Embed worker 按 `uri` 回 FS 读取文件原文正文，产出向量并执行 `upsert` 到 Vector Store。
 
 `IndexDoc` 最小字段建议：
 ```python
@@ -302,12 +306,21 @@ class IndexDoc:
     updated_at: datetime    # 最近更新时间
 ```
 
-Embedding Worker 根据 `uri` 回文件系统读取对应的 `.abstract.md/.overview.md` 作为向量化文本。
+Embedding Worker 根据 `uri` 回文件系统读取对应的 `.abstract.md/.overview.md` 原文全文作为向量化文本。
+
+Vector Store 推荐记录结构（MVP）：
+- `id`：`md5(tenant_id + uri)`
+- `embedding`：向量
+- `metadata`：`uri, parent_uri, level, tenant_id, trajectory_id, agent_id, task_type, lifecycle_status, stale_flag, updated_at, content_sha256`
+- 不存 `document/content` 原文字段（正文仅在 FS）
 
 幂等策略：
 - 使用确定性 ID + upsert（不 insert）；
 - `seed_uri` 规则与 OpenViking 一致：L0/L1 对应固定后缀 URI；
-- 同一 trajectory 的重复 commit 只会覆盖更新，不会产生脏重复。
+- 重复 commit 时按 `uri` 读取文件原文并计算 `content_sha256`：
+  - 若 hash 未变：可跳过重算 embedding（仅更新时间戳可选）；
+  - 若 hash 变化：必须重算 embedding 并 upsert 覆盖旧向量；
+- 同一 trajectory 的重复 commit 不产生脏重复。
 
 ### (7) Register deps & events
 - 依赖写入 `.deps.json`（依赖的 skill/table/other trajectory）；
