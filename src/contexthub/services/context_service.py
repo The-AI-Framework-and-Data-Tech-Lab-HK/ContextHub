@@ -20,13 +20,15 @@ from contexthub.models.context import (
 )
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
+from contexthub.services.indexer_service import IndexerService
 from contexthub.store.context_store import ContextStore
 
 
 class ContextService:
-    def __init__(self, store: ContextStore, acl: ACLService):
+    def __init__(self, store: ContextStore, acl: ACLService, indexer: IndexerService | None = None):
         self._store = store
         self._acl = acl
+        self._indexer = indexer
 
     # ---- create ----
 
@@ -71,9 +73,12 @@ class ContextService:
             row["id"],
             ctx.agent_id,
         )
-        return self._row_to_context(row)
 
-    # ---- update ----
+        # Embedding consistency: new active context with l0_content
+        if self._indexer and body.l0_content:
+            await self._indexer.update_embedding(db, row["id"], body.l0_content)
+
+        return self._row_to_context(row)
 
     async def update(
         self, db: ScopedRepo, uri: str, body: UpdateContextRequest, ctx: RequestContext
@@ -154,6 +159,17 @@ class ContextService:
             row["id"],
             ctx.agent_id,
         )
+
+        # Embedding consistency after update
+        if self._indexer:
+            new_status = row["status"]
+            if new_status == "archived":
+                await self._indexer.clear_embedding(db, row["id"])
+            elif row["l0_content"] and new_status in ("active", "stale"):
+                # Re-embed if content changed or status restored to active
+                if content_changed or (body.status == ContextStatus.ACTIVE):
+                    await self._indexer.update_embedding(db, row["id"], row["l0_content"])
+
         return self._row_to_context(row)
 
     # ---- delete ----
