@@ -75,11 +75,13 @@ class CommitService:
         temporal_fallback_edge: bool = True,
         dataflow_extractor: Callable[..., list[dict[str, Any]] | dict[str, list[dict[str, Any]]]]
         | None = None,
+        llm_summarizer: Callable[[list[dict[str, Any]]], tuple[str, str]] | None = None,
         reasoning_min_confidence: float = 0.55,
     ) -> None:
         self.max_action_result_chars = max_action_result_chars
         self.temporal_fallback_edge = temporal_fallback_edge
         self.dataflow_extractor = dataflow_extractor
+        self.llm_summarizer = llm_summarizer
         self.reasoning_min_confidence = reasoning_min_confidence
 
     def run(self, cmd: CommitCommand) -> CommitResult:
@@ -111,7 +113,7 @@ class CommitService:
             if isinstance(raw_traces, list):
                 llm_traces = deepcopy([t for t in raw_traces if isinstance(t, dict)])
         # 5) Produce L0/L1 summaries for replay/indexing.
-        l0, l1 = summarize_trajectory(normalized_steps)
+        l0, l1 = summarize_trajectory(normalized_steps, llm_summarizer=self.llm_summarizer)
         payload = {
             "trajectory": normalized_steps,
             "raw_graph": {
@@ -131,6 +133,14 @@ class CommitService:
         }
         if llm_traces:
             payload["llm_extraction_traces"] = llm_traces
+        summarizer_obj = getattr(self.llm_summarizer, "__self__", None) if self.llm_summarizer else None
+        if summarizer_obj is not None and hasattr(summarizer_obj, "last_traces"):
+            summary_traces = getattr(summarizer_obj, "last_traces")
+            if isinstance(summary_traces, list) and summary_traces:
+                payload.setdefault("llm_extraction_traces", [])
+                payload["llm_extraction_traces"].extend(
+                    deepcopy([t for t in summary_traces if isinstance(t, dict)])
+                )
         return CommitResult(
             trajectory_id=trajectory_id,
             idempotency_key=idem_key,

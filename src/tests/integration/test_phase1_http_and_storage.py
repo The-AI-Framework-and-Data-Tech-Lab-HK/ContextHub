@@ -107,7 +107,7 @@ def test_i05_audit_entry_written(sample_traj_dir: Path, tmp_path: Path) -> None:
     assert lines
     rec = json.loads(lines[-1])
     assert rec["action"] == "commit"
-    assert rec["result"] in ("accepted", "idempotent")
+    assert rec["result"] in ("accepted", "idempotent", "accepted_idempotency_disabled")
 
 
 def test_i06_replay_reads_steps(sample_traj_dir: Path, tmp_path: Path) -> None:

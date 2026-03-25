@@ -16,7 +16,7 @@ class CommitOrchestrator:
         commit_service: CommitService,
         repo: LocalFSTrajectoryRepository,
         audit: JsonlAuditLogger,
-        idempotency_enabled: bool = True,
+        idempotency_enabled: bool = False,
     ) -> None:
         self.commit_service = commit_service
         self.repo = repo

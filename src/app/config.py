@@ -24,7 +24,7 @@ class ApiSection(BaseModel):
 
 
 class CommitSection(BaseModel):
-    idempotency_enabled: bool = True
+    idempotency_enabled: bool = False
     temporal_fallback_edge: bool = True
     dataflow_extractor: str = "rule_based"  # rule_based | llm
     dataflow_llm_temperature: float = 0.0
@@ -102,7 +102,7 @@ def load_settings(config_path: str | None = None) -> AppSettings:
             max_payload_mb=int(api_raw.get("max_payload_mb", 20)),
         ),
         commit=CommitSection(
-            idempotency_enabled=bool(idempotency_raw.get("enabled", True)),
+            idempotency_enabled=bool(idempotency_raw.get("enabled", False)),
             temporal_fallback_edge=bool(graph_raw.get("temporal_fallback_edge", True)),
             dataflow_extractor=str(graph_raw.get("dataflow_extractor", "rule_based")),
             dataflow_llm_temperature=float(graph_raw.get("llm_temperature", 0.0)),

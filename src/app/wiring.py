@@ -10,6 +10,7 @@ from app.config import AppSettings, load_settings
 from app.orchestrators.commit_orchestrator import CommitOrchestrator
 from core.commit.dataflow_llm import LLMDataflowExtractor
 from core.commit.service import CommitService
+from core.commit.summary_llm import LLMTrajectorySummarizer
 from infra.audit.audit_logger import JsonlAuditLogger
 from infra.storage.fs.trajectory_repo import LocalFSTrajectoryRepository
 
@@ -22,6 +23,15 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     repo = LocalFSTrajectoryRepository(root=cfg.storage.localfs_root)
     audit = JsonlAuditLogger(file_path=cfg.storage.audit_file_path)
     dataflow_extractor = None
+    llm_summarizer = None
+    if cfg.openai_api_key:
+        llm_summary = LLMTrajectorySummarizer(
+            api_key=cfg.openai_api_key,
+            model=cfg.llm_model,
+            base_url=cfg.model_endpoints.llm_base_url or None,
+            temperature=0.0,
+        )
+        llm_summarizer = llm_summary.summarize
     if cfg.commit.dataflow_extractor.lower() == "llm":
         if cfg.openai_api_key:
             llm_extractor = LLMDataflowExtractor(
@@ -38,6 +48,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         max_action_result_chars=cfg.commit.max_action_result_chars,
         temporal_fallback_edge=cfg.commit.temporal_fallback_edge,
         dataflow_extractor=dataflow_extractor,
+        llm_summarizer=llm_summarizer,
         reasoning_min_confidence=cfg.commit.reasoning_min_confidence,
     )
     orchestrator = CommitOrchestrator(

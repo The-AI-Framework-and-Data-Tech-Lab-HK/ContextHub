@@ -11,6 +11,7 @@ from app.config import load_settings
 from app.orchestrators.commit_orchestrator import CommitOrchestrator
 from core.commit.dataflow_llm import LLMDataflowExtractor
 from core.commit.service import CommitCommand, CommitService
+from core.commit.summary_llm import LLMTrajectorySummarizer
 from infra.audit.audit_logger import JsonlAuditLogger
 from infra.storage.fs.trajectory_repo import LocalFSTrajectoryRepository
 
@@ -42,6 +43,15 @@ def run_commit(
     repo = LocalFSTrajectoryRepository(root=settings.storage.localfs_root)
     audit = JsonlAuditLogger(file_path=settings.storage.audit_file_path)
     dataflow_extractor = None
+    llm_summarizer = None
+    if settings.openai_api_key:
+        llm_summary = LLMTrajectorySummarizer(
+            api_key=settings.openai_api_key,
+            model=settings.llm_model,
+            base_url=settings.model_endpoints.llm_base_url or None,
+            temperature=0.0,
+        )
+        llm_summarizer = llm_summary.summarize
     if settings.commit.dataflow_extractor.lower() == "llm":
         if settings.openai_api_key:
             llm_extractor = LLMDataflowExtractor(
@@ -60,6 +70,7 @@ def run_commit(
         max_action_result_chars=settings.commit.max_action_result_chars,
         temporal_fallback_edge=settings.commit.temporal_fallback_edge,
         dataflow_extractor=dataflow_extractor,
+        llm_summarizer=llm_summarizer,
         reasoning_min_confidence=settings.commit.reasoning_min_confidence,
     )
     idempotency_enabled = (
