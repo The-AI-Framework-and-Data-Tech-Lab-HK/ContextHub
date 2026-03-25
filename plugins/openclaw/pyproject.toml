@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "contexthub-openclaw-plugin"
+version = "0.1.0"
+description = "ContextHub context-engine plugin for OpenClaw runtime"
+requires-python = ">=3.11"
+dependencies = [
+    "contexthub-sdk",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openclaw"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/openclaw",
+    "pyproject.toml",
+]
