@@ -56,6 +56,14 @@ class MemoryService:
             row["id"],
             ctx.agent_id,
         )
+
+        # Embedding consistency
+        if generated.l0:
+            try:
+                await self._indexer.update_embedding(db, row["id"], generated.l0)
+            except Exception:
+                pass
+
         return _row_to_context(row)
 
     async def list_memories(
@@ -163,6 +171,13 @@ class MemoryService:
             ctx.agent_id,
             f'{{"promoted_from": "{body.uri}"}}',
         )
+
+        # Embedding consistency for promoted memory
+        if generated.l0:
+            try:
+                await self._indexer.update_embedding(db, promoted["id"], generated.l0)
+            except Exception:
+                pass
 
         return _row_to_context(promoted)
 

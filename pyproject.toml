@@ -14,6 +14,7 @@ dependencies = [
     "alembic>=1.14",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
+    "httpx>=0.28",
 ]
 
 [project.optional-dependencies]

@@ -10,7 +10,9 @@ from contexthub.db.repository import ScopedRepo
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
 from contexthub.services.context_service import ContextService
+from contexthub.services.indexer_service import IndexerService
 from contexthub.services.memory_service import MemoryService
+from contexthub.services.retrieval_service import RetrievalService
 from contexthub.services.skill_service import SkillService
 from contexthub.store.context_store import ContextStore
 
@@ -53,3 +55,11 @@ def get_memory_service(request: Request) -> MemoryService:
 
 def get_skill_service(request: Request) -> SkillService:
     return request.app.state.skill_service
+
+
+def get_retrieval_service(request: Request) -> RetrievalService:
+    return request.app.state.retrieval_service
+
+
+def get_indexer_service(request: Request) -> IndexerService:
+    return request.app.state.indexer_service

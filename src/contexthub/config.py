@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     api_key: str = "changeme"
     embedding_model: str = "text-embedding-3-small"
     propagation_enabled: bool = True
+    openai_api_key: str = ""
+    embedding_dimensions: int = 1536
+    rerank_strategy: str = "keyword"
+    search_over_retrieve_factor: int = 3
+    search_default_top_k: int = 10
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
