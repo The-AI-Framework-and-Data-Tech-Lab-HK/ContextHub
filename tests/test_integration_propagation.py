@@ -4,6 +4,7 @@ These complement tests/test_propagation.py (fast, in-memory) with real PG wiring
 Gated by CONTEXTHUB_INTEGRATION=1.
 """
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -75,7 +76,7 @@ async def test_p1_schema_change_marks_dependent_stale(db_pool, repo, acme_sessio
 
 @pytest.mark.asyncio
 async def test_p2_breaking_skill_marks_dependent_stale(
-    db_pool, repo, services, analysis_agent_ctx
+    db_pool, repo, services, analysis_agent_ctx, clean_db
 ):
     """P-2: Breaking skill version → dependent artifact marked stale."""
     # 1. Create skill
@@ -118,14 +119,19 @@ async def test_p2_breaking_skill_marks_dependent_stale(
             "v2 breaking content", "breaking change", True, analysis_agent_ctx,
         )
 
-    # 5. Drain
+    # 5. Drain (test engine or the running server may process events)
     engine = await _make_propagation_engine(db_pool, repo, services)
     engine._running = True
     await engine._drain_ready_events(context_id=None)
 
-    # 6. Assert
-    async with repo.session("acme") as db:
-        dep = await db.fetchrow("SELECT status FROM contexts WHERE id = $1", dep_id)
+    # 6. Assert — allow a short retry window because the running server's
+    #    PropagationEngine may race with our drain via PG NOTIFY.
+    for _ in range(10):
+        async with repo.session("acme") as db:
+            dep = await db.fetchrow("SELECT status FROM contexts WHERE id = $1", dep_id)
+        if dep["status"] == "stale":
+            break
+        await asyncio.sleep(0.1)
     assert dep["status"] == "stale"
 
 
@@ -283,7 +289,14 @@ async def test_p7_notify_lost_recovery(db_pool, repo, services):
 
 @pytest.mark.asyncio
 async def test_p8_lease_timeout_recovery(db_pool, repo, services):
-    """P-8: Stuck processing event → requeued and eventually processed."""
+    """P-8: Stuck processing event → requeued and eventually processed.
+
+    The running server's PropagationEngine receives the INSERT NOTIFY,
+    runs its own _requeue_stuck_events + _drain_ready_events, and may
+    recover the event before or concurrently with the test.  The test
+    verifies the *outcome*: the stuck event must eventually reach
+    'processed', proving the requeue→drain recovery path works.
+    """
     ctx_id = uuid.uuid4()
     async with repo.session("acme") as db:
         await db.execute(
@@ -307,23 +320,23 @@ async def test_p8_lease_timeout_recovery(db_pool, repo, services):
     engine = await _make_propagation_engine(db_pool, repo, services)
     engine._running = True
 
-    # Requeue stuck events
+    # Requeue stuck events (the server may have already done this)
     await engine._requeue_stuck_events()
 
-    # Verify requeued
-    async with repo.session("acme") as db:
-        event = await db.fetchrow(
-            "SELECT delivery_status FROM change_events WHERE context_id = $1 ORDER BY timestamp DESC LIMIT 1",
-            ctx_id,
-        )
-    assert event["delivery_status"] == "retry"
-
-    # Now drain should pick it up
+    # Try to drain any requeued events ourselves
     await engine._drain_ready_events(context_id=None)
 
-    async with repo.session("acme") as db:
-        event = await db.fetchrow(
-            "SELECT delivery_status FROM change_events WHERE context_id = $1 ORDER BY timestamp DESC LIMIT 1",
-            ctx_id,
-        )
-    assert event["delivery_status"] == "processed"
+    # The event must eventually leave 'processing' and reach 'processed',
+    # regardless of whether the test engine or the server engine recovered it.
+    for _ in range(20):
+        async with repo.session("acme") as db:
+            event = await db.fetchrow(
+                "SELECT delivery_status FROM change_events WHERE context_id = $1 ORDER BY timestamp DESC LIMIT 1",
+                ctx_id,
+            )
+        if event["delivery_status"] == "processed":
+            break
+        await asyncio.sleep(0.1)
+    assert event["delivery_status"] == "processed", (
+        f"Stuck event was not recovered; final status: '{event['delivery_status']}'"
+    )
