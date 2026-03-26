@@ -38,7 +38,24 @@ def step(n: int, desc: str):
     print(f"{'='*60}")
 
 
+async def _ensure_team_membership():
+    """Ensure query-agent is a direct member of engineering (seed data only has engineering/backend)."""
+    import asyncpg
+    conn = await asyncpg.connect("postgresql://contexthub:contexthub@localhost:5432/contexthub")
+    try:
+        await conn.execute("SET app.account_id = 'acme'")
+        await conn.execute("""
+            INSERT INTO team_memberships (agent_id, team_id, role, access, is_primary)
+            VALUES ('query-agent', '00000000-0000-0000-0000-000000000002', 'member', 'read_write', FALSE)
+            ON CONFLICT DO NOTHING
+        """)
+    finally:
+        await conn.close()
+
+
 async def main():
+    await _ensure_team_membership()
+
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as http:
         # Health check
         r = await http.get("/health")

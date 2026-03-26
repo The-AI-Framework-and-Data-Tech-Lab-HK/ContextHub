@@ -1,5 +1,5 @@
 {
-  "name": "@contexthub/openclaw-bridge",
+  "name": "contexthub",
   "version": "0.1.0",
   "description": "OpenClaw context-engine plugin: bridges the ContextHub Python sidecar into the OpenClaw runtime",
   "type": "module",
@@ -16,6 +16,11 @@
     "openclaw": {
       "optional": true
     }
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
   },
   "devDependencies": {
     "typescript": "^5.4"
