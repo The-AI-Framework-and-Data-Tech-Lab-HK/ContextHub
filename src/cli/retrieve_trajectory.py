@@ -97,10 +97,15 @@ def run_retrieve(
     clean_graph_loader = None
     if graph_store is not None and hasattr(graph_store, "load_clean_graph"):
         clean_graph_loader = lambda trajectory_id: graph_store.load_clean_graph(trajectory_id=trajectory_id)  # type: ignore[attr-defined]
+
     orchestrator = RetrieveOrchestrator(
         retrieve_service=RetrieveService(
             semantic_recall=semantic,
             clean_graph_loader=clean_graph_loader,
+            # Retrieve query-graph extraction is currently rule-based only.
+            query_dataflow_extractor=None,
+            query_temporal_fallback_edge=settings.commit.temporal_fallback_edge,
+            query_reasoning_min_confidence=settings.commit.reasoning_min_confidence,
         ),
         repo=repo,
         audit=audit,

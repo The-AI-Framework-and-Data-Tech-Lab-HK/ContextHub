@@ -37,9 +37,15 @@ class RetrieveService:
         *,
         semantic_recall: SemanticRecall | None,
         clean_graph_loader: Any | None = None,
+        query_dataflow_extractor: Any | None = None,
+        query_temporal_fallback_edge: bool = True,
+        query_reasoning_min_confidence: float = 0.55,
     ) -> None:
         self.semantic_recall = semantic_recall
         self.clean_graph_loader = clean_graph_loader
+        self.query_dataflow_extractor = query_dataflow_extractor
+        self.query_temporal_fallback_edge = query_temporal_fallback_edge
+        self.query_reasoning_min_confidence = query_reasoning_min_confidence
 
     @staticmethod
     def _graph_evidence(match: GraphMatch) -> dict[str, Any]:
@@ -89,7 +95,13 @@ class RetrieveService:
         partial_steps = partial if isinstance(partial, list) else None
         has_partial = bool(partial_steps)
         if has_partial and self.clean_graph_loader is not None:
-            query_graph = build_query_graph(partial_trajectory=partial_steps or [], trajectory_id="query")
+            query_graph = build_query_graph(
+                partial_trajectory=partial_steps or [],
+                trajectory_id="query",
+                dataflow_extractor=self.query_dataflow_extractor,
+                temporal_fallback_edge=self.query_temporal_fallback_edge,
+                reasoning_min_confidence=self.query_reasoning_min_confidence,
+            )
             if query_graph is None:
                 warnings.append("graph recall skipped: failed to build query graph from partial_trajectory")
             else:

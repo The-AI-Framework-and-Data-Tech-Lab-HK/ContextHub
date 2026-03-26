@@ -94,6 +94,11 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     retrieve_service = RetrieveService(
         semantic_recall=semantic_recall,
         clean_graph_loader=clean_graph_loader,
+        # Retrieve query-graph extraction is currently rule-based only.
+        # Keep LLM extractor disabled here to avoid high online latency.
+        query_dataflow_extractor=None,
+        query_temporal_fallback_edge=cfg.commit.temporal_fallback_edge,
+        query_reasoning_min_confidence=cfg.commit.reasoning_min_confidence,
     )
     retrieve_orchestrator = RetrieveOrchestrator(
         retrieve_service=retrieve_service,

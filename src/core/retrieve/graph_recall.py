@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import networkx as nx
+from networkx.algorithms import isomorphism
 
 @dataclass
 class GraphMatch:
@@ -33,97 +35,32 @@ def _normalized_graph(graph: dict[str, Any] | None) -> tuple[list[dict[str, Any]
     return nodes, edges
 
 
-def _best_mapping_backtracking(
-    query_nodes: list[dict[str, Any]],
-    query_edges: list[tuple[str, str, str]],
-    cand_nodes: list[dict[str, Any]],
-    cand_edge_set: set[tuple[str, str, str]],
-) -> tuple[dict[str, str], int, int]:
-    q_ids = [str(n.get("node_id") or "") for n in query_nodes if str(n.get("node_id") or "")]
-    q_by_id = {str(n.get("node_id") or ""): n for n in query_nodes}
-    c_ids = [str(n.get("node_id") or "") for n in cand_nodes if str(n.get("node_id") or "")]
-    c_by_id = {str(n.get("node_id") or ""): n for n in cand_nodes}
-
-    candidates_by_q: dict[str, list[str]] = {}
-    for qid in q_ids:
-        qlabel = _node_label(q_by_id[qid])
-        matches = [cid for cid in c_ids if _node_label(c_by_id[cid]) == qlabel]
-        candidates_by_q[qid] = matches
-
-    ordered_qids = sorted(
-        q_ids,
-        key=lambda qid: (len(candidates_by_q.get(qid) or []), -sum(1 for s, d, _ in query_edges if s == qid or d == qid)),
-    )
-
-    best_map: dict[str, str] = {}
-    best_nodes = 0
-    best_edges = 0
-    best_total = 0
-
-    def _count_edges(mapping: dict[str, str]) -> int:
-        hit = 0
-        for src, dst, dep in query_edges:
-            csrc = mapping.get(src)
-            cdst = mapping.get(dst)
-            if csrc and cdst and (csrc, cdst, dep) in cand_edge_set:
-                hit += 1
-        return hit
-
-    def dfs(idx: int, mapping: dict[str, str], used_c: set[str]) -> None:
-        nonlocal best_map, best_nodes, best_edges, best_total
-        remaining = len(ordered_qids) - idx
-        # Loose upper bound for pruning.
-        possible_total = len(mapping) + remaining + len(query_edges)
-        if possible_total <= best_total:
-            return
-        if idx >= len(ordered_qids):
-            nodes_hit = len(mapping)
-            edges_hit = _count_edges(mapping)
-            total = nodes_hit + edges_hit
-            if total > best_total or (total == best_total and edges_hit > best_edges):
-                best_total = total
-                best_nodes = nodes_hit
-                best_edges = edges_hit
-                best_map = dict(mapping)
-            return
-
-        qid = ordered_qids[idx]
-        # Option A: skip this query node in common subgraph.
-        dfs(idx + 1, mapping, used_c)
-        # Option B: map this query node to one candidate node with same action/tool name.
-        for cid in candidates_by_q.get(qid) or []:
-            if cid in used_c:
-                continue
-            mapping[qid] = cid
-            used_c.add(cid)
-            dfs(idx + 1, mapping, used_c)
-            used_c.remove(cid)
-            mapping.pop(qid, None)
-
-    dfs(0, {}, set())
-    return best_map, best_nodes, best_edges
+def _to_nx_digraph(graph: dict[str, Any] | None) -> nx.DiGraph:
+    nodes, edges = _normalized_graph(graph)
+    g = nx.DiGraph()
+    valid_ids: set[str] = set()
+    for n in nodes:
+        nid = str(n.get("node_id") or "")
+        if not nid:
+            continue
+        valid_ids.add(nid)
+        g.add_node(nid, action=_node_label(n))
+    for e in edges:
+        src = str(e.get("src") or "")
+        dst = str(e.get("dst") or "")
+        dep = _edge_type(e)
+        if not src or not dst or not dep:
+            continue
+        if src not in valid_ids or dst not in valid_ids:
+            continue
+        g.add_edge(src, dst, dep_type=dep)
+    return g
 
 
 def _mcs_match(query_graph: dict[str, Any], candidate_graph: dict[str, Any], *, trajectory_id: str) -> GraphMatch:
-    query_nodes, query_edges_raw = _normalized_graph(query_graph)
-    cand_nodes, cand_edges_raw = _normalized_graph(candidate_graph)
-
-    query_edges: list[tuple[str, str, str]] = []
-    for e in query_edges_raw:
-        src = str(e.get("src") or "")
-        dst = str(e.get("dst") or "")
-        dep = _edge_type(e)
-        if src and dst and dep:
-            query_edges.append((src, dst, dep))
-    cand_edge_set: set[tuple[str, str, str]] = set()
-    for e in cand_edges_raw:
-        src = str(e.get("src") or "")
-        dst = str(e.get("dst") or "")
-        dep = _edge_type(e)
-        if src and dst and dep:
-            cand_edge_set.add((src, dst, dep))
-
-    if not query_nodes:
+    qg = _to_nx_digraph(query_graph)
+    cg = _to_nx_digraph(candidate_graph)
+    if qg.number_of_nodes() == 0:
         return GraphMatch(
             trajectory_id=trajectory_id,
             graph_score=0.0,
@@ -134,22 +71,48 @@ def _mcs_match(query_graph: dict[str, Any], candidate_graph: dict[str, Any], *, 
             matched_nodes=[],
         )
 
-    node_map, matched_nodes, matched_edges = _best_mapping_backtracking(
-        query_nodes=query_nodes,
-        query_edges=query_edges,
-        cand_nodes=cand_nodes,
-        cand_edge_set=cand_edge_set,
-    )
-    denom = len(query_nodes) + len(query_edges)
+    node_match = isomorphism.categorical_node_match("action", "")
+    edge_match = isomorphism.categorical_edge_match("dep_type", "")
+
+    # Mapping direction: candidate_node_id -> query_node_id
+    # (because ISMAGS is instantiated with (candidate_graph, query_graph)).
+    matcher = isomorphism.ISMAGS(cg, qg, node_match=node_match, edge_match=edge_match)
+    best_mapping: dict[str, str] | None = next(matcher.largest_common_subgraph(), None)
+    if not best_mapping:
+        return GraphMatch(
+            trajectory_id=trajectory_id,
+            graph_score=0.0,
+            matched_mcs_nodes=0,
+            matched_mcs_edges=0,
+            query_nodes=qg.number_of_nodes(),
+            query_edges=qg.number_of_edges(),
+            matched_nodes=[],
+        )
+
+    matched_nodes = len(best_mapping)
+    inv_map = {q: c for c, q in best_mapping.items()}
+    matched_edges = 0
+    for q_src, q_dst, q_data in qg.edges(data=True):
+        c_src = inv_map.get(q_src)
+        c_dst = inv_map.get(q_dst)
+        if not c_src or not c_dst:
+            continue
+        if not cg.has_edge(c_src, c_dst):
+            continue
+        c_data = cg.get_edge_data(c_src, c_dst) or {}
+        if str(c_data.get("dep_type") or "") == str(q_data.get("dep_type") or ""):
+            matched_edges += 1
+
+    denom = qg.number_of_nodes() + qg.number_of_edges()
     score = float(matched_nodes + matched_edges) / float(max(1, denom))
     return GraphMatch(
         trajectory_id=trajectory_id,
         graph_score=score,
         matched_mcs_nodes=matched_nodes,
         matched_mcs_edges=matched_edges,
-        query_nodes=len(query_nodes),
-        query_edges=len(query_edges),
-        matched_nodes=sorted(node_map.values()),
+        query_nodes=qg.number_of_nodes(),
+        query_edges=qg.number_of_edges(),
+        matched_nodes=sorted(best_mapping.keys()),
     )
 
 

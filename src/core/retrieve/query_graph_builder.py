@@ -36,12 +36,17 @@ def build_query_graph(
     *,
     partial_trajectory: list[dict[str, Any]],
     trajectory_id: str = "query",
+    dataflow_extractor: Any | None = None,
+    temporal_fallback_edge: bool = True,
+    reasoning_min_confidence: float = 0.55,
 ) -> dict[str, list[dict[str, Any]]] | None:
     """
     Convert partial trajectory steps into a clean graph dict.
 
     This reuses commit-side pairing + graph derivation logic so graph schema and
     edge semantics stay aligned with stored clean graphs in Neo4j.
+    When provided, dataflow_extractor (e.g., LLM extractor) is used to derive
+    both dataflow and reasoning edges, matching commit-side behavior.
     """
     if not partial_trajectory:
         return None
@@ -51,8 +56,9 @@ def build_query_graph(
     raw_nodes, raw_edges = build_raw_graph(
         trajectory_id=trajectory_id,
         pairs=pairs,
-        temporal_fallback_edge=True,
-        dataflow_extractor=None,
+        temporal_fallback_edge=temporal_fallback_edge,
+        dataflow_extractor=dataflow_extractor,
+        reasoning_min_confidence=reasoning_min_confidence,
     )
     clean_nodes, clean_edges = derive_clean_graph(raw_nodes, raw_edges)
     graph = _to_graph_dict(clean_nodes, clean_edges)
