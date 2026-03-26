@@ -25,6 +25,11 @@ from contexthub.services.skill_service import SkillService
 from contexthub.store.context_store import ContextStore
 from contexthub.propagation.registry import PropagationRuleRegistry
 from contexthub.services.propagation_engine import PropagationEngine
+from contexthub.connectors.mock_connector import MockCatalogConnector
+from contexthub.generation.table_schema import TableSchemaGenerator
+from contexthub.services.catalog_sync_service import CatalogSyncService
+from contexthub.services.reconciler_service import ReconcilerService
+from contexthub.api.routers.datalake import router as datalake_router
 
 
 @asynccontextmanager
@@ -73,6 +78,19 @@ async def lifespan(app: FastAPI):
         app.state.retrieval_service = retrieval_service
         app.state.embedding_client = embedding_client
 
+        # Task 7: Carrier-specific services
+        catalog_connector = MockCatalogConnector()
+        table_schema_generator = TableSchemaGenerator()
+        catalog_sync_service = CatalogSyncService(
+            connector=catalog_connector,
+            indexer=indexer_service,
+            table_schema_generator=table_schema_generator,
+        )
+        reconciler_service = ReconcilerService(repo=repo, indexer=indexer_service)
+
+        app.state.catalog_sync_service = catalog_sync_service
+        app.state.reconciler_service = reconciler_service
+
         # Task 5: PropagationEngine
         rule_registry = PropagationRuleRegistry.default()
         propagation_engine = PropagationEngine(
@@ -107,6 +125,7 @@ app.include_router(memories_router)
 app.include_router(skills_router)
 app.include_router(search_router)
 app.include_router(tools_router)
+app.include_router(datalake_router)
 
 
 @app.get("/health")

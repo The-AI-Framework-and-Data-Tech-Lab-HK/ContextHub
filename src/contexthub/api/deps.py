@@ -15,6 +15,7 @@ from contexthub.services.memory_service import MemoryService
 from contexthub.services.retrieval_service import RetrievalService
 from contexthub.services.skill_service import SkillService
 from contexthub.store.context_store import ContextStore
+from contexthub.services.catalog_sync_service import CatalogSyncService
 
 
 async def get_request_context(
@@ -63,3 +64,7 @@ def get_retrieval_service(request: Request) -> RetrievalService:
 
 def get_indexer_service(request: Request) -> IndexerService:
     return request.app.state.indexer_service
+
+
+def get_catalog_sync_service(request: Request) -> CatalogSyncService:
+    return request.app.state.catalog_sync_service

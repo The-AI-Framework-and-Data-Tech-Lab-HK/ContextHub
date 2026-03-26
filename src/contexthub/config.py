@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     rerank_strategy: str = "keyword"
     search_over_retrieve_factor: int = 3
     search_default_top_k: int = 10
+    catalog_type: str = "mock"  # Carrier-specific: catalog connector type
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

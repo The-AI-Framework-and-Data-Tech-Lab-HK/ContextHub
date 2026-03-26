@@ -1,0 +1,14 @@
+{
+  "name": "@contexthub/openclaw-bridge",
+  "version": "0.1.0",
+  "description": "TypeScript bridge: OpenClaw ContextEngine → ContextHub Python sidecar",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.4"
+  }
+}
