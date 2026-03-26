@@ -103,6 +103,27 @@ curl -X POST "http://127.0.0.1:8000/api/v1/amc/commit" \
   -d @sample_request.json
 ```
 
+Example retrieve endpoint (Phase 2 semantic recall only):
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/amc/retrieve" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "tenant-local",
+    "agent_id": "agent-local",
+    "query": {
+      "task_description": "analyze revenue trend and churn factors",
+      "constraints": {"tool_whitelist": ["local_db_sql"]},
+      "task_type": "sql_analysis"
+    },
+    "top_k": 5
+  }'
+```
+
+Notes:
+- Current implementation is semantic recall only (L0/L1 vector retrieval).
+- Graph matching and hybrid rerank are intentionally deferred.
+
 ### Commit via CLI script (no HTTP server needed)
 
 This command reads a trajectory JSON file and runs Phase 1 commit pipeline
@@ -140,6 +161,26 @@ This writes extra files in the same trajectory directory:
 Note:
 - PNG visualization requires `matplotlib`.
 - Node labels are `tool_name`; edge labels are intentionally hidden.
+
+### Retrieve performance via CLI (no HTTP server needed)
+
+Use this command to quickly benchmark retrieve latency with repeated runs:
+
+```bash
+amc-retrieve-trajectory \
+  --tenant-id tenant-local \
+  --agent-id agent-local \
+  --task-description "analyze revenue trend and churn factors" \
+  --task-type sql_analysis \
+  --tool-whitelist local_db_sql \
+  --top-k 5 \
+  --repeat 20 \
+  --pretty
+```
+
+Optional:
+- `--partial-trajectory-file sample_traj/traj5.json` to include partial trajectory in query payload.
+- `--repeat N` prints `min/max/mean/p50/p95/p99` latency (ms) and returns the final run result payload.
 
 Configure LLM-based dataflow extraction (CLI/API share same settings):
 

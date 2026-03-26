@@ -1,3 +1,6 @@
-"""AMC core.retrieve.graph_recall placeholder."""
+"""Graph recall placeholder.
 
-# TODO: implement
+Phase 2 first cut intentionally skips graph matching/rerank branch.
+"""
+
+from __future__ import annotations
