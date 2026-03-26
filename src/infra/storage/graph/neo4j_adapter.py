@@ -172,10 +172,14 @@ class Neo4jGraphWriter:
     ) -> dict[str, Any]:
         raw_edges = [e for e in (raw_graph.get("edges") or []) if isinstance(e, dict)]
         clean_edges = [e for e in (clean_graph.get("edges") or []) if isinstance(e, dict)]
-        rel_counts: dict[str, int] = {}
-        for edge in raw_edges + clean_edges:
+        raw_rel_counts: dict[str, int] = {}
+        clean_rel_counts: dict[str, int] = {}
+        for edge in raw_edges:
             rel_type = Neo4jGraphWriter._relationship_type(str(edge.get("dep_type") or "TEMPORAL"))
-            rel_counts[rel_type] = rel_counts.get(rel_type, 0) + 1
+            raw_rel_counts[rel_type] = raw_rel_counts.get(rel_type, 0) + 1
+        for edge in clean_edges:
+            rel_type = Neo4jGraphWriter._relationship_type(str(edge.get("dep_type") or "TEMPORAL"))
+            clean_rel_counts[rel_type] = clean_rel_counts.get(rel_type, 0) + 1
         return {
             "enabled": True,
             "tenant_id": tenant_id,
@@ -184,9 +188,10 @@ class Neo4jGraphWriter:
             "database": database,
             "raw_nodes": len(raw_graph.get("nodes") or []),
             "raw_edges": len(raw_edges),
+            "raw_edge_type_counts": raw_rel_counts,
             "clean_nodes": len(clean_graph.get("nodes") or []),
             "clean_edges": len(clean_edges),
-            "edge_type_counts": rel_counts,
+            "clean_edge_type_counts": clean_rel_counts,
         }
 
     @staticmethod
