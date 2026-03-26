@@ -25,6 +25,15 @@ def _json_text(value: Any) -> str | None:
     return json.dumps(_to_jsonable(value), ensure_ascii=False, separators=(",", ":"))
 
 
+def _json_load(text: Any) -> Any:
+    if not isinstance(text, str) or not text.strip():
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        return None
+
+
 class Neo4jGraphWriter:
     """
     Persist trajectory graphs in Neo4j with explicit labels and relation types.
@@ -86,6 +95,70 @@ class Neo4jGraphWriter:
             raw_graph=raw,
             clean_graph=clean,
         )
+
+    def load_clean_graph(self, *, trajectory_id: str) -> dict[str, Any] | None:
+        with self.driver.session(database=self.database) as session:
+            nodes_result = session.run(
+                """
+                MATCH (n:AMCNode:CleanNode {trajectory_id:$trajectory_id, graph_kind:'clean'})
+                RETURN n
+                ORDER BY n.ai_step, n.tool_step, n.node_id
+                """,
+                trajectory_id=trajectory_id,
+            )
+            nodes: list[dict[str, Any]] = []
+            for rec in nodes_result:
+                n = rec.get("n")
+                if n is None:
+                    continue
+                item = dict(n)
+                nodes.append(
+                    {
+                        "node_id": item.get("node_id"),
+                        "trajectory_id": item.get("trajectory_id"),
+                        "ai_step": item.get("ai_step"),
+                        "tool_step": item.get("tool_step"),
+                        "thinking": item.get("thinking") or "",
+                        "tool_name": item.get("tool_name"),
+                        "tool_args": _json_load(item.get("tool_args_json")),
+                        "tool_output": _json_load(item.get("tool_output_json")),
+                        "output_status": item.get("output_status"),
+                        "pending_output": bool(item.get("pending_output")),
+                        "quality_flags": item.get("quality_flags") or [],
+                    }
+                )
+
+            edges_result = session.run(
+                """
+                MATCH (src:AMCNode:CleanNode {trajectory_id:$trajectory_id, graph_kind:'clean'})
+                      -[r]->
+                      (dst:AMCNode:CleanNode {trajectory_id:$trajectory_id, graph_kind:'clean'})
+                RETURN src.node_id AS src_node_id, dst.node_id AS dst_node_id, r
+                ORDER BY r.edge_id
+                """,
+                trajectory_id=trajectory_id,
+            )
+            edges: list[dict[str, Any]] = []
+            for rec in edges_result:
+                r = rec.get("r")
+                if r is None:
+                    continue
+                rel = dict(r)
+                edges.append(
+                    {
+                        "edge_id": rel.get("edge_id"),
+                        "src": rec.get("src_node_id"),
+                        "dst": rec.get("dst_node_id"),
+                        "dep_type": rel.get("dep_type"),
+                        "signal": rel.get("signal"),
+                        "confidence": rel.get("confidence"),
+                        "signal_detail": _json_load(rel.get("signal_detail_json")),
+                    }
+                )
+
+        if not nodes and not edges:
+            return None
+        return {"nodes": nodes, "edges": edges}
 
     @staticmethod
     def _build_summary(

@@ -15,6 +15,7 @@ from core.retrieve.semantic_recall import SemanticRecall
 from core.retrieve.service import RetrieveCommand, RetrieveService
 from infra.audit.audit_logger import JsonlAuditLogger
 from infra.storage.fs.trajectory_repo import LocalFSTrajectoryRepository
+from infra.storage.graph.factory import build_graph_store_writer
 from infra.storage.vector.factory import build_vector_store_adapter
 
 
@@ -43,6 +44,27 @@ def _percentile(sorted_values: list[float], p: float) -> float:
     return float(sorted_values[idx])
 
 
+def _clean_graph_stats(clean_graph: Any) -> dict[str, Any]:
+    if not isinstance(clean_graph, dict):
+        return {"source": "neo4j", "nodes": 0, "edges": 0, "edge_type_counts": {}}
+    nodes = clean_graph.get("nodes")
+    edges = clean_graph.get("edges")
+    node_list = nodes if isinstance(nodes, list) else []
+    edge_list = edges if isinstance(edges, list) else []
+    dep_counts: dict[str, int] = {}
+    for e in edge_list:
+        if not isinstance(e, dict):
+            continue
+        dep = str(e.get("dep_type") or "unknown")
+        dep_counts[dep] = dep_counts.get(dep, 0) + 1
+    return {
+        "source": "neo4j",
+        "nodes": len(node_list),
+        "edges": len(edge_list),
+        "edge_type_counts": dep_counts,
+    }
+
+
 def run_retrieve(
     *,
     tenant_id: str,
@@ -53,11 +75,13 @@ def run_retrieve(
     partial_trajectory_file: Path | None,
     top_k: int,
     repeat: int,
+    include_clean_graph: bool = False,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     settings = load_settings(config_path=config_path)
     repo = LocalFSTrajectoryRepository(root=settings.storage.localfs_root)
     audit = JsonlAuditLogger(file_path=settings.storage.audit_file_path)
+    graph_store = build_graph_store_writer(settings)
     vector_store = build_vector_store_adapter(settings)
     semantic = None
     if vector_store is not None and settings.embedding_provider.lower() == "openai" and settings.openai_api_key:
@@ -69,10 +93,14 @@ def run_retrieve(
             embedding_mode=settings.embedding_mode,
         )
 
+    clean_graph_loader = None
+    if graph_store is not None and hasattr(graph_store, "load_clean_graph"):
+        clean_graph_loader = lambda trajectory_id: graph_store.load_clean_graph(trajectory_id=trajectory_id)  # type: ignore[attr-defined]
     orchestrator = RetrieveOrchestrator(
         retrieve_service=RetrieveService(semantic_recall=semantic),
         repo=repo,
         audit=audit,
+        clean_graph_loader=clean_graph_loader,
     )
     partial = _load_partial_trajectory(partial_trajectory_file)
     query_payload = {
@@ -97,7 +125,16 @@ def run_retrieve(
         )
         elapsed = (time.perf_counter() - t0) * 1000.0
         latencies_ms.append(elapsed)
-        last_result = {"items": result.items, "warnings": result.warnings}
+        items = result.items
+        if not include_clean_graph:
+            compact_items: list[dict[str, Any]] = []
+            for item in items:
+                out = dict(item)
+                cg = out.pop("clean_graph", None)
+                out["clean_graph_stats"] = _clean_graph_stats(cg)
+                compact_items.append(out)
+            items = compact_items
+        last_result = {"items": items, "warnings": result.warnings}
 
     sorted_lat = sorted(latencies_ms)
     perf = {
@@ -141,6 +178,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--top-k", type=int, default=5, help="Top-K trajectories to return")
     parser.add_argument("--repeat", type=int, default=1, help="Repeat runs for latency stats")
+    parser.add_argument(
+        "--include-clean-graph",
+        action="store_true",
+        help="Include full clean_graph payload in output (default: false; print neo4j stats only).",
+    )
     parser.add_argument("--config-path", default=None, help="Optional config YAML path")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
     return parser
@@ -157,6 +199,7 @@ def main() -> int:
         partial_trajectory_file=Path(args.partial_trajectory_file) if args.partial_trajectory_file else None,
         top_k=int(args.top_k),
         repeat=int(args.repeat),
+        include_clean_graph=bool(args.include_clean_graph),
         config_path=args.config_path,
     )
     if args.pretty:

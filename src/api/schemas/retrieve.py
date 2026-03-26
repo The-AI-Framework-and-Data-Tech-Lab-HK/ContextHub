@@ -40,6 +40,7 @@ class RetrieveItem(BaseModel):
     evidence: RetrieveEvidence = Field(default_factory=RetrieveEvidence)
     abstract: str | None = None
     overview: str | None = None
+    clean_graph: dict[str, Any] | None = None
 
 
 class RetrieveResponse(BaseModel):

@@ -181,6 +181,7 @@ amc-retrieve-trajectory \
 Optional:
 - `--partial-trajectory-file sample_traj/traj5.json` to include partial trajectory in query payload.
 - `--repeat N` prints `min/max/mean/p50/p95/p99` latency (ms) and returns the final run result payload.
+- default output shows `clean_graph_stats` only (Neo4j summary); add `--include-clean-graph` to print full graph JSON.
 
 Configure LLM-based dataflow extraction (CLI/API share same settings):
 
