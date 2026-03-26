@@ -88,10 +88,13 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             embedder_base_url=cfg.model_endpoints.embedder_base_url or None,
             embedding_mode=cfg.embedding_mode,
         )
-    retrieve_service = RetrieveService(semantic_recall=semantic_recall)
     clean_graph_loader = None
     if graph_store is not None and hasattr(graph_store, "load_clean_graph"):
         clean_graph_loader = lambda trajectory_id: graph_store.load_clean_graph(trajectory_id=trajectory_id)  # type: ignore[attr-defined]
+    retrieve_service = RetrieveService(
+        semantic_recall=semantic_recall,
+        clean_graph_loader=clean_graph_loader,
+    )
     retrieve_orchestrator = RetrieveOrchestrator(
         retrieve_service=retrieve_service,
         repo=repo,

@@ -32,7 +32,12 @@
 ### Phase 2：Retrieve 双路召回
 
 7. 实现语义召回（trajectory-level L0/L1 向量检索）；
-8. 实现图特征抽取与近似匹配（仅当传入 `partial_trajectory` 时启用）；
+8. 实现图特征抽取与近似匹配（仅当传入 `partial_trajectory` 时启用）：
+   - 8.1 构建 query graph（raw/clean，默认 clean）；
+   - 8.2 定义 MCS 匹配规则（节点按 action 函数名相同，边按 edge_type 相同；不要求 args/output/其他属性一致）；
+   - 8.3 两阶段匹配（语义 top-N 候选收缩 -> MCS 图相似精排）；
+   - 8.4 输出可解释 evidence（MCS 命中节点/边规模、命中规则、graph_score）；
+   - 8.5 降级兜底（QG 构建失败或 Neo4j 不可用时回退语义召回）。
 9. 实现融合 rerank（默认 clean graph，错误场景补充 raw graph）；
 10. 返回 evidence（命中节点/子图说明）；
 11. 接入 ACL 过滤与脱敏。

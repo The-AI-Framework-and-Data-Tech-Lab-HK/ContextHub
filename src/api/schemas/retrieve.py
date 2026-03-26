@@ -29,13 +29,15 @@ class RetrieveEvidence(BaseModel):
     matched_nodes: list[str] = Field(default_factory=list)
     matched_subgraph: str | None = None
     matched_uris: list[str] = Field(default_factory=list)
+    graph_match: dict[str, Any] | None = None
 
 
 class RetrieveItem(BaseModel):
     trajectory_id: str
     score: float
+    total_score: float | None = None
     semantic_score: float
-    graph_score: float | None = None
+    graph_match_score: float | None = None
     rationale: list[str] = Field(default_factory=list)
     evidence: RetrieveEvidence = Field(default_factory=RetrieveEvidence)
     abstract: str | None = None

@@ -76,6 +76,7 @@ def run_retrieve(
     top_k: int,
     repeat: int,
     include_clean_graph: bool = False,
+    include_graph_match_details: bool = False,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     settings = load_settings(config_path=config_path)
@@ -97,7 +98,10 @@ def run_retrieve(
     if graph_store is not None and hasattr(graph_store, "load_clean_graph"):
         clean_graph_loader = lambda trajectory_id: graph_store.load_clean_graph(trajectory_id=trajectory_id)  # type: ignore[attr-defined]
     orchestrator = RetrieveOrchestrator(
-        retrieve_service=RetrieveService(semantic_recall=semantic),
+        retrieve_service=RetrieveService(
+            semantic_recall=semantic,
+            clean_graph_loader=clean_graph_loader,
+        ),
         repo=repo,
         audit=audit,
         clean_graph_loader=clean_graph_loader,
@@ -130,6 +134,12 @@ def run_retrieve(
             compact_items: list[dict[str, Any]] = []
             for item in items:
                 out = dict(item)
+                if not include_graph_match_details:
+                    evidence = out.get("evidence")
+                    if isinstance(evidence, dict):
+                        evidence = dict(evidence)
+                        evidence.pop("graph_match", None)
+                        out["evidence"] = evidence
                 cg = out.pop("clean_graph", None)
                 out["clean_graph_stats"] = _clean_graph_stats(cg)
                 compact_items.append(out)
@@ -183,6 +193,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include full clean_graph payload in output (default: false; print neo4j stats only).",
     )
+    parser.add_argument(
+        "--include-graph-match-details",
+        action="store_true",
+        help="Include detailed graph_match evidence in output (default: false).",
+    )
     parser.add_argument("--config-path", default=None, help="Optional config YAML path")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
     return parser
@@ -200,6 +215,7 @@ def main() -> int:
         top_k=int(args.top_k),
         repeat=int(args.repeat),
         include_clean_graph=bool(args.include_clean_graph),
+        include_graph_match_details=bool(args.include_graph_match_details),
         config_path=args.config_path,
     )
     if args.pretty:

@@ -7,7 +7,9 @@ from typing import Any
 
 from core.retrieve.candidate_union import union_candidates
 from core.retrieve.evidence_builder import build_semantic_evidence
+from core.retrieve.graph_recall import GraphMatch, recall_graph_candidates
 from core.retrieve.query_parser import parse_retrieve_query
+from core.retrieve.query_graph_builder import build_query_graph
 from core.retrieve.reranker import rerank_semantic_only
 from core.retrieve.semantic_recall import SemanticRecall
 
@@ -27,14 +29,52 @@ class RetrieveResult:
 
 
 class RetrieveService:
-    def __init__(self, *, semantic_recall: SemanticRecall | None) -> None:
+    WEIGHT_SEMANTIC = 0.45
+    WEIGHT_GRAPH = 0.45
+
+    def __init__(
+        self,
+        *,
+        semantic_recall: SemanticRecall | None,
+        clean_graph_loader: Any | None = None,
+    ) -> None:
         self.semantic_recall = semantic_recall
+        self.clean_graph_loader = clean_graph_loader
+
+    @staticmethod
+    def _graph_evidence(match: GraphMatch) -> dict[str, Any]:
+        return {
+            "matched_nodes": list(match.matched_nodes),
+            "matched_subgraph": (
+                f"mcs_nodes={match.matched_mcs_nodes}, "
+                f"mcs_edges={match.matched_mcs_edges}, "
+                "node_rule=action_name_equal, edge_rule=edge_type_equal"
+            ),
+            "graph_match": {
+                "matched_mcs_nodes": match.matched_mcs_nodes,
+                "matched_mcs_edges": match.matched_mcs_edges,
+                "query_nodes": match.query_nodes,
+                "query_edges": match.query_edges,
+                "node_match_rule": "action_name_equal",
+                "edge_match_rule": "edge_type_equal",
+            },
+        }
+
+    @classmethod
+    def _combine_scores(cls, *, semantic_score: float, graph_match_score: float | None) -> float:
+        if graph_match_score is None:
+            return float(semantic_score)
+        w_sem = float(cls.WEIGHT_SEMANTIC)
+        w_graph = float(cls.WEIGHT_GRAPH)
+        denom = max(1e-9, w_sem + w_graph)
+        return (w_sem * float(semantic_score) + w_graph * float(graph_match_score)) / denom
 
     def run(self, cmd: RetrieveCommand) -> RetrieveResult:
         if self.semantic_recall is None:
             return RetrieveResult(items=[], warnings=["semantic recall backend is not configured"])
 
         pq = parse_retrieve_query(cmd.query)
+        warnings: list[str] = []
         hits = self.semantic_recall.recall(
             tenant_id=cmd.tenant_id,
             agent_id=cmd.agent_id,
@@ -42,23 +82,55 @@ class RetrieveService:
             top_k=cmd.top_k,
         )
         unioned = union_candidates(hits)
-        ranked = rerank_semantic_only(unioned)
+        ranked_semantic = rerank_semantic_only(unioned)
+
+        graph_matches: dict[str, GraphMatch] = {}
+        partial = cmd.query.get("partial_trajectory")
+        partial_steps = partial if isinstance(partial, list) else None
+        has_partial = bool(partial_steps)
+        if has_partial and self.clean_graph_loader is not None:
+            query_graph = build_query_graph(partial_trajectory=partial_steps or [], trajectory_id="query")
+            if query_graph is None:
+                warnings.append("graph recall skipped: failed to build query graph from partial_trajectory")
+            else:
+                candidate_ids = [h.trajectory_id for h in ranked_semantic]
+                graph_matches = recall_graph_candidates(
+                    query_graph=query_graph,
+                    candidate_trajectory_ids=candidate_ids,
+                    clean_graph_loader=self.clean_graph_loader,
+                )
+        elif has_partial and self.clean_graph_loader is None:
+            warnings.append("graph recall skipped: graph backend is not configured")
 
         items: list[dict[str, Any]] = []
-        for hit in ranked[: max(1, int(cmd.top_k))]:
+        for hit in ranked_semantic:
             rationale = ["semantic recall match on trajectory-level summaries (L0/L1)"]
             if pq.task_type:
                 rationale.append(f"task_type hint: {pq.task_type}")
-            if pq.has_partial_trajectory:
-                rationale.append("partial_trajectory detected; graph recall is not enabled yet")
+            graph_match = graph_matches.get(hit.trajectory_id)
+            graph_match_score = graph_match.graph_score if graph_match is not None else None
+            if graph_match is not None:
+                rationale.append("graph recall match via max common subgraph (MCS)")
+                evidence = build_semantic_evidence(hit)
+                evidence.update(self._graph_evidence(graph_match))
+            else:
+                if pq.has_partial_trajectory:
+                    rationale.append("partial_trajectory detected; using semantic score fallback")
+                evidence = build_semantic_evidence(hit)
+            total_score = self._combine_scores(
+                semantic_score=float(hit.semantic_score),
+                graph_match_score=graph_match_score,
+            )
             items.append(
                 {
                     "trajectory_id": hit.trajectory_id,
-                    "score": hit.semantic_score,
+                    "score": total_score,
+                    "total_score": total_score,
                     "semantic_score": hit.semantic_score,
-                    "graph_score": None,
+                    "graph_match_score": graph_match_score,
                     "rationale": rationale,
-                    "evidence": build_semantic_evidence(hit),
+                    "evidence": evidence,
                 }
             )
-        return RetrieveResult(items=items, warnings=[])
+        items = sorted(items, key=lambda x: float(x.get("score") or 0.0), reverse=True)
+        return RetrieveResult(items=items[: max(1, int(cmd.top_k))], warnings=warnings)

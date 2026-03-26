@@ -49,7 +49,7 @@ response = {
 ```
 Query Parse -> Build Query Graph (optional)
           -> Semantic Recall (vector, always)
-          -> Graph Recall (subgraph / motif, only when partial_trajectory exists)
+          -> Graph Recall (max common subgraph, only when partial_trajectory exists)
           -> Candidate Union (if graph branch exists)
           -> Hybrid Rerank
           -> ACL Filter + Mask
@@ -76,18 +76,111 @@ Query Parse -> Build Query Graph (optional)
 若传入 partial trajectory：
 
 1. 构建 query graph（QG）；
-2. 提取结构特征：
-   - 工具序列 n-gram
-   - 失败->修复 motif
-   - 分支宽度与深度
-   - 关键依赖链长度
-3. 在历史图上做近似匹配，得分 `graph_score`。
+2. 在候选历史图上计算最大公共子图（MCS）；
+3. 将 MCS 命中规模归一化为 `graph_score`。
 
 默认策略：
 - 主召回使用 **Clean Graph**（减少失败噪音）；
-- 当 query 明确包含报错线索时，补充 **Raw Graph** 的失败分支相似度。
+- 本期仅实现基于 MCS 的工具调用结构匹配，不引入额外特征项。
 
 无 partial trajectory 时，不执行图召回，直接走纯语义召回。
+
+### 4.4.1 Query Graph 构建（QG）
+
+输入：`query.partial_trajectory`（与 `sample_traj` 同结构，通常是“当前进行中的前缀轨迹”）。
+
+构建步骤（与 commit 侧保持一致，避免 schema 漂移）：
+
+1. 复用现有 trajectory parser，将 partial trajectory 转成 `ActionNode[]` 与时序边；
+2. 执行 clean 规则（压缩空转步骤、保留关键工具调用、保留失败/重试链）；
+3. 产出 `query_raw_graph` 与 `query_clean_graph`（默认使用 clean）；
+4. 同时提取 query graph 的签名特征（见 4.4.2）。
+
+设计约束：
+- QG 只在本次检索请求内临时存在，不写回 memory；
+- 若 QG 构建失败，降级为纯语义召回，并在 evidence 中标记 `graph_recall_skipped_reason`；
+- QG 节点/边类型、edge_type 命名必须与 Neo4j 存量图一致（含 `retry`、`reasoning`、`dataflow`）。
+
+### 4.4.2 相似度定义（MVP：仅 MCS）
+
+本期 graph similarity 只考虑“工具调用结构”：
+
+1. 在 `query_clean_graph` 与 `candidate_clean_graph` 间计算最大公共子图（MCS）；
+2. 节点匹配规则：`action`（函数名）相同即可命中；
+3. 边匹配规则：`edge_type` 相同即可命中（如同为 `dataflow`）；
+4. 不要求 `tool_args`、`tool_output`、节点其他属性或边其他属性相同。
+
+记分建议（0~1）：
+
+```python
+graph_score = (matched_mcs_edges + matched_mcs_nodes) / max(
+    1, query_graph_edges + query_graph_nodes
+)
+```
+
+说明：
+- 以边覆盖率为主分，天然约束结构一致性；
+- 若 query 边过少（如 0 或 1），可回退到节点覆盖率辅助打分；
+- 后续版本再扩展其他特征项（motif/属性分布等）。
+
+### 4.4.3 候选检索策略（两阶段）
+
+为控制时延与吞吐，图匹配分两阶段：
+
+阶段 A：候选收缩（coarse filter）
+- 优先使用语义 top-N（如 50）作为图匹配候选池；
+- 可选增加硬过滤：`task_type`、`tool_whitelist`、`tenant_id/agent_id`；
+- 若语义分支为空，可回退到同 tenant/agent 的最新 K 条轨迹。
+
+阶段 B：精匹配（fine scoring）
+- 对候选池逐条读取 Neo4j clean graph；
+- 按 MCS 规则计算 `graph_score`；
+- 输出图分 top-M（如 10）供后续融合排序。
+
+### 4.4.4 Neo4j 检索与计算边界
+
+MVP 计算边界建议：
+- Neo4j 负责按 `trajectory_id` 回源 clean 图结构；
+- 相似度计算在应用层执行（Python），先实现可控的 MCS 版本；
+- 仅在后续性能瓶颈出现时，再考虑下推或特征索引。
+
+这样可保持：
+- 一致性：graph source of truth 始终在 Neo4j；
+- 可调试：MCS 命中节点/边可直接在日志/CLI中输出；
+- 可演进：后续可替换为 graph embedding / GNN reranker。
+
+### 4.4.5 返回证据（Graph Evidence）
+
+当执行图召回时，每条结果新增 evidence（可裁剪展示）：
+
+```json
+{
+  "graph_evidence": {
+    "mcs_matched_node_count": 9,
+    "mcs_matched_edge_count": 8,
+    "mcs_node_match_rule": "action_name_equal",
+    "mcs_edge_match_rule": "edge_type_equal",
+    "graph_score": 0.80
+  }
+}
+```
+
+要求：
+- 返回可解释字段，不返回过大子图全文（避免 payload 膨胀）；
+- CLI 可加开关显示完整匹配子图（默认仅摘要）。
+
+### 4.4.6 失败降级与质量守护
+
+降级策略：
+- `partial_trajectory` 为空：跳过图召回；
+- QG 构建失败：跳过图召回，保留语义结果；
+- Neo4j 超时/不可用：记录审计 + 降级语义结果；
+- 图分异常（NaN/空）：该候选 graph_score 置 0 并继续排序。
+
+质量守护：
+- 线上默认记录 `graph_score` 分项统计（P50/P95）；
+- 对短前缀 query（steps <= 4）启用低置信标记，避免误导；
+- 在评测集中单独统计 `Graph-Match Precision@K` 与 `Failure-Fix Hit Rate`。
 
 ## 4.5 融合排序策略（MVP）
 
