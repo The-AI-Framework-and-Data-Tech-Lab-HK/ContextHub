@@ -110,7 +110,7 @@ ContextHub is enterprise context governance middleware that provides a **unified
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/AiSEE-X/ContextHub.git
+git clone https://github.com/The-AI-Framework-and-Data-Tech-Lab-HK/ContextHub.git
 cd ContextHub
 pip install -e ".[dev]"
 ```
