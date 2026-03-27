@@ -23,6 +23,7 @@ class RetrieveRequest(BaseModel):
     agent_id: str
     query: RetrieveQuery
     top_k: int = Field(default=5, ge=1, le=100)
+    include_full_clean_graph: bool = False
 
 
 class RetrieveEvidence(BaseModel):

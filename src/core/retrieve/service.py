@@ -20,6 +20,7 @@ class RetrieveCommand:
     agent_id: str
     query: dict[str, Any]
     top_k: int = 5
+    include_full_clean_graph: bool = False
 
 
 @dataclass

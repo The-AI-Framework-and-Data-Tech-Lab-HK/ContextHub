@@ -130,6 +130,7 @@ def run_retrieve(
                 agent_id=agent_id,
                 query=query_payload,
                 top_k=top_k,
+                include_full_clean_graph=bool(include_clean_graph),
             )
         )
         elapsed = (time.perf_counter() - t0) * 1000.0

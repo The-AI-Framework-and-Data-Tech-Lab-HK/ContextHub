@@ -24,6 +24,7 @@ def retrieve(
                 agent_id=body.agent_id,
                 query=body.query.model_dump(),
                 top_k=body.top_k,
+                include_full_clean_graph=body.include_full_clean_graph,
             )
         )
     except ValueError as e:

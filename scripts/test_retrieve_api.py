@@ -37,6 +37,7 @@ def run(args: argparse.Namespace) -> int:
             "task_type": args.task_type,
         },
         "top_k": args.top_k,
+        "include_full_clean_graph": bool(args.include_full_clean_graph),
     }
 
     with httpx.Client() as client:
@@ -100,6 +101,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--partial-trajectory-file", default="sample_graph_query/pq02_retry_pattern_traj1.json")
     p.add_argument("--top-k", type=int, default=5)
     p.add_argument("--tool-whitelist", nargs="*", default=["local_db_sql"], help="Space-separated tool list")
+    p.add_argument(
+        "--include-full-clean-graph",
+        action="store_true",
+        help="Request full clean_graph in retrieve response (default: compact clean_graph).",
+    )
     p.add_argument("--health-timeout", type=float, default=15.0, help="Health check timeout (seconds)")
     p.add_argument("--retrieve-timeout", type=float, default=600.0, help="Retrieve request timeout (seconds)")
     p.add_argument("--pretty", action="store_true")
