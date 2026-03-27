@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import get_retrieve_orchestrator
 from api.schemas.retrieve import RetrieveRequest, RetrieveResponse
@@ -17,12 +17,17 @@ def retrieve(
     body: RetrieveRequest,
     orchestrator: RetrieveOrchestrator = Depends(get_retrieve_orchestrator),
 ) -> RetrieveResponse:
-    result = orchestrator.retrieve(
-        RetrieveCommand(
-            tenant_id=body.tenant_id,
-            agent_id=body.agent_id,
-            query=body.query.model_dump(),
-            top_k=body.top_k,
+    try:
+        result = orchestrator.retrieve(
+            RetrieveCommand(
+                tenant_id=body.tenant_id,
+                agent_id=body.agent_id,
+                query=body.query.model_dump(),
+                top_k=body.top_k,
+            )
         )
-    )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"retrieve failed: {type(e).__name__}") from e
     return RetrieveResponse(items=result.items, warnings=result.warnings)

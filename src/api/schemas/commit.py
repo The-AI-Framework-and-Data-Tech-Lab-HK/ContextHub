@@ -23,10 +23,15 @@ class CommitRequest(BaseModel):
 class CommitResponse(BaseModel):
     # Phase 1 returns graph size stats for observability.
     trajectory_id: str
+    idempotency_key: str
     nodes: int
     edges: int
     status: str
     warnings: list[str] = Field(default_factory=list)
+    summary_l0: str
+    summary_l1: str
+    neo4j_summary: dict[str, Any] = Field(default_factory=dict)
+    vector_index_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class ReplayResponse(BaseModel):

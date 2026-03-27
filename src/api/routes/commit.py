@@ -40,8 +40,13 @@ def commit_trajectory(
     # Return Phase 1-compatible compact response.
     return CommitResponse(
         trajectory_id=result.trajectory_id,
+        idempotency_key=result.idempotency_key,
         nodes=result.nodes,
         edges=result.edges,
         status=result.status,
         warnings=result.warnings,
+        summary_l0=result.summary_l0,
+        summary_l1=result.summary_l1,
+        neo4j_summary=dict(result.payload.get("neo4j_summary") or {}),
+        vector_index_summary=dict(result.payload.get("vector_index_summary") or {}),
     )
