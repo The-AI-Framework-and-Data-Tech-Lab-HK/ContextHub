@@ -15,6 +15,40 @@
 | OpenClaw 集成 | context-engine 插件已接入，TUI 可用 |
 | 自动化测试 | 以当次 `pytest -q` 实际输出为准（不预写总数） |
 
+## 演示场景：团队结构与上下文继承
+
+验证用的 seed 数据模拟了一个企业的组织架构（来自 `alembic/versions/001_initial_schema.py`）：
+
+```
+全组织 (root)
+├── 工程部 engineering
+│   └── 后端组 engineering/backend    ← query-agent 主属团队
+└── 数据部 data
+    └── 数据分析组 data/analytics     ← analysis-agent 主属团队
+```
+
+两个 agent 分属不同部门，但 **analysis-agent 同时也是工程部的成员**（非主属）：
+
+| Agent | 主属团队 | 额外成员 |
+|-------|---------|---------|
+| query-agent | engineering/backend | engineering（由 `demo_e2e.py` 自动补入） |
+| analysis-agent | data/analytics | engineering |
+
+上下文继承规则：
+
+| 规则 | 含义 |
+|------|------|
+| 私有隔离 | 每个 agent 的私有记忆只有自己能看到 |
+| 子读父 | 子团队成员可以读取父团队的共享上下文 |
+| 父不见子 | 父团队默认看不到子团队的上下文 |
+| 晋升共享 | 私有记忆可 `promote` 到所属团队，成为该团队所有成员可见的共享上下文 |
+
+**demo 的核心故事**：query-agent（后端工程师）把一个 SQL pattern 从私有
+空间晋升到 engineering 团队 → analysis-agent（数据分析师）虽然主属数据部，
+但因为也是工程部成员，所以能自动召回这条知识。这就是企业级跨部门知识复用。
+
+---
+
 ## 核心原则
 
 1. **证功能独特性，不证 token 数量**：ContextHub 的差异化是治理层（隔离、
