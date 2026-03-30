@@ -30,7 +30,9 @@ def test_semantic_recall_filters_scope_and_groups_by_trajectory() -> None:
             "id": "a",
             "distance": 0.1,
             "metadata": {
-                "tenant_id": "tenant-a",
+                "account_id": "acc-a",
+                "scope": "agent",
+                "owner_space": "agent-1",
                 "agent_id": "agent-1",
                 "trajectory_id": "traj-1",
                 "uri": "ctx://.../.abstract.md",
@@ -40,7 +42,9 @@ def test_semantic_recall_filters_scope_and_groups_by_trajectory() -> None:
             "id": "b",
             "distance": 0.2,
             "metadata": {
-                "tenant_id": "tenant-a",
+                "account_id": "acc-a",
+                "scope": "agent",
+                "owner_space": "agent-1",
                 "agent_id": "agent-1",
                 "trajectory_id": "traj-1",
                 "uri": "ctx://.../.overview.md",
@@ -50,7 +54,9 @@ def test_semantic_recall_filters_scope_and_groups_by_trajectory() -> None:
             "id": "c",
             "distance": 0.05,
             "metadata": {
-                "tenant_id": "tenant-a",
+                "account_id": "acc-a",
+                "scope": "agent",
+                "owner_space": "agent-2",
                 "agent_id": "agent-2",
                 "trajectory_id": "traj-other-agent",
                 "uri": "ctx://.../x",
@@ -64,7 +70,7 @@ def test_semantic_recall_filters_scope_and_groups_by_trajectory() -> None:
         embedding_fn=lambda _: [0.1, 0.2],
     )
     hits = recall.recall(
-        account_id="tenant-a",
+        account_id="acc-a",
         agent_id="agent-1",
         query_text="q",
         top_k=5,
@@ -83,7 +89,9 @@ def test_retrieve_service_returns_semantic_items() -> None:
             "id": "a",
             "distance": 0.1,
             "metadata": {
-                "tenant_id": "tenant-a",
+                "account_id": "acc-a",
+                "scope": "agent",
+                "owner_space": "agent-1",
                 "agent_id": "agent-1",
                 "trajectory_id": "traj-1",
                 "uri": "ctx://agent/agent-1/memories/trajectories/traj-1/.abstract.md",
@@ -99,7 +107,7 @@ def test_retrieve_service_returns_semantic_items() -> None:
     service = RetrieveService(semantic_recall=recall)
     out = service.run(
         RetrieveCommand(
-            account_id="tenant-a",
+            account_id="acc-a",
             agent_id="agent-1",
             query={"task_description": "analyze revenue", "constraints": {"tool_whitelist": ["local_db_sql"]}},
             top_k=3,
@@ -120,7 +128,9 @@ def test_retrieve_service_uses_graph_mcs_when_partial_trajectory_provided() -> N
             "id": "a",
             "distance": 0.30,
             "metadata": {
-                "tenant_id": "tenant-a",
+                "account_id": "acc-a",
+                "scope": "agent",
+                "owner_space": "agent-1",
                 "agent_id": "agent-1",
                 "trajectory_id": "traj-1",
                 "uri": "ctx://agent/agent-1/memories/trajectories/traj-1/.abstract.md",
@@ -130,7 +140,9 @@ def test_retrieve_service_uses_graph_mcs_when_partial_trajectory_provided() -> N
             "id": "b",
             "distance": 0.05,
             "metadata": {
-                "tenant_id": "tenant-a",
+                "account_id": "acc-a",
+                "scope": "agent",
+                "owner_space": "agent-1",
                 "agent_id": "agent-1",
                 "trajectory_id": "traj-2",
                 "uri": "ctx://agent/agent-1/memories/trajectories/traj-2/.abstract.md",
@@ -202,7 +214,7 @@ def test_retrieve_service_uses_graph_mcs_when_partial_trajectory_provided() -> N
     ]
     out = service.run(
         RetrieveCommand(
-            account_id="tenant-a",
+            account_id="acc-a",
             agent_id="agent-1",
             query={
                 "task_description": "retry after sql failure",

@@ -6,8 +6,10 @@
 POST /api/v1/amc/commit
 
 request = {
-  "tenant_id": "...",
-  "agent_id": "...",
+  "account_id": "...",
+  "agent_id": "...",              # 兼容字段；推荐从 X-Agent-Id 读取
+  "scope": "agent",
+  "owner_space": "agent-a",
   "session_id": "...",
   "task_id": "...",
   "trajectory": [...],           # 原始 steps
@@ -46,8 +48,8 @@ Receive -> Validate -> Normalize -> Pair AI/Tool -> Build Raw Graph -> Build Cle
 
 ### (1) Validate
 - JSON schema 校验（Step 单调、字段类型、meta.role）；
-- tenant_id / agent_id 权限校验；
-- 幂等键检查（`tenant_id + task_id + hash(trajectory)`）。
+- account_id / agent_id / scope / owner_space 一致性校验；
+- 幂等键检查（`account_id + task_id + hash(trajectory)`）。
 
 ### (2) Normalize
 - 将样例中的字符串 Action 解析为 `tool_name + args`；
@@ -266,7 +268,7 @@ if enum_hit:
   - `llm_extraction/`（可选；按调用落盘，如 `01_dataflow.json`、`02_reasoning.json`、`03_summary.json`）
   - `raw_steps.jsonl`（可选，保留回放原文）
 - 将 `Trajectory-L0/L1` 写入向量索引（不依赖 node-level 摘要）；
-- 标量索引字段：`tenant_id, agent_id, task_type, tool_set, lifecycle_status, stale_flag, created_at`。
+- 标量索引字段：`account_id, scope, owner_space, agent_id, task_type, tool_set, status, stale_flag, created_at`。
 
 ### (6.1) Semantic Indexer 实现要求（参考 OpenViking）
 
@@ -276,10 +278,10 @@ if enum_hit:
 - 仅索引 trajectory-level 两个文档：
   - L0: `.../.abstract.md`
   - L1: `.../.overview.md`
-- 向量库记录以 `uri` 为主键锚点（`id = md5(tenant_id + uri)`），**不直接持久化文件全文**；
+- 向量库记录以 `uri` 为主键锚点（`id = md5(account_id + uri)`），**不直接持久化文件全文**；
 - Embedding 计算时由 worker 按 `uri` 回文件系统读取文本（运行时读取，向量库仅存 embedding + metadata）；
 - **Embedding 输入必须是目标文件原文全文**（按文件编码解码后的完整字符串），禁止改用摘要字段副本、清洗重写文本、截断文本；
-- metadata 至少包含：`uri/level/tenant_id/trajectory_id/agent_id/task_type`（可选 `content_sha256` 用于变更检测）；
+- metadata 至少包含：`uri/level/account_id/scope/owner_space/trajectory_id/agent_id/task_type/status`（可选 `content_sha256` 用于变更检测）；
 - 不索引 node-level 摘要（当前阶段）。
 
 推荐流水线（异步）：
@@ -291,11 +293,12 @@ if enum_hit:
 `IndexDoc` 最小字段建议：
 ```python
 class IndexDoc:
-    id: str                 # 向量记录主键（md5(tenant_id + seed_uri)）
+    id: str                 # 向量记录主键（md5(account_id + seed_uri)）
     uri: str                # 文本入口 URI（.../.abstract.md 或 .../.overview.md）
     parent_uri: str         # 父目录 URI（范围过滤辅助字段）
     level: int              # 层级：0=L0，1=L1
-    tenant_id: str          # 租户隔离字段
+    account_id: str         # 账户隔离字段
+    scope: str              # 作用域（agent/team/datalake/user）
     owner_space: str        # 可见性作用域（ACL 过滤字段）
     trajectory_id: str      # 所属轨迹 ID（回源关联）
     agent_id: str           # 轨迹所属 agent ID
@@ -309,9 +312,9 @@ class IndexDoc:
 Embedding Worker 根据 `uri` 回文件系统读取对应的 `.abstract.md/.overview.md` 原文全文作为向量化文本。
 
 Vector Store 推荐记录结构（MVP）：
-- `id`：`md5(tenant_id + uri)`
+- `id`：`md5(account_id + uri)`
 - `embedding`：向量
-- `metadata`：`uri, parent_uri, level, tenant_id, trajectory_id, agent_id, task_type, lifecycle_status, stale_flag, updated_at, content_sha256`
+- `metadata`：`uri, parent_uri, level, account_id, scope, owner_space, trajectory_id, agent_id, task_type, status, lifecycle_status, stale_flag, updated_at, content_sha256`
 - 不存 `document/content` 原文字段（正文仅在 FS）
 
 幂等策略：
@@ -366,11 +369,7 @@ Vector Store 推荐记录结构（MVP）：
 ```text
 data/content/
   accounts/{account_id}/
-    agent/{agent_id}/
-      memories/trajectories/{trajectory_id}/...
-    team/{team_path}/
-      memories/trajectories/{trajectory_id}/...
-    datalake/
+    scope/{scope}/{owner_space}/
       memories/trajectories/{trajectory_id}/...
 ```
 

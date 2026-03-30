@@ -23,7 +23,9 @@
 ```python
 class Trajectory:
     trajectory_id: str             # 轨迹唯一 ID（主键）
-    tenant_id: str                 # 租户隔离 ID（索引/权限过滤关键字段）
+    account_id: str                # 账户隔离 ID（索引/权限过滤关键字段）
+    scope: str                     # 作用域：agent|team|datalake|user
+    owner_space: str               # 作用域归属（agent_id 或 team path）
     agent_id: str                  # 产生该轨迹的 agent ID
     task_type: str | None          # 任务类型标签（用于检索过滤与 workflow 分桶）
     task_summary_l0: str           # 轨迹 L0 摘要（~100 tokens，快速召回）
@@ -127,7 +129,7 @@ class DependencyEdge:
 ## 2.6 存储键空间建议
 
 ```
-ctx://agent/{agent_id}/memories/trajectories/{trajectory_id}/
+ctx://{scope}/{owner_space}/memories/trajectories/{trajectory_id}/
   ├── trajectory.json              # 轨迹级元信息
   ├── graph_pointer.json           # 指向图后端（raw/clean graph id）
   ├── raw_steps.jsonl
@@ -149,7 +151,7 @@ ctx://agent/{agent_id}/memories/trajectories/{trajectory_id}/
 ```json
 {
   "backend": "neo4j",
-  "namespace": "tenant_acme",
+  "namespace": "account_acme",
   "raw_graph_id": "traj_123_raw",
   "clean_graph_id": "traj_123_clean",
   "origin_mapping_ref": "neo4j://.../mapping/traj_123"

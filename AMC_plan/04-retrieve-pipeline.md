@@ -6,7 +6,7 @@
 POST /api/v1/amc/retrieve
 
 request = {
-  "tenant_id": "...",
+  "account_id": "...",
   "agent_id": "...",
   "query": {
     "task_description": "...",
@@ -25,7 +25,7 @@ response = {
       "trajectory_id": "...",
       "score": 0.87,
       "semantic_score": 0.82,
-      "graph_score": 0.91,          # 无 partial_trajectory 时可为 null
+      "graph_match_score": 0.91,    # 无 partial_trajectory 时可为 null
       "rationale": ["same tool chain", "similar failure-fix pattern"],
       "evidence": {
         "matched_nodes": ["n12", "n18"],
@@ -39,7 +39,7 @@ response = {
 响应字段说明：
 - `score`：最终排序分（用于返回排序，不是单一模型分数）。
 - `semantic_score`：语义召回相关分数（来自向量检索+语义重排）。
-- `graph_score`：图相似分；无 `partial_trajectory` 时为 `null`。
+- `graph_match_score`：图相似分；无 `partial_trajectory` 时为 `null`。
 - `rationale`：可读解释（为什么命中）。
 - `evidence.matched_nodes`：图后端返回的关键命中节点 ID。
 - `evidence.matched_subgraph`：结构命中摘要（用于可解释展示/调试）。
@@ -60,7 +60,7 @@ Query Parse -> Build Query Graph (optional)
 
 - 检索对象：Trajectory-L0/L1（trajectory-level）；
 - query embedding = `task_description + key constraints + failure clues`；
-- 标量过滤：tenant、scope、task_type、tool_set；
+- 标量过滤：account、scope、task_type、tool_set；
 - 产出 top-N（如 50）候选轨迹。
 
 pgvector 执行策略（实现建议）：
@@ -100,7 +100,7 @@ LIMIT :top_n;
 
 1. 构建 query graph（QG）；
 2. 在候选历史图上计算最大公共子图（MCS）；
-3. 将 MCS 命中规模归一化为 `graph_score`。
+3. 将 MCS 命中规模归一化为 `graph_match_score`。
 
 默认策略：
 - 主召回使用 **Clean Graph**（减少失败噪音）；
@@ -136,7 +136,7 @@ LIMIT :top_n;
 记分建议（0~1）：
 
 ```python
-graph_score = (matched_mcs_edges + matched_mcs_nodes) / max(
+graph_match_score = (matched_mcs_edges + matched_mcs_nodes) / max(
     1, query_graph_edges + query_graph_nodes
 )
 ```
@@ -152,12 +152,12 @@ graph_score = (matched_mcs_edges + matched_mcs_nodes) / max(
 
 阶段 A：候选收缩（coarse filter）
 - 优先使用语义 top-N（如 50）作为图匹配候选池；
-- 可选增加硬过滤：`task_type`、`tool_whitelist`、`tenant_id/agent_id`；
-- 若语义分支为空，可回退到同 tenant/agent 的最新 K 条轨迹。
+- 可选增加硬过滤：`task_type`、`tool_whitelist`、`account_id/scope/owner_space`；
+- 若语义分支为空，可回退到同 account + 可见 scope 的最新 K 条轨迹。
 
 阶段 B：精匹配（fine scoring）
 - 对候选池逐条读取 Neo4j clean graph；
-- 按 MCS 规则计算 `graph_score`；
+- 按 MCS 规则计算 `graph_match_score`；
 - 输出图分 top-M（如 10）供后续融合排序。
 
 ### 4.4.4 Neo4j 检索与计算边界
@@ -183,7 +183,7 @@ MVP 计算边界建议：
     "mcs_matched_edge_count": 8,
     "mcs_node_match_rule": "action_name_equal",
     "mcs_edge_match_rule": "edge_type_equal",
-    "graph_score": 0.80
+    "graph_match_score": 0.80
   }
 }
 ```
@@ -198,24 +198,24 @@ MVP 计算边界建议：
 - `partial_trajectory` 为空：跳过图召回；
 - QG 构建失败：跳过图召回，保留语义结果；
 - Neo4j 超时/不可用：记录审计 + 降级语义结果；
-- 图分异常（NaN/空）：该候选 graph_score 置 0 并继续排序。
+- 图分异常（NaN/空）：该候选 `graph_match_score` 置 0 并继续排序。
 
 质量守护：
-- 线上默认记录 `graph_score` 分项统计（P50/P95）；
+- 线上默认记录 `graph_match_score` 分项统计（P50/P95）；
 - 对短前缀 query（steps <= 4）启用低置信标记，避免误导；
 - 在评测集中单独统计 `Graph-Match Precision@K` 与 `Failure-Fix Hit Rate`。
 
 ## 4.5 融合排序策略（MVP）
 
 ```python
-final_score = w_sem * semantic_score + w_graph * graph_score + w_fb * feedback_boost
+final_score = w_sem * semantic_score + w_graph * graph_match_score + w_fb * feedback_boost
 
 default:
   if partial_trajectory:
       w_sem=0.45, w_graph=0.45, w_fb=0.10
   else:
       final_score = 0.90 * semantic_score + 0.10 * feedback_boost
-      # graph_score = null
+      # graph_match_score = null
 ```
 
 `feedback_boost` 来自历史 adopted/ignored/corrected 信号（见 07/06 文档）。
@@ -241,7 +241,7 @@ default:
 
 ## 4.7 安全与可见性
 
-- 检索前过滤：tenant/scope ACL；
+- 检索前过滤：account/scope ACL；
 - 检索后脱敏：按 field_masks 清洗参数与结果；
 - 审计落库：记录 query、命中 URI、是否被上层 agent 采用。
 

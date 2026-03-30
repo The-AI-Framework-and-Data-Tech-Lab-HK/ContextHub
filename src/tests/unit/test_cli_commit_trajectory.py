@@ -40,9 +40,9 @@ def test_cli_run_commit_returns_storage_paths(sample_traj_dir: Path, tmp_path: P
     )
     out = run_commit(
         trajectory_file=sample_traj_dir / "traj1.json",
-        tenant_id="tenant-cli",
+        account_id="account-cli",
+        tenant_id=None,
         agent_id="agent-cli",
-        account_id=None,
         scope="agent",
         owner_space=None,
         session_id="session-cli",
@@ -86,9 +86,9 @@ def test_cli_visualization_off_by_default(sample_traj_dir: Path, tmp_path: Path)
     )
     out = run_commit(
         trajectory_file=sample_traj_dir / "traj1.json",
-        tenant_id="tenant-cli",
+        account_id="account-cli",
+        tenant_id=None,
         agent_id="agent-cli",
-        account_id=None,
         scope="agent",
         owner_space=None,
         session_id="session-cli",
@@ -126,9 +126,9 @@ def test_cli_disable_idempotency_forces_update(sample_traj_dir: Path, tmp_path: 
     )
     common = dict(
         trajectory_file=sample_traj_dir / "traj1.json",
-        tenant_id="tenant-cli",
+        account_id="account-cli",
+        tenant_id=None,
         agent_id="agent-cli",
-        account_id=None,
         scope="agent",
         owner_space=None,
         session_id="session-cli",

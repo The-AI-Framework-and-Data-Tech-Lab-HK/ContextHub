@@ -41,7 +41,7 @@
    - 9.1 构建 query graph（raw/clean，默认 clean）；
    - 9.2 定义 MCS 匹配规则（节点按 action 函数名相同，边按 edge_type 相同；不要求 args/output/其他属性一致）；
    - 9.3 两阶段匹配（语义 top-N 候选收缩 -> MCS 图相似精排）；
-   - 9.4 输出可解释 evidence（MCS 命中节点/边规模、命中规则、graph_score）；
+   - 9.4 输出可解释 evidence（MCS 命中节点/边规模、命中规则、graph_match_score）；
    - 9.5 降级兜底（QG 构建失败或 Neo4j 不可用时回退语义召回）。
 10. 实现融合 rerank（默认 clean graph，错误场景补充 raw graph）；
 11. 返回 evidence（命中节点/子图说明）；
@@ -125,9 +125,9 @@
 
 ### A. 文件存储结构改造（优先）
 
-1. 将 FS 根目录切换为 `accounts/{account_id}/scope/{owner_space}` 语义分层；
+1. 将 FS 根目录切换为 `accounts/{account_id}/scope/{scope}/{owner_space}` 语义分层；
 2. `graph_pointer.json`、向量 metadata、Neo4j trajectory 属性补齐 `account_id/scope/owner_space`；
-3. 提供一次性迁移脚本：把历史 `tenant-local` 数据迁移到新目录并回填元数据。
+3. 提供一次性迁移脚本：把历史 `tenant/*/agent/*` 路径数据迁移到新目录并回填元数据。
 
 验收：
 - 同一 `account_id` 外不可见；
