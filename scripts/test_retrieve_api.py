@@ -25,11 +25,12 @@ def run(args: argparse.Namespace) -> int:
         if not isinstance(partial_steps, list):
             raise ValueError("partial trajectory file must be a JSON array")
 
+    if args.tenant_id:
+        print("[AMC] --tenant-id is deprecated; use --account-id.")
+    resolved_account_id = str(args.account_id or args.tenant_id or "account-local").strip()
     base = args.base_url.rstrip("/")
     retrieve_url = f"{base}/retrieve"
     retrieve_payload = {
-        "tenant_id": args.tenant_id,
-        "agent_id": args.agent_id,
         "query": {
             "task_description": args.task_description,
             "partial_trajectory": partial_steps,
@@ -38,6 +39,10 @@ def run(args: argparse.Namespace) -> int:
         },
         "top_k": args.top_k,
         "include_full_clean_graph": bool(args.include_full_clean_graph),
+    }
+    headers = {
+        "X-Account-Id": resolved_account_id,
+        "X-Agent-Id": str(args.agent_id),
     }
 
     with httpx.Client() as client:
@@ -52,6 +57,7 @@ def run(args: argparse.Namespace) -> int:
             resp = client.post(
                 retrieve_url,
                 json=retrieve_payload,
+                headers=headers,
                 timeout=float(args.retrieve_timeout),
             )
         except httpx.ReadTimeout as e:
@@ -94,7 +100,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Smoke test AMC retrieve FastAPI endpoint")
     p.add_argument("--base-url", default="http://127.0.0.1:8000/api/v1/amc", help="AMC API base URL")
     p.add_argument("--health-url", default="http://127.0.0.1:8000/healthz", help="Health endpoint URL")
-    p.add_argument("--tenant-id", default="tenant-local")
+    p.add_argument("--account-id", default="account-local")
+    p.add_argument("--tenant-id", default=None, help="Deprecated alias of account_id")
     p.add_argument("--agent-id", default="agent-local")
     p.add_argument("--task-type", default="sql_analysis")
     p.add_argument("--task-description", default="中小微 企业信贷及经营数据")

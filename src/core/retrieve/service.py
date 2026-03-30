@@ -16,9 +16,11 @@ from core.retrieve.semantic_recall import SemanticRecall
 
 @dataclass
 class RetrieveCommand:
-    tenant_id: str
+    account_id: str
     agent_id: str
     query: dict[str, Any]
+    scope_filter: list[str] | None = None
+    owner_space_filter: list[str] | None = None
     top_k: int = 5
     include_full_clean_graph: bool = False
 
@@ -76,6 +78,30 @@ class RetrieveService:
         denom = max(1e-9, w_sem + w_graph)
         return (w_sem * float(semantic_score) + w_graph * float(graph_match_score)) / denom
 
+    @staticmethod
+    def _is_visible_to_agent(*, agent_id: str, scope: str, owner_space: str) -> bool:
+        s = (scope or "agent").strip().lower() or "agent"
+        o = str(owner_space or "").strip()
+        if s == "datalake":
+            return True
+        if s in {"agent", "user"}:
+            return o == agent_id
+        if s == "team":
+            # MVP rule: team resource is visible when requester belongs to that owner space.
+            # Detailed team-closure expansion is delegated to ACL service integration later.
+            return o == agent_id
+        return False
+
+    @classmethod
+    def _acl_filter_visible(cls, *, items: list[dict[str, Any]], agent_id: str) -> list[dict[str, Any]]:
+        visible: list[dict[str, Any]] = []
+        for item in items:
+            scope = str(item.get("scope") or "agent")
+            owner_space = str(item.get("owner_space") or "")
+            if cls._is_visible_to_agent(agent_id=agent_id, scope=scope, owner_space=owner_space):
+                visible.append(item)
+        return visible
+
     def run(self, cmd: RetrieveCommand) -> RetrieveResult:
         if self.semantic_recall is None:
             return RetrieveResult(items=[], warnings=["semantic recall backend is not configured"])
@@ -83,10 +109,12 @@ class RetrieveService:
         pq = parse_retrieve_query(cmd.query)
         warnings: list[str] = []
         hits = self.semantic_recall.recall(
-            tenant_id=cmd.tenant_id,
+            account_id=cmd.account_id,
             agent_id=cmd.agent_id,
             query_text=pq.query_text,
             top_k=cmd.top_k,
+            scope_filter=cmd.scope_filter,
+            owner_space_filter=cmd.owner_space_filter,
         )
         unioned = union_candidates(hits)
         ranked_semantic = rerank_semantic_only(unioned)
@@ -137,6 +165,15 @@ class RetrieveService:
             items.append(
                 {
                     "trajectory_id": hit.trajectory_id,
+                    "scope": str(
+                        ((hit.raw_hits[0].get("metadata") or {}) if hit.raw_hits else {}).get("scope") or "agent"
+                    ),
+                    "owner_space": str(
+                        ((hit.raw_hits[0].get("metadata") or {}) if hit.raw_hits else {}).get("owner_space")
+                        or ((hit.raw_hits[0].get("metadata") or {}) if hit.raw_hits else {}).get("agent_id")
+                        or ""
+                    ),
+                    "uri": (hit.matched_uris[0] if hit.matched_uris else None),
                     "score": total_score,
                     "total_score": total_score,
                     "semantic_score": hit.semantic_score,
@@ -145,5 +182,10 @@ class RetrieveService:
                     "evidence": evidence,
                 }
             )
+        acl_before = len(items)
+        items = self._acl_filter_visible(items=items, agent_id=cmd.agent_id)
+        acl_after = len(items)
+        if acl_after < acl_before:
+            warnings.append(f"acl filtered {acl_before - acl_after} invisible candidates")
         items = sorted(items, key=lambda x: float(x.get("score") or 0.0), reverse=True)
         return RetrieveResult(items=items[: max(1, int(cmd.top_k))], warnings=warnings)

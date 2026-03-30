@@ -19,9 +19,13 @@ class RetrieveQuery(BaseModel):
 
 
 class RetrieveRequest(BaseModel):
-    tenant_id: str
-    agent_id: str
+    # tenant_id/agent_id are kept for backward compatibility.
+    # Preferred context source is headers: X-Account-Id / X-Agent-Id.
+    tenant_id: str | None = None
+    agent_id: str | None = None
     query: RetrieveQuery
+    scope: list[str] = Field(default_factory=list)
+    owner_space: list[str] = Field(default_factory=list)
     top_k: int = Field(default=5, ge=1, le=100)
     include_full_clean_graph: bool = False
 
@@ -35,6 +39,9 @@ class RetrieveEvidence(BaseModel):
 
 class RetrieveItem(BaseModel):
     trajectory_id: str
+    scope: str | None = None
+    owner_space: str | None = None
+    uri: str | None = None
     score: float
     total_score: float | None = None
     semantic_score: float

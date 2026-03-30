@@ -31,8 +31,11 @@ def _load_trajectory(path: Path) -> list[dict[str, Any]]:
 def run_commit(
     *,
     trajectory_file: Path,
-    tenant_id: str,
+    account_id: str | None,
+    tenant_id: str | None,
     agent_id: str,
+    scope: str,
+    owner_space: str | None,
     session_id: str,
     task_id: str | None,
     task_type: str,
@@ -43,6 +46,9 @@ def run_commit(
 ) -> dict[str, Any]:
     """Execute Phase 1 commit pipeline and return a CLI-friendly result payload."""
     settings = load_settings(config_path=config_path)
+    resolved_account_id = str(account_id or tenant_id or "account-local").strip()
+    if tenant_id:
+        print("[AMC] --tenant-id is deprecated; use --account-id.")
     repo = LocalFSTrajectoryRepository(root=settings.storage.localfs_root)
     audit = JsonlAuditLogger(file_path=settings.storage.audit_file_path)
     graph_store = build_graph_store_writer(settings)
@@ -108,8 +114,11 @@ def run_commit(
     steps = _load_trajectory(trajectory_file)
     effective_task_id = task_id or f"task-{trajectory_file.stem}"
     command = CommitCommand(
-        tenant_id=tenant_id,
+        tenant_id=resolved_account_id,
         agent_id=agent_id,
+        account_id=resolved_account_id,
+        scope=scope,
+        owner_space=owner_space,
         session_id=session_id,
         task_id=effective_task_id,
         trajectory=steps,
@@ -150,8 +159,20 @@ def build_parser() -> argparse.ArgumentParser:
         description="Commit a trajectory JSON file and print L0/L1/graph storage locations.",
     )
     parser.add_argument("trajectory_file", help="Path to trajectory JSON (e.g. sample_traj/traj1.json)")
-    parser.add_argument("--tenant-id", default="tenant-local", help="Tenant identifier")
+    parser.add_argument("--account-id", default="account-local", help="Account identifier (primary)")
+    parser.add_argument("--tenant-id", default=None, help="Deprecated alias of account_id")
     parser.add_argument("--agent-id", default="agent-local", help="Agent identifier")
+    parser.add_argument(
+        "--scope",
+        default="agent",
+        choices=["agent", "team", "datalake", "user"],
+        help="Visibility scope used for storage hierarchy and metadata.",
+    )
+    parser.add_argument(
+        "--owner-space",
+        default=None,
+        help="Owner space id under scope (default: agent-id).",
+    )
     parser.add_argument("--session-id", default="session-local", help="Session identifier")
     parser.add_argument("--task-id", default=None, help="Task identifier (default: task-<filename>)")
     parser.add_argument("--task-type", default="sql_analysis", help="labels.task_type value")
@@ -175,8 +196,11 @@ def main() -> int:
     args = build_parser().parse_args()
     result = run_commit(
         trajectory_file=Path(args.trajectory_file),
+        account_id=args.account_id,
         tenant_id=args.tenant_id,
         agent_id=args.agent_id,
+        scope=args.scope,
+        owner_space=args.owner_space,
         session_id=args.session_id,
         task_id=args.task_id,
         task_type=args.task_type,

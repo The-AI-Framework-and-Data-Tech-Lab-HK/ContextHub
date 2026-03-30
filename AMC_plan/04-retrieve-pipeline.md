@@ -63,6 +63,25 @@ Query Parse -> Build Query Graph (optional)
 - 标量过滤：tenant、scope、task_type、tool_set；
 - 产出 top-N（如 50）候选轨迹。
 
+pgvector 执行策略（实现建议）：
+1. 先 `WHERE` 做标量过滤（至少 `account_id`，可选 `scope/owner_space/status/task_type/tool_set`）；
+2. 再 `ORDER BY embedding <-> :query_vector` 做相似度排序；
+3. `LIMIT top_n` 取候选；
+4. 候选仍需经过 ACL `filter_visible` 兜底。
+
+示例（伪 SQL）：
+
+```sql
+SELECT id, metadata, embedding <-> :query_vec AS distance
+FROM amc_trajectory_index
+WHERE metadata->>'account_id' = :account_id
+  AND metadata->>'status' <> 'deleted'
+  AND (:scopes_is_null OR metadata->>'scope' = ANY(:scopes))
+  AND (:owner_spaces_is_null OR metadata->>'owner_space' = ANY(:owner_spaces))
+ORDER BY embedding <-> :query_vec
+LIMIT :top_n;
+```
+
 说明：
 - `failure clues` 例如报错关键词（`no such column`、`syntax error`）；
 - `scope` 与 `owner_space` 联动，避免越权召回。
@@ -229,4 +248,67 @@ default:
 - Failure-Fix Hit Rate
 - Context Adoption Rate（被上层 agent 采纳比例）
 - Retrieve P50/P99 Latency
+
+## 4.9 与 main search 接口对齐方案（retrieve API + ACL）
+
+目标：AMC retrieve 在请求上下文、过滤语义、可见性判定上对齐 main `/api/v1/search`。
+
+### (1) 请求上下文改造
+
+retrieve 使用 header 注入上下文（与 main 一致）：
+- `X-Account-Id`
+- `X-Agent-Id`
+
+请求体聚焦检索语义：
+- `query` / `partial_trajectory` / `top_k`
+- `scope`（可选：`agent|team|datalake` 列表）
+- `owner_space`（可选，细粒度限定）
+
+兼容：
+- 过渡期可接受 `tenant_id/agent_id` body 字段；
+- 优先使用 header，body 仅作 fallback。
+
+### (2) 检索过滤口径
+
+与 main `retrieval_service` 保持一致：
+1. 先做向量/图候选召回（向量分支先标量过滤再相似度排序）；
+2. 再按 `scope/context_type/status` 过滤；
+3. 最后执行 ACL `filter_visible`。
+
+ACL 规则对齐：
+- `agent`：仅 `owner_space == X-Agent-Id`
+- `team`：`owner_space` 在可见 team path 闭包内
+- `datalake`：默认可读
+
+### (3) 返回结构对齐
+
+retrieve 结果补齐与 main `SearchResult` 相同的隔离字段：
+- `scope`
+- `owner_space`
+- `uri`
+
+同时保留 AMC 专有字段：
+- `semantic_score`
+- `graph_match_score`
+- `total_score`
+- `evidence`
+
+### (4) clean_graph 返回策略（与安全策略协同）
+
+默认返回简略 `clean_graph`（已实现）：
+- node: `node_id/thinking/tool_name/tool_args/tool_output`（字段截断）
+- edge: `src/dst/dep_type`
+
+并在 ACL 通过后才允许返回图内容。
+当请求 `include_full_clean_graph=true` 时，仍需执行字段脱敏策略。
+
+### (5) 审计字段对齐
+
+retrieve 审计日志增加：
+- `account_id`
+- `scope_filter`
+- `owner_space_filter`
+- `acl_visible_count_before/after`
+
+用于与 main search 审计口径统一对账。
 

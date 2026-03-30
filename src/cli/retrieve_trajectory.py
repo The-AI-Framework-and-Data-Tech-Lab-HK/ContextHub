@@ -67,7 +67,8 @@ def _clean_graph_stats(clean_graph: Any) -> dict[str, Any]:
 
 def run_retrieve(
     *,
-    tenant_id: str,
+    account_id: str | None,
+    tenant_id: str | None,
     agent_id: str,
     task_description: str,
     task_type: str | None,
@@ -80,6 +81,9 @@ def run_retrieve(
     config_path: str | None = None,
 ) -> dict[str, Any]:
     settings = load_settings(config_path=config_path)
+    resolved_account_id = str(account_id or tenant_id or "account-local").strip()
+    if tenant_id:
+        print("[AMC] --tenant-id is deprecated; use --account-id.")
     repo = LocalFSTrajectoryRepository(root=settings.storage.localfs_root)
     audit = JsonlAuditLogger(file_path=settings.storage.audit_file_path)
     graph_store = build_graph_store_writer(settings)
@@ -126,9 +130,11 @@ def run_retrieve(
         t0 = time.perf_counter()
         result = orchestrator.retrieve(
             RetrieveCommand(
-                tenant_id=tenant_id,
+                account_id=resolved_account_id,
                 agent_id=agent_id,
                 query=query_payload,
+                scope_filter=[],
+                owner_space_filter=[],
                 top_k=top_k,
                 include_full_clean_graph=bool(include_clean_graph),
             )
@@ -178,7 +184,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="amc-retrieve-trajectory",
         description="Run retrieve pipeline and print semantic result + latency stats.",
     )
-    parser.add_argument("--tenant-id", default="tenant-local", help="Tenant identifier")
+    parser.add_argument("--account-id", default="account-local", help="Account identifier (primary)")
+    parser.add_argument("--tenant-id", default=None, help="Deprecated alias of account_id")
     parser.add_argument("--agent-id", default="agent-local", help="Agent identifier")
     parser.add_argument("--task-description", required=True, help="Retrieve query task description text")
     parser.add_argument("--task-type", default="", help="Optional task_type hint")
@@ -212,6 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     out = run_retrieve(
+        account_id=args.account_id,
         tenant_id=args.tenant_id,
         agent_id=args.agent_id,
         task_description=args.task_description,

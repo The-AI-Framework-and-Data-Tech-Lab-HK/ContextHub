@@ -61,7 +61,14 @@ def test_semantic_recall_filters_scope_and_groups_by_trajectory() -> None:
         api_key="dummy",
         embedding_fn=lambda _: [0.1, 0.2],
     )
-    hits = recall.recall(tenant_id="tenant-a", agent_id="agent-1", query_text="q", top_k=5)
+    hits = recall.recall(
+        account_id="tenant-a",
+        agent_id="agent-1",
+        query_text="q",
+        top_k=5,
+        scope_filter=["agent"],
+        owner_space_filter=["agent-1"],
+    )
     assert len(hits) == 1
     assert hits[0].trajectory_id == "traj-1"
     assert len(hits[0].matched_uris) == 2
@@ -90,7 +97,7 @@ def test_retrieve_service_returns_semantic_items() -> None:
     service = RetrieveService(semantic_recall=recall)
     out = service.run(
         RetrieveCommand(
-            tenant_id="tenant-a",
+            account_id="tenant-a",
             agent_id="agent-1",
             query={"task_description": "analyze revenue", "constraints": {"tool_whitelist": ["local_db_sql"]}},
             top_k=3,
@@ -193,7 +200,7 @@ def test_retrieve_service_uses_graph_mcs_when_partial_trajectory_provided() -> N
     ]
     out = service.run(
         RetrieveCommand(
-            tenant_id="tenant-a",
+            account_id="tenant-a",
             agent_id="agent-1",
             query={
                 "task_description": "retry after sql failure",
@@ -211,3 +218,105 @@ def test_retrieve_service_uses_graph_mcs_when_partial_trajectory_provided() -> N
     assert out.items[0]["semantic_score"] < out.items[0]["total_score"] <= 1.0
     assert out.items[0]["evidence"]["graph_match"]["node_match_rule"] == "action_name_equal"
     assert out.items[0]["evidence"]["graph_match"]["edge_match_rule"] == "edge_type_equal"
+
+
+def test_semantic_recall_applies_account_scope_owner_space_filters() -> None:
+    rows = [
+        {
+            "id": "a",
+            "distance": 0.1,
+            "metadata": {
+                "account_id": "acc-1",
+                "scope": "team",
+                "owner_space": "team-a",
+                "trajectory_id": "traj-team-a",
+                "uri": "ctx://team/team-a/memories/trajectories/traj-team-a/.abstract.md",
+                "status": "active",
+            },
+        },
+        {
+            "id": "b",
+            "distance": 0.2,
+            "metadata": {
+                "account_id": "acc-1",
+                "scope": "team",
+                "owner_space": "team-b",
+                "trajectory_id": "traj-team-b",
+                "uri": "ctx://team/team-b/memories/trajectories/traj-team-b/.abstract.md",
+                "status": "active",
+            },
+        },
+        {
+            "id": "c",
+            "distance": 0.05,
+            "metadata": {
+                "account_id": "acc-2",
+                "scope": "team",
+                "owner_space": "team-a",
+                "trajectory_id": "traj-other-account",
+                "uri": "ctx://team/team-a/memories/trajectories/traj-other-account/.abstract.md",
+                "status": "active",
+            },
+        },
+    ]
+    recall = SemanticRecall(
+        vector_store=_FakeVectorStore(rows),
+        embedding_model="dummy",
+        api_key="dummy",
+        embedding_fn=lambda _: [0.1, 0.2],
+    )
+    hits = recall.recall(
+        account_id="acc-1",
+        agent_id="agent-1",
+        query_text="q",
+        top_k=5,
+        scope_filter=["team"],
+        owner_space_filter=["team-a"],
+    )
+    assert len(hits) == 1
+    assert hits[0].trajectory_id == "traj-team-a"
+
+
+def test_retrieve_service_applies_acl_filter_visible() -> None:
+    rows = [
+        {
+            "id": "a",
+            "distance": 0.1,
+            "metadata": {
+                "account_id": "acc-1",
+                "scope": "agent",
+                "owner_space": "agent-1",
+                "trajectory_id": "traj-visible",
+                "uri": "ctx://agent/agent-1/memories/trajectories/traj-visible/.abstract.md",
+            },
+        },
+        {
+            "id": "b",
+            "distance": 0.05,
+            "metadata": {
+                "account_id": "acc-1",
+                "scope": "agent",
+                "owner_space": "agent-2",
+                "trajectory_id": "traj-invisible",
+                "uri": "ctx://agent/agent-2/memories/trajectories/traj-invisible/.abstract.md",
+            },
+        },
+    ]
+    recall = SemanticRecall(
+        vector_store=_FakeVectorStore(rows),
+        embedding_model="dummy",
+        api_key="dummy",
+        embedding_fn=lambda _: [0.1, 0.2],
+    )
+    service = RetrieveService(semantic_recall=recall)
+    out = service.run(
+        RetrieveCommand(
+            account_id="acc-1",
+            agent_id="agent-1",
+            query={"task_description": "q"},
+            top_k=5,
+        )
+    )
+    assert len(out.items) == 1
+    assert out.items[0]["trajectory_id"] == "traj-visible"
+    assert any("acl filtered 1 invisible candidates" in w for w in out.warnings)

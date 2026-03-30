@@ -98,8 +98,10 @@ class RetrieveOrchestrator:
             action="retrieve",
             result="accepted",
             details={
-                "tenant_id": command.tenant_id,
+                "account_id": command.account_id,
                 "agent_id": command.agent_id,
+                "scope_filter": list(command.scope_filter or []),
+                "owner_space_filter": list(command.owner_space_filter or []),
                 "top_k": command.top_k,
                 "hit_count": len(result.items),
             },

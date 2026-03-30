@@ -29,6 +29,26 @@ class LocalFSTrajectoryRepository:
         self._index_path = self.root / "_index.json"
         self._idempotency_path = self.root / "_idempotency.json"
 
+    def _build_trajectory_base_path(
+        self,
+        *,
+        account_id: str,
+        scope: str,
+        owner_space: str,
+        trajectory_id: str,
+    ) -> Path:
+        return (
+            self.root
+            / "accounts"
+            / account_id
+            / "scope"
+            / scope
+            / owner_space
+            / "memories"
+            / "trajectories"
+            / trajectory_id
+        )
+
     def _read_json(self, path: Path) -> dict[str, Any]:
         if not path.exists():
             return {}
@@ -49,27 +69,31 @@ class LocalFSTrajectoryRepository:
         *,
         tenant_id: str,
         agent_id: str,
+        account_id: str,
+        scope: str,
+        owner_space: str,
         trajectory_id: str,
         idempotency_key: str,
         payload: dict[str, Any],
         visualize_graph_png: bool = False,
     ) -> str:
-        # ctx-like hierarchy on local filesystem for Phase 1.
-        base = (
-            self.root
-            / "tenant"
-            / tenant_id
-            / "agent"
-            / agent_id
-            / "memories"
-            / "trajectories"
-            / trajectory_id
+        # account/scope/owner_space hierarchy aligned with main memory/search.
+        base = self._build_trajectory_base_path(
+            account_id=account_id,
+            scope=scope,
+            owner_space=owner_space,
+            trajectory_id=trajectory_id,
         )
         base.mkdir(parents=True, exist_ok=True)
 
         graph_pointer = {
-            # Placeholder pointer format; Phase 1 keeps graphs in local files.
             "backend": "localfs_phase1",
+            "storage_layout": "accounts_scope_owner_space",
+            "tenant_id": tenant_id,
+            "agent_id": agent_id,
+            "account_id": account_id,
+            "scope": scope,
+            "owner_space": owner_space,
             "raw_graph_file": str(base / "raw_graph.json"),
             "clean_graph_file": str(base / "clean_graph.json"),
             "graph_kind": ["raw", "clean"],
@@ -129,6 +153,9 @@ class LocalFSTrajectoryRepository:
                     "trajectory_id": trajectory_id,
                     "tenant_id": tenant_id,
                     "agent_id": agent_id,
+                    "account_id": account_id,
+                    "scope": scope,
+                    "owner_space": owner_space,
                     "task_id": payload.get("task_id"),
                     "labels": payload.get("labels", {}),
                     "nodes": payload["nodes"],

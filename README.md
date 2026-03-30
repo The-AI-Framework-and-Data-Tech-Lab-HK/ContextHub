@@ -139,7 +139,13 @@ pytest src/tests -m integration          # 集成测试（需 Neo4j 等，部分
 
 ### FastAPI 功能脚本（拆分版）
 
-启动服务后可分别测试 commit 与 retrieve：
+先启动 FastAPI 服务（否则脚本会报 `ConnectError: [Errno 111] Connection refused`）：
+
+```bash
+uvicorn main:app --app-dir src --host 127.0.0.1 --port 8000 --reload
+```
+
+再分别测试 commit 与 retrieve：
 
 ```bash
 python scripts/test_commit_api.py --pretty
@@ -152,6 +158,8 @@ python scripts/test_retrieve_api.py --pretty
 python scripts/test_commit_api.py \
   --base-url "http://127.0.0.1:8000/api/v1/amc" \
   --health-url "http://127.0.0.1:8000/healthz" \
+  --account-id acc-demo \
+  --agent-id agent-a \
   --trajectory-file sample_traj/traj5.json \
   --commit-timeout 600 \
   --pretty
@@ -163,6 +171,8 @@ python scripts/test_commit_api.py \
 python scripts/test_retrieve_api.py \
   --base-url "http://127.0.0.1:8000/api/v1/amc" \
   --health-url "http://127.0.0.1:8000/healthz" \
+  --account-id acc-demo \
+  --agent-id agent-a \
   --partial-trajectory-file sample_graph_query/pq04_pending_output_traj5.json \
   --task-description "中小微 企业信贷及经营数据" \
   --tool-whitelist local_db_sql \
@@ -174,17 +184,32 @@ python scripts/test_retrieve_api.py \
 Phase 1 用例说明见 `AMC_plan/13-phase1-test-design.md`。
 运行与部署方式见 `docs/run-and-test.md`。
 
+补充说明：
+- `--account-id` 是当前主参数；
+- `--tenant-id` 仍可用，但仅为兼容旧调用方（deprecated 别名）。
+
 ## 命令行提交轨迹（无 HTTP）
 
 ```bash
-amc-commit-trajectory sample_traj/traj1.json --pretty
+amc-commit-trajectory sample_traj/traj1.json \
+  --account-id acc-demo \
+  --agent-id agent-a \
+  --scope agent \
+  --owner-space agent-a \
+  --pretty
 ```
 
 该命令会直接运行 Phase 1 commit pipeline，并输出 L0/L1 与图文件落盘位置。
 如需在同目录生成 `raw_graph.png` 和 `clean_graph.png`，可增加参数：
 
 ```bash
-amc-commit-trajectory sample_traj/traj1.json --visualize-graph-png --pretty
+amc-commit-trajectory sample_traj/traj1.json \
+  --account-id acc-demo \
+  --agent-id agent-a \
+  --scope agent \
+  --owner-space agent-a \
+  --visualize-graph-png \
+  --pretty
 ```
 
 ## 依赖变更记录

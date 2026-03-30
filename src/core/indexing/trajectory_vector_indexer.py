@@ -22,6 +22,13 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _build_parent_uri(*, scope: str, owner_space: str, trajectory_id: str) -> str:
+    s = (scope or "agent").strip().lower()
+    if s not in {"agent", "team", "datalake", "user"}:
+        s = "agent"
+    return f"ctx://{s}/{owner_space}/memories/trajectories/{trajectory_id}/"
+
+
 @dataclass
 class TrajectoryVectorIndexer:
     """
@@ -87,6 +94,9 @@ class TrajectoryVectorIndexer:
         *,
         tenant_id: str,
         agent_id: str,
+        account_id: str,
+        scope: str,
+        owner_space: str,
         trajectory_id: str,
         task_type: str | None,
         base_path: str,
@@ -94,7 +104,11 @@ class TrajectoryVectorIndexer:
         stale_flag: bool = False,
     ) -> dict[str, Any]:
         base = Path(base_path)
-        parent_uri = f"ctx://agent/{agent_id}/memories/trajectories/{trajectory_id}/"
+        parent_uri = _build_parent_uri(
+            scope=scope,
+            owner_space=owner_space,
+            trajectory_id=trajectory_id,
+        )
         files: list[tuple[int, str, Path]] = [
             (0, f"{parent_uri}.abstract.md", base / ".abstract.md"),
             (1, f"{parent_uri}.overview.md", base / ".overview.md"),
@@ -128,10 +142,14 @@ class TrajectoryVectorIndexer:
                         "uri": uri,
                         "parent_uri": parent_uri,
                         "level": int(level),
+                        "account_id": account_id,
+                        "scope": scope,
+                        "owner_space": owner_space,
                         "tenant_id": tenant_id,
                         "trajectory_id": trajectory_id,
                         "agent_id": agent_id,
                         "task_type": task_type or "",
+                        "status": lifecycle_status,
                         "lifecycle_status": lifecycle_status,
                         "stale_flag": bool(stale_flag),
                         "updated_at": now_iso,

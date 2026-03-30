@@ -68,6 +68,9 @@ class Neo4jGraphWriter:
         *,
         tenant_id: str,
         agent_id: str,
+        account_id: str,
+        scope: str,
+        owner_space: str,
         trajectory_id: str,
         raw_graph: dict[str, Any],
         clean_graph: dict[str, Any],
@@ -83,6 +86,9 @@ class Neo4jGraphWriter:
                 self._merge_trajectory_node,
                 tenant_id=tenant_id,
                 agent_id=agent_id,
+                account_id=account_id,
+                scope=scope,
+                owner_space=owner_space,
                 trajectory_id=trajectory_id,
             )
             self._write_graph_kind(session, trajectory_id=trajectory_id, graph_kind="raw", graph=raw)
@@ -90,6 +96,9 @@ class Neo4jGraphWriter:
         return self._build_summary(
             tenant_id=tenant_id,
             agent_id=agent_id,
+            account_id=account_id,
+            scope=scope,
+            owner_space=owner_space,
             trajectory_id=trajectory_id,
             database=self.database,
             raw_graph=raw,
@@ -165,6 +174,9 @@ class Neo4jGraphWriter:
         *,
         tenant_id: str,
         agent_id: str,
+        account_id: str,
+        scope: str,
+        owner_space: str,
         trajectory_id: str,
         database: str,
         raw_graph: dict[str, Any],
@@ -184,6 +196,9 @@ class Neo4jGraphWriter:
             "enabled": True,
             "tenant_id": tenant_id,
             "agent_id": agent_id,
+            "account_id": account_id,
+            "scope": scope,
+            "owner_space": owner_space,
             "trajectory_id": trajectory_id,
             "database": database,
             "raw_nodes": len(raw_graph.get("nodes") or []),
@@ -210,17 +225,26 @@ class Neo4jGraphWriter:
         *,
         tenant_id: str,
         agent_id: str,
+        account_id: str,
+        scope: str,
+        owner_space: str,
         trajectory_id: str,
     ) -> None:
         tx.run(
             """
             MERGE (t:AMCTrajectory {trajectory_id: $trajectory_id})
             SET t.tenant_id = $tenant_id,
-                t.agent_id = $agent_id
+                t.agent_id = $agent_id,
+                t.account_id = $account_id,
+                t.scope = $scope,
+                t.owner_space = $owner_space
             """,
             trajectory_id=trajectory_id,
             tenant_id=tenant_id,
             agent_id=agent_id,
+            account_id=account_id,
+            scope=scope,
+            owner_space=owner_space,
         )
 
     def _write_graph_kind(

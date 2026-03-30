@@ -80,24 +80,44 @@ class SemanticRecall:
             return self._embed_multimodal(query_text)
         raise ValueError(f"unsupported embedding mode: {self.embedding_mode}")
 
-    def recall(self, *, tenant_id: str, agent_id: str, query_text: str, top_k: int) -> list[SemanticHit]:
+    def recall(
+        self,
+        *,
+        account_id: str,
+        agent_id: str,
+        query_text: str,
+        top_k: int,
+        scope_filter: list[str] | None = None,
+        owner_space_filter: list[str] | None = None,
+    ) -> list[SemanticHit]:
         query_vec = self._embed_query(query_text)
         # Retrieve a wider candidate pool then aggregate by trajectory_id.
         raw_rows = self.vector_store.query(query_vec, top_k=max(int(top_k) * 6, 20))
+        scope_set = {str(x).strip().lower() for x in (scope_filter or []) if str(x).strip()}
+        owner_space_set = {str(x).strip() for x in (owner_space_filter or []) if str(x).strip()}
         grouped: dict[str, dict[str, Any]] = {}
         for row in raw_rows:
             meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-            if str(meta.get("tenant_id") or "") != tenant_id:
+            if str(meta.get("account_id") or meta.get("tenant_id") or "") != account_id:
                 continue
-            # Keep current agent scope by default.
-            if str(meta.get("agent_id") or "") != agent_id:
+            lifecycle_status = str(meta.get("status") or meta.get("lifecycle_status") or "active").strip().lower()
+            if lifecycle_status == "deleted":
+                continue
+            scope = str(meta.get("scope") or "agent").strip().lower() or "agent"
+            owner_space = str(meta.get("owner_space") or meta.get("agent_id") or "").strip()
+            if scope_set and scope not in scope_set:
+                continue
+            if owner_space_set and owner_space not in owner_space_set:
                 continue
             tid = str(meta.get("trajectory_id") or "").strip()
             if not tid:
                 continue
             score = _distance_to_score(row.get("distance"))
             uri = str(meta.get("uri") or "")
-            slot = grouped.setdefault(tid, {"score": 0.0, "uris": set(), "rows": []})
+            slot = grouped.setdefault(
+                tid,
+                {"score": 0.0, "uris": set(), "rows": [], "scope": scope, "owner_space": owner_space},
+            )
             slot["score"] = max(float(slot["score"]), score)
             if uri:
                 slot["uris"].add(uri)

@@ -26,9 +26,10 @@ def run(args: argparse.Namespace) -> int:
     base = args.base_url.rstrip("/")
     commit_url = f"{base}/commit"
 
+    if args.tenant_id:
+        print("[AMC] --tenant-id is deprecated; use --account-id.")
+    resolved_account_id = str(args.account_id or args.tenant_id or "account-local").strip()
     commit_payload = {
-        "tenant_id": args.tenant_id,
-        "agent_id": args.agent_id,
         "session_id": args.session_id,
         "task_id": args.task_id,
         "trajectory": commit_steps,
@@ -37,6 +38,10 @@ def run(args: argparse.Namespace) -> int:
         "visualize_graph_png": False,
     }
 
+    headers = {
+        "X-Account-Id": resolved_account_id,
+        "X-Agent-Id": str(args.agent_id),
+    }
     with httpx.Client() as client:
         t0 = time.perf_counter()
         health = client.get(args.health_url, timeout=float(args.health_timeout))
@@ -46,7 +51,12 @@ def run(args: argparse.Namespace) -> int:
 
         t1 = time.perf_counter()
         try:
-            resp = client.post(commit_url, json=commit_payload, timeout=float(args.commit_timeout))
+            resp = client.post(
+                commit_url,
+                json=commit_payload,
+                headers=headers,
+                timeout=float(args.commit_timeout),
+            )
         except httpx.ReadTimeout as e:
             raise RuntimeError(
                 f"commit timed out after {float(args.commit_timeout):.1f}s (url={commit_url})"
@@ -91,7 +101,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Smoke test AMC commit FastAPI endpoint")
     p.add_argument("--base-url", default="http://127.0.0.1:8000/api/v1/amc", help="AMC API base URL")
     p.add_argument("--health-url", default="http://127.0.0.1:8000/healthz", help="Health endpoint URL")
-    p.add_argument("--tenant-id", default="tenant-local")
+    p.add_argument("--account-id", default="account-local")
+    p.add_argument("--tenant-id", default=None, help="Deprecated alias of account_id")
     p.add_argument("--agent-id", default="agent-local")
     p.add_argument("--session-id", default="session-local")
     p.add_argument("--task-id", default="task-api-smoke")
