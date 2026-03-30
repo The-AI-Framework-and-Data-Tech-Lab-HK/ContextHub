@@ -74,9 +74,9 @@ TrajectoryCommitted
 
 ### 向量记录关键字段
 
-- `id`（确定性：`md5(tenant_id + seed_uri)`）
+- `id`（确定性：`md5(account_id + seed_uri)`）
 - `uri`, `parent_uri`, `level`
-- `tenant_id`, `owner_space`
+- `account_id`, `scope`, `owner_space`
 - `trajectory_id`, `agent_id`, `task_type`
 - `lifecycle_status`（active/cold/archived/deleted）
 - `stale_flag`（是否因传播被标记 stale）
@@ -97,7 +97,7 @@ TrajectoryCommitted
 推荐索引结构（逻辑）：
 ```python
 class ReverseDependency:
-    tenant_id: str                  # 租户隔离字段（避免跨租户误命中）
+    account_id: str                 # 账户隔离字段（避免跨账户误命中）
     dep_uri: str                    # 被依赖对象 URI（如某 skill URI）
     trajectory_id: str              # 依赖该对象的轨迹 ID
     dep_type: str                   # 依赖类型：skill_version | table_schema | tool_behavior
@@ -107,7 +107,7 @@ class ReverseDependency:
 
 核心接口：
 - `upsert_reverse_deps(trajectory_id, deps)`
-- `query_dependents(dep_uri, tenant_id)`
+- `query_dependents(dep_uri, account_id)`
 - `delete_reverse_deps(trajectory_id)`
 
 ## 推荐存储技术（可替换）
@@ -115,7 +115,7 @@ class ReverseDependency:
 开发态：
 - Content: LocalFS
 - Graph: Neo4j（单机）
-- Vector: Chroma
+- Vector: pgvector
 - Event Log: append-only JSONL
 
 生产态：

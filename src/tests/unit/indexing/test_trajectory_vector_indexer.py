@@ -54,6 +54,9 @@ def test_indexer_skips_unchanged_and_updates_changed_content(tmp_path: Path) -> 
     first = indexer.index_trajectory(
         tenant_id="t1",
         agent_id="a1",
+        account_id="acc-1",
+        scope="agent",
+        owner_space="a1",
         trajectory_id="trajx",
         task_type="sql_analysis",
         base_path=str(base),
@@ -65,6 +68,9 @@ def test_indexer_skips_unchanged_and_updates_changed_content(tmp_path: Path) -> 
     second = indexer.index_trajectory(
         tenant_id="t1",
         agent_id="a1",
+        account_id="acc-1",
+        scope="agent",
+        owner_space="a1",
         trajectory_id="trajx",
         task_type="sql_analysis",
         base_path=str(base),
@@ -77,6 +83,9 @@ def test_indexer_skips_unchanged_and_updates_changed_content(tmp_path: Path) -> 
     third = indexer.index_trajectory(
         tenant_id="t1",
         agent_id="a1",
+        account_id="acc-1",
+        scope="agent",
+        owner_space="a1",
         trajectory_id="trajx",
         task_type="sql_analysis",
         base_path=str(base),

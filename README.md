@@ -18,6 +18,89 @@
 - Python **≥ 3.11**
 - 推荐使用虚拟环境（示例使用项目内 `.venv`）
 
+## 基础服务依赖（pgvector + Neo4j）
+
+AMC 的 commit/retrieve 集成测试与本地完整链路依赖以下服务：
+
+- PostgreSQL（启用 `pgvector` 扩展）
+- Neo4j（图存储）
+
+参考：
+- [How to install PostgreSQL with pgvector on Ubuntu - Rocketeers](https://rocketee.rs/install-postgresql-pgvector-ubuntu)
+- [How to install Neo4j on Ubuntu Server - TechRepublic](https://www.techrepublic.com/article/how-to-install-neo4j-ubuntu-server/)
+
+### Ubuntu 安装 PostgreSQL + pgvector
+
+```bash
+sudo apt install -y postgresql-common
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+sudo apt install -y postgresql postgresql-17-pgvector
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
+```
+
+启用扩展（以 `postgres` 用户执行）：
+
+```bash
+sudo -u postgres psql
+CREATE EXTENSION IF NOT EXISTS vector;
+\q
+```
+
+可选：创建 AMC 专用库与用户（示例）：
+
+```bash
+sudo -u postgres psql
+CREATE USER amc_user WITH PASSWORD 'amc_password';
+CREATE DATABASE amc_db OWNER amc_user;
+\c amc_db
+CREATE EXTENSION IF NOT EXISTS vector;
+GRANT ALL PRIVILEGES ON DATABASE amc_db TO amc_user;
+\q
+```
+
+连通性验证：
+
+```bash
+psql "postgresql://amc_user:amc_password@127.0.0.1:5432/amc_db" -c "SELECT extname FROM pg_extension WHERE extname='vector';"
+```
+
+### Ubuntu 安装 Neo4j
+
+安装并启动（APT 方式）：
+
+```bash
+sudo apt update
+sudo apt install -y neo4j
+sudo systemctl enable neo4j
+sudo systemctl start neo4j
+```
+
+确认服务状态：
+
+```bash
+sudo systemctl status neo4j
+```
+
+首次安装后请按 Neo4j 提示完成初始密码设置，然后更新 `.env` 中 `AMC_NEO4J_*` 配置。
+
+### 与 AMC 配置对齐
+
+在 `.env`（或 `config/config.yaml`）中至少配置：
+
+```bash
+AMC_VECTOR_STORE_BACKEND=pgvector
+AMC_PGVECTOR_DSN=postgresql://amc_user:amc_password@127.0.0.1:5432/amc_db
+AMC_PGVECTOR_SCHEMA=public
+AMC_PGVECTOR_TABLE=amc_embeddings
+
+AMC_GRAPH_STORE_BACKEND=neo4j
+AMC_NEO4J_URI=bolt://127.0.0.1:7687
+AMC_NEO4J_USER=neo4j
+AMC_NEO4J_PASSWORD=your_password
+AMC_NEO4J_DATABASE=neo4j
+```
+
 ## 一键安装依赖
 
 **依赖清单以根目录 `pyproject.toml` 为准**（运行时 + 可选开发组 `[dev]`）。
@@ -54,20 +137,79 @@ pytest src/tests -m "not integration"   # 单元测试（默认 CI）
 pytest src/tests -m integration          # 集成测试（需 Neo4j 等，部分用例仍为占位 skip）
 ```
 
+### FastAPI 功能脚本（拆分版）
+
+先启动 FastAPI 服务：
+
+```bash
+uvicorn main:app --app-dir src --host 127.0.0.1 --port 8000 --reload
+```
+
+再分别测试 commit 与 retrieve：
+
+```bash
+python scripts/test_commit_api.py --pretty
+python scripts/test_retrieve_api.py --pretty
+```
+
+`commit` 脚本（默认超时 600s）示例：
+
+```bash
+python scripts/test_commit_api.py \
+  --base-url "http://127.0.0.1:8000/api/v1/amc" \
+  --health-url "http://127.0.0.1:8000/healthz" \
+  --account-id acc-demo \
+  --agent-id agent-a \
+  --trajectory-file sample_traj/traj5.json \
+  --commit-timeout 600 \
+  --pretty
+```
+
+`retrieve` 脚本（默认超时 600s）示例：
+
+```bash
+python scripts/test_retrieve_api.py \
+  --base-url "http://127.0.0.1:8000/api/v1/amc" \
+  --health-url "http://127.0.0.1:8000/healthz" \
+  --account-id acc-demo \
+  --agent-id agent-a \
+  --partial-trajectory-file sample_graph_query/pq04_pending_output_traj5.json \
+  --task-description "中小微 企业信贷及经营数据" \
+  --tool-whitelist local_db_sql \
+  --retrieve-timeout 600 \
+  --top-k 5 \
+  --pretty
+```
+
 Phase 1 用例说明见 `AMC_plan/13-phase1-test-design.md`。
 运行与部署方式见 `docs/run-and-test.md`。
+
+补充说明：
+- `--account-id` 是当前主参数；
+- `--tenant-id` 仍可用，但仅为兼容旧调用方（deprecated 别名）。
 
 ## 命令行提交轨迹（无 HTTP）
 
 ```bash
-amc-commit-trajectory sample_traj/traj1.json --pretty
+amc-commit-trajectory sample_traj/traj1.json \
+  --account-id acc-demo \
+  --agent-id agent-a \
+  --scope agent \
+  --owner-space agent-a \
+  --pretty
 ```
 
 该命令会直接运行 Phase 1 commit pipeline，并输出 L0/L1 与图文件落盘位置。
 如需在同目录生成 `raw_graph.png` 和 `clean_graph.png`，可增加参数：
 
 ```bash
-amc-commit-trajectory sample_traj/traj1.json --visualize-graph-png --pretty
+amc-commit-trajectory sample_traj/traj1.json \
+  --account-id acc-demo \
+  --agent-id agent-a \
+  --scope agent \
+  --owner-space agent-a \
+  --visualize-graph-png \
+  --pretty
 ```
 
 ## 依赖变更记录
@@ -75,5 +217,6 @@ amc-commit-trajectory sample_traj/traj1.json --visualize-graph-png --pretty
 | 日期 | 变更 |
 |------|------|
 | 初始 | 见 `pyproject.toml` 中 `project.dependencies` 与 `optional-dependencies.dev` |
+| 2026-03 | README 补充 PostgreSQL/pgvector 与 Neo4j 的 Ubuntu 安装说明 |
 
 后续在 `pyproject.toml` 中增加或升级依赖后，请在本表追加一行，并执行 `uv lock`（若使用 uv）。

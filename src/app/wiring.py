@@ -6,12 +6,16 @@ from fastapi import FastAPI
 
 from api.routes.commit import router as commit_router
 from api.routes.replay import router as replay_router
+from api.routes.retrieve import router as retrieve_router
 from app.config import AppSettings, load_settings
 from app.orchestrators.commit_orchestrator import CommitOrchestrator
+from app.orchestrators.retrieve_orchestrator import RetrieveOrchestrator
 from core.commit.dataflow_llm import LLMDataflowExtractor
 from core.commit.service import CommitService
 from core.indexing.trajectory_vector_indexer import TrajectoryVectorIndexer
 from core.commit.summary_llm import LLMTrajectorySummarizer
+from core.retrieve.semantic_recall import SemanticRecall
+from core.retrieve.service import RetrieveService
 from infra.audit.audit_logger import JsonlAuditLogger
 from infra.storage.fs.trajectory_repo import LocalFSTrajectoryRepository
 from infra.storage.graph.factory import build_graph_store_writer
@@ -26,9 +30,9 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     repo = LocalFSTrajectoryRepository(root=cfg.storage.localfs_root)
     audit = JsonlAuditLogger(file_path=cfg.storage.audit_file_path)
     graph_store = build_graph_store_writer(cfg)
+    vector_store = build_vector_store_adapter(cfg)
     vector_indexer = None
     if cfg.indexing_async_enabled and cfg.embedding_provider.lower() == "openai" and cfg.openai_api_key:
-        vector_store = build_vector_store_adapter(cfg)
         if vector_store is not None and cfg.indexing_include_levels:
             vector_indexer = TrajectoryVectorIndexer(
                 vector_store=vector_store,
@@ -75,13 +79,42 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         vector_indexer=vector_indexer,
         idempotency_enabled=cfg.commit.idempotency_enabled,
     )
+    semantic_recall = None
+    if vector_store is not None and cfg.openai_api_key and cfg.embedding_provider.lower() == "openai":
+        semantic_recall = SemanticRecall(
+            vector_store=vector_store,
+            embedding_model=cfg.embedding_model,
+            api_key=cfg.openai_api_key,
+            embedder_base_url=cfg.model_endpoints.embedder_base_url or None,
+            embedding_mode=cfg.embedding_mode,
+        )
+    clean_graph_loader = None
+    if graph_store is not None and hasattr(graph_store, "load_clean_graph"):
+        clean_graph_loader = lambda trajectory_id: graph_store.load_clean_graph(trajectory_id=trajectory_id)  # type: ignore[attr-defined]
+    retrieve_service = RetrieveService(
+        semantic_recall=semantic_recall,
+        clean_graph_loader=clean_graph_loader,
+        # Retrieve query-graph extraction is currently rule-based only.
+        # Keep LLM extractor disabled here to avoid high online latency.
+        query_dataflow_extractor=None,
+        query_temporal_fallback_edge=cfg.commit.temporal_fallback_edge,
+        query_reasoning_min_confidence=cfg.commit.reasoning_min_confidence,
+    )
+    retrieve_orchestrator = RetrieveOrchestrator(
+        retrieve_service=retrieve_service,
+        repo=repo,
+        audit=audit,
+        clean_graph_loader=clean_graph_loader,
+    )
 
     # Store wired singletons in app.state for FastAPI dependencies.
     app.state.settings = cfg
     app.state.commit_orchestrator = orchestrator
+    app.state.retrieve_orchestrator = retrieve_orchestrator
 
     app.include_router(commit_router, prefix=cfg.api.prefix)
     app.include_router(replay_router, prefix=cfg.api.prefix)
+    app.include_router(retrieve_router, prefix=cfg.api.prefix)
 
     @app.get("/healthz", tags=["health"])
     def healthz() -> dict[str, str]:

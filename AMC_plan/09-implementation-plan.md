@@ -26,16 +26,26 @@
    向量索引以 `uri` 对应文件，不直接存正文，embedding 时按 `uri` 回 FS 读取；
    重复 commit 时若原文变化需更新对应 embedding）；
 6. 接入审计日志。
+7. 补齐向量索引 metadata（`account_id/scope/owner_space/status/task_type/trajectory_id/uri`），
+   为 Phase 2 的 pgvector 标量过滤提供前置条件。
 
 **里程碑 M1**：可稳定提交并查询单条轨迹详情，图构建成功率 > 95%（样例集）。
 
 ### Phase 2：Retrieve 双路召回
 
-7. 实现语义召回（trajectory-level L0/L1 向量检索）；
-8. 实现图特征抽取与近似匹配（仅当传入 `partial_trajectory` 时启用）；
-9. 实现融合 rerank（默认 clean graph，错误场景补充 raw graph）；
-10. 返回 evidence（命中节点/子图说明）；
-11. 接入 ACL 过滤与脱敏。
+8. 实现语义召回（trajectory-level L0/L1 向量检索）；
+   - 8.1 pgvector 查询先做 SQL 主过滤（`account_id/scope/owner_space/status`），再做向量相似度排序；
+   - 8.2 应用层执行同口径标量复核过滤（兜底）；
+   - 8.3 candidate union 后必须执行 ACL `filter_visible` 最终授权裁决；
+9. 实现图特征抽取与近似匹配（仅当传入 `partial_trajectory` 时启用）：
+   - 9.1 构建 query graph（raw/clean，默认 clean）；
+   - 9.2 定义 MCS 匹配规则（节点按 action 函数名相同，边按 edge_type 相同；不要求 args/output/其他属性一致）；
+   - 9.3 两阶段匹配（语义 top-N 候选收缩 -> MCS 图相似精排）；
+   - 9.4 输出可解释 evidence（MCS 命中节点/边规模、命中规则、graph_match_score）；
+   - 9.5 降级兜底（QG 构建失败或 Neo4j 不可用时回退语义召回）。
+10. 实现融合 rerank（默认 clean graph，错误场景补充 raw graph）；
+11. 返回 evidence（命中节点/子图说明）；
+12. 接入 ACL 过滤与脱敏。
 
 **里程碑 M2**：在样例任务上，Trajectory Recall@5 达到基线目标，检索可解释。
 
@@ -110,4 +120,52 @@
 - [ ] 对齐 `plan/07` 的 feedback outcome 与 `lifecycle_status + stale_flag` 策略  
 - [ ] 对齐 `plan/08` 的服务分层与存储抽象接口  
 - [ ] 对齐 `plan/09` 的 phase 节奏与 benchmark 评估方法
+
+## 9.7 AMC 与 main memory/search 对齐实施（专项）
+
+### A. 文件存储结构改造（优先）
+
+1. 将 FS 根目录切换为 `accounts/{account_id}/scope/{scope}/{owner_space}` 语义分层；
+2. `graph_pointer.json`、向量 metadata、Neo4j trajectory 属性补齐 `account_id/scope/owner_space`；
+3. 提供一次性迁移脚本：把历史 `tenant/*/agent/*` 路径数据迁移到新目录并回填元数据。
+
+验收：
+- 同一 `account_id` 外不可见；
+- `scope=team` 与 `scope=agent` 文件隔离明确；
+- replay/ retrieve 能回读旧数据（迁移或兼容层）。
+
+### B. commit 接口对齐 main 上下文
+
+1. commit 路由支持从 header 读取 `X-Account-Id/X-Agent-Id`；
+2. body 新增 `scope/owner_space` 并校验 URI 一致性；
+3. 保留旧字段兼容一段时间（deprecation warning）。
+
+验收：
+- header 模式可独立运行；
+- body 旧字段路径不破坏现有调用方；
+- 审计日志包含 account/scope/owner_space。
+
+### C. retrieve 接口对齐 main search 口径
+
+1. retrieve 路由支持 header 上下文；
+2. 请求体新增 `scope` 过滤；
+3. 结果返回补齐 `scope/owner_space/uri`；
+4. pgvector 检索改为 SQL `WHERE(account_id/scope/owner_space/status)` + `ORDER BY embedding`；
+5. 应用层保留同口径过滤作为兜底；
+6. 在 candidate union 后强制 ACL `filter_visible`。
+
+验收：
+- 越权结果返回率 = 0；
+- 与 main search 在同一可见性输入下结果集合一致（允许排序差异）。
+
+### D. 迁移顺序（建议）
+
+1. 先改存储元数据与兼容读取；
+2. 再改 API 入参（header + body 新字段）；
+3. 最后启用严格 ACL 与旧字段下线。
+
+里程碑建议：
+- `M2.1`：FS/metadata 对齐完成（不改 API）
+- `M2.2`：commit/retrieve API 双栈兼容
+- `M2.3`：ACL 强制 + 旧字段下线
 
