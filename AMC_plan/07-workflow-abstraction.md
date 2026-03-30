@@ -19,14 +19,14 @@
 - 可选专家标注（关键步骤、禁止步骤）。
 
 说明：
-- 轨迹入口从 `ctx://agent/{agent_id}/memories/trajectories/...` 读取；
+- 轨迹入口从 `ctx://{scope}/{owner_space}/memories/trajectories/...` 读取；
 - 节点/边结构通过 `graph_pointer` 到图后端（如 Neo4j）拉取。
 
 ### 输出
 ```python
 class WorkflowTemplate:
     workflow_id: str                   # 模板唯一 ID（版本管理主键）
-    tenant_id: str                     # 租户隔离字段
+    account_id: str                    # 账户隔离字段
     name: str                          # 模板名称
     task_type: str                     # 适用任务类型（retrieve 过滤字段）
     stages: list[WorkflowStage]        # 主流程阶段定义（工具链骨架）
@@ -50,7 +50,7 @@ class WorkflowTemplate:
 ### Phase C：LLM 辅助泛化
 - 将候选路径转成可读 workflow 描述；
 - 生成参数模板和检查清单；
-- 由人审后发布到 team/tenant scope。
+- 由人审后发布到 team/datalake scope。
 
 ## 7.4 质量门槛
 

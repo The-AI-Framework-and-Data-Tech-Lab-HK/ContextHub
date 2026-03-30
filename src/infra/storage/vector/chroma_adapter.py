@@ -67,7 +67,14 @@ class ChromaVectorAdapter(VectorStoreAdapter):
             return
         self.collection.upsert(ids=ids, embeddings=embeddings, metadatas=metadatas)
 
-    def query(self, embedding: list[float], top_k: int) -> list[dict[str, Any]]:
+    def query(
+        self,
+        embedding: list[float],
+        top_k: int,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        # Current Chroma adapter ignores scalar filters; app-layer filtering still applies.
+        _ = filters
         out = self.collection.query(
             query_embeddings=[embedding],
             n_results=max(1, int(top_k)),

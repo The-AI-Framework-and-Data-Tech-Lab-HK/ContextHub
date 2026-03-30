@@ -92,7 +92,7 @@ Retrieve Request
 ```python
 class AMCAuditEntry:
     timestamp: datetime           # 审计事件时间
-    tenant_id: str                # 租户 ID
+    account_id: str               # 账户 ID
     actor: str                    # 操作主体（agent_id/user_id/system）
     action: str                   # 动作类型：commit | retrieve | promote | replay
     target_uri: str               # 主目标资源 URI
@@ -114,6 +114,6 @@ class AMCAuditEntry:
 ## 5.6 隔离性测试要求
 
 - Isolation Violation Rate = 0；
-- “跨租户 query 注入”必须返回空；
-- 同租户不同 team 的越权访问必须被拒绝并记审计。
+- “跨 account query 注入”必须返回空；
+- 同 account 不同 team 的越权访问必须被拒绝并记审计。
 

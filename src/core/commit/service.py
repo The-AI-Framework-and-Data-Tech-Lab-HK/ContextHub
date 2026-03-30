@@ -26,6 +26,19 @@ class CommitCommand:
     is_incremental: bool = False
     trajectory_id: str | None = None
     visualize_graph_png: bool = False
+    account_id: str | None = None
+    scope: str = "agent"
+    owner_space: str | None = None
+
+    def resolved_account_id(self) -> str:
+        return str(self.account_id or self.tenant_id)
+
+    def resolved_scope(self) -> str:
+        value = str(self.scope or "agent").strip().lower()
+        return value or "agent"
+
+    def resolved_owner_space(self) -> str:
+        return str(self.owner_space or self.agent_id)
 
 
 @dataclass
@@ -93,7 +106,7 @@ class CommitService:
         )
         # 3) Build deterministic identifiers and idempotency key.
         trajectory_id = _build_trajectory_id(cmd)
-        idem_key = commit_idempotency_key(cmd.tenant_id, cmd.task_id, normalized_steps)
+        idem_key = commit_idempotency_key(cmd.resolved_account_id(), cmd.task_id, normalized_steps)
 
         # 4) Convert trajectory -> paired actions -> raw/clean graphs.
         pairs = pair_ai_tool_steps(normalized_steps)

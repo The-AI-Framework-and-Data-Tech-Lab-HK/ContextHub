@@ -32,6 +32,9 @@ class CommitOrchestrator:
     def commit(self, command: CommitCommand) -> CommitResult:
         # Service computes graph + summaries and returns deterministic idempotency key.
         result = self.commit_service.run(command)
+        account_id = command.resolved_account_id()
+        scope = command.resolved_scope()
+        owner_space = command.resolved_owner_space()
         existing_id = (
             self.repo.find_trajectory_id_by_idempotency_key(result.idempotency_key)
             if self.idempotency_enabled
@@ -48,6 +51,9 @@ class CommitOrchestrator:
                     vector_summary = self.vector_indexer.index_trajectory(
                         tenant_id=command.tenant_id,
                         agent_id=command.agent_id,
+                        account_id=account_id,
+                        scope=scope,
+                        owner_space=owner_space,
                         trajectory_id=existing_id,
                         task_type=str(command.labels.get("task_type", "") or ""),
                         base_path=str(bundle["base_path"]),
@@ -78,6 +84,9 @@ class CommitOrchestrator:
                 details={
                     "tenant_id": command.tenant_id,
                     "agent_id": command.agent_id,
+                    "account_id": account_id,
+                    "scope": scope,
+                    "owner_space": owner_space,
                     "task_id": command.task_id,
                     "trajectory_id": existing_id,
                 },
@@ -90,6 +99,9 @@ class CommitOrchestrator:
             neo4j_summary = self.graph_store.upsert_trajectory_graphs(
                 tenant_id=command.tenant_id,
                 agent_id=command.agent_id,
+                account_id=account_id,
+                scope=scope,
+                owner_space=owner_space,
                 trajectory_id=result.trajectory_id,
                 raw_graph=result.payload["raw_graph"],
                 clean_graph=result.payload["clean_graph"],
@@ -98,6 +110,9 @@ class CommitOrchestrator:
         base_path = self.repo.save_bundle(
             tenant_id=command.tenant_id,
             agent_id=command.agent_id,
+            account_id=account_id,
+            scope=scope,
+            owner_space=owner_space,
             trajectory_id=result.trajectory_id,
             idempotency_key=result.idempotency_key,
             payload=result.payload,
@@ -109,6 +124,9 @@ class CommitOrchestrator:
                 vector_summary = self.vector_indexer.index_trajectory(
                     tenant_id=command.tenant_id,
                     agent_id=command.agent_id,
+                    account_id=account_id,
+                    scope=scope,
+                    owner_space=owner_space,
                     trajectory_id=result.trajectory_id,
                     task_type=str(command.labels.get("task_type", "") or ""),
                     base_path=base_path,
@@ -125,6 +143,9 @@ class CommitOrchestrator:
             details={
                 "tenant_id": command.tenant_id,
                 "agent_id": command.agent_id,
+                "account_id": account_id,
+                "scope": scope,
+                "owner_space": owner_space,
                 "task_id": command.task_id,
                 "trajectory_id": result.trajectory_id,
                 "nodes": result.nodes,

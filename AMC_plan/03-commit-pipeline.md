@@ -6,8 +6,10 @@
 POST /api/v1/amc/commit
 
 request = {
-  "tenant_id": "...",
-  "agent_id": "...",
+  "account_id": "...",
+  "agent_id": "...",              # 兼容字段；推荐从 X-Agent-Id 读取
+  "scope": "agent",
+  "owner_space": "agent-a",
   "session_id": "...",
   "task_id": "...",
   "trajectory": [...],           # 原始 steps
@@ -46,8 +48,8 @@ Receive -> Validate -> Normalize -> Pair AI/Tool -> Build Raw Graph -> Build Cle
 
 ### (1) Validate
 - JSON schema 校验（Step 单调、字段类型、meta.role）；
-- tenant_id / agent_id 权限校验；
-- 幂等键检查（`tenant_id + task_id + hash(trajectory)`）。
+- account_id / agent_id / scope / owner_space 一致性校验；
+- 幂等键检查（`account_id + task_id + hash(trajectory)`）。
 
 ### (2) Normalize
 - 将样例中的字符串 Action 解析为 `tool_name + args`；
@@ -266,7 +268,7 @@ if enum_hit:
   - `llm_extraction/`（可选；按调用落盘，如 `01_dataflow.json`、`02_reasoning.json`、`03_summary.json`）
   - `raw_steps.jsonl`（可选，保留回放原文）
 - 将 `Trajectory-L0/L1` 写入向量索引（不依赖 node-level 摘要）；
-- 标量索引字段：`tenant_id, agent_id, task_type, tool_set, lifecycle_status, stale_flag, created_at`。
+- 标量索引字段：`account_id, scope, owner_space, agent_id, task_type, tool_set, status, stale_flag, created_at`。
 
 ### (6.1) Semantic Indexer 实现要求（参考 OpenViking）
 
@@ -276,10 +278,10 @@ if enum_hit:
 - 仅索引 trajectory-level 两个文档：
   - L0: `.../.abstract.md`
   - L1: `.../.overview.md`
-- 向量库记录以 `uri` 为主键锚点（`id = md5(tenant_id + uri)`），**不直接持久化文件全文**；
+- 向量库记录以 `uri` 为主键锚点（`id = md5(account_id + uri)`），**不直接持久化文件全文**；
 - Embedding 计算时由 worker 按 `uri` 回文件系统读取文本（运行时读取，向量库仅存 embedding + metadata）；
 - **Embedding 输入必须是目标文件原文全文**（按文件编码解码后的完整字符串），禁止改用摘要字段副本、清洗重写文本、截断文本；
-- metadata 至少包含：`uri/level/tenant_id/trajectory_id/agent_id/task_type`（可选 `content_sha256` 用于变更检测）；
+- metadata 至少包含：`uri/level/account_id/scope/owner_space/trajectory_id/agent_id/task_type/status`（可选 `content_sha256` 用于变更检测）；
 - 不索引 node-level 摘要（当前阶段）。
 
 推荐流水线（异步）：
@@ -291,11 +293,12 @@ if enum_hit:
 `IndexDoc` 最小字段建议：
 ```python
 class IndexDoc:
-    id: str                 # 向量记录主键（md5(tenant_id + seed_uri)）
+    id: str                 # 向量记录主键（md5(account_id + seed_uri)）
     uri: str                # 文本入口 URI（.../.abstract.md 或 .../.overview.md）
     parent_uri: str         # 父目录 URI（范围过滤辅助字段）
     level: int              # 层级：0=L0，1=L1
-    tenant_id: str          # 租户隔离字段
+    account_id: str         # 账户隔离字段
+    scope: str              # 作用域（agent/team/datalake/user）
     owner_space: str        # 可见性作用域（ACL 过滤字段）
     trajectory_id: str      # 所属轨迹 ID（回源关联）
     agent_id: str           # 轨迹所属 agent ID
@@ -309,9 +312,9 @@ class IndexDoc:
 Embedding Worker 根据 `uri` 回文件系统读取对应的 `.abstract.md/.overview.md` 原文全文作为向量化文本。
 
 Vector Store 推荐记录结构（MVP）：
-- `id`：`md5(tenant_id + uri)`
+- `id`：`md5(account_id + uri)`
 - `embedding`：向量
-- `metadata`：`uri, parent_uri, level, tenant_id, trajectory_id, agent_id, task_type, lifecycle_status, stale_flag, updated_at, content_sha256`
+- `metadata`：`uri, parent_uri, level, account_id, scope, owner_space, trajectory_id, agent_id, task_type, status, lifecycle_status, stale_flag, updated_at, content_sha256`
 - 不存 `document/content` 原文字段（正文仅在 FS）
 
 幂等策略：
@@ -351,4 +354,94 @@ Vector Store 推荐记录结构（MVP）：
 - Parse Error Rate
 - Incremental Merge Success Rate
 - Commit P50/P99 Latency
+
+## 3.7 与 main memory/search 的分层对齐方案（存储结构 + commit 入参）
+
+目标：让 AMC 的 commit 语义与 main 分层模型保持一致，采用：
+- `account_id`（租户隔离，来自请求头）
+- `scope`（`agent|team|datalake`）
+- `owner_space`（`agent_id` 或 `team path`）
+
+### (1) 文件存储结构对齐（LocalFS）
+
+当前 AMC 路径以 `ctx://agent/{agent_id}/...` 为主。对齐后采用三层目录语义：
+
+```text
+data/content/
+  accounts/{account_id}/
+    scope/{scope}/{owner_space}/
+      memories/trajectories/{trajectory_id}/...
+```
+
+说明：
+- `team_path` 与 main 的 `owner_space` 语义一致（可为空字符串表示根 team）；
+- 目录只是落盘表达，权限判定仍由 API + ACL 决定；
+- `graph_pointer.json` 增补 `scope`、`owner_space`、`account_id` 字段。
+
+### (2) URI 规则对齐
+
+commit 生成的 trajectory URI 对齐 main 规范：
+- `scope=agent`：`ctx://agent/{owner_space}/memories/trajectories/{trajectory_id}`
+- `scope=team`：`ctx://team/{owner_space}/memories/trajectories/{trajectory_id}`
+- `scope=datalake`：`ctx://datalake/memories/trajectories/{trajectory_id}`
+
+并在 commit 侧做 URI/作用域一致性校验（与 main `ContextService._validate_uri_scope` 同口径）。
+
+### (3) Commit API 改动（兼容版）
+
+建议由“body 直传 tenant/agent”切换为“header 上下文 + body 作用域”：
+
+请求头（新增）：
+- `X-Account-Id`（必须）
+- `X-Agent-Id`（必须）
+
+请求体（新增）：
+- `scope: "agent" | "team" | "datalake"`（默认 `agent`）
+- `owner_space: str | null`（agent/team 必填规则同 main）
+
+兼容策略：
+1. 第一阶段保留 `tenant_id/agent_id` 字段，但标记 deprecated；
+2. 若 header 缺失则回退旧字段；
+3. 第二阶段移除 `tenant_id` body 入参，仅保留 header。
+
+### (4) Commit 写入口径
+
+每次 commit 落盘必须携带并持久化：
+- `account_id`
+- `scope`
+- `owner_space`
+- `agent_id`（actor）
+
+并用于：
+- 向量 metadata 过滤；
+- Neo4j trajectory 节点属性；
+- 审计日志维度。
+
+### (4.1) 为 retrieve 标量过滤准备的 commit 元数据（必须）
+
+为支持 pgvector 的“先标量过滤再相似度排序”，commit 必须在索引写入时稳定产出以下 metadata：
+
+- `account_id`（强制，租户隔离主键）
+- `scope`（`agent|team|datalake`）
+- `owner_space`（agent_id 或 team path）
+- `status`（至少支持 `active/stale/archived/deleted`）
+- `task_type`
+- `tool_set`（可选，建议保留用于约束过滤）
+- `trajectory_id`
+- `agent_id`
+- `uri`
+
+要求：
+1. 以上字段由 commit 统一写入向量 metadata（L0/L1 两条记录都一致）；
+2. 字段缺失时 commit 直接报错（或降级为 `accepted_with_retry`，不可静默落空）；
+3. metadata 版本化（建议 `meta_schema_version`），便于迁移和回填。
+
+若 commit 不写齐这些字段，retrieve 的标量过滤将失效或误召回。
+
+### (5) Team 共享场景
+
+对齐 main 的 memory promote 语义，AMC 增补“共享发布”模式：
+- agent 轨迹默认写 `scope=agent, owner_space={agent_id}`；
+- 发布到团队时写 `scope=team, owner_space={team_path}`；
+- 可选建立 `derived_from` 关系（team 轨迹 <- agent 源轨迹）。
 

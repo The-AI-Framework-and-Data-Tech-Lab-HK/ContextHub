@@ -44,23 +44,49 @@ def _settings_idempotency_disabled(tmp_path: Path) -> AppSettings:
 
 
 def _payload(sample_traj_dir: Path, name: str = "traj1.json") -> dict:
-    # Minimal commit body shape from AMC_plan/03 API draft.
+    # Preferred (non-deprecated) commit body shape with account/scope fields.
     steps = json.loads((sample_traj_dir / name).read_text(encoding="utf-8"))
     return {
-        "tenant_id": "tenant-a",
-        "agent_id": "agent-1",
+        "account_id": "account-a",
         "session_id": "session-1",
         "task_id": f"task-{name}",
         "trajectory": steps,
         "labels": {"task_type": "sql_analysis"},
+        "scope": "agent",
+        "owner_space": "agent-1",
         "is_incremental": False,
+    }
+
+
+def _payload_header_mode(sample_traj_dir: Path, name: str = "traj1.json") -> dict:
+    steps = json.loads((sample_traj_dir / name).read_text(encoding="utf-8"))
+    return {
+        "session_id": "session-header",
+        "task_id": f"task-header-{name}",
+        "trajectory": steps,
+        "labels": {"task_type": "sql_analysis"},
+        "scope": "agent",
+        "is_incremental": False,
+    }
+
+
+def _header(account_id: str = "account-a", agent_id: str = "agent-1") -> dict[str, str]:
+    return {"X-Account-Id": account_id, "X-Agent-Id": agent_id}
+
+
+def _retrieve_payload_header_mode() -> dict:
+    return {
+        "query": {"task_description": "analyze revenue trend", "constraints": {"tool_whitelist": []}},
+        "scope": ["agent"],
+        "owner_space": ["agent-header"],
+        "top_k": 5,
     }
 
 
 def test_i01_post_commit_accepted(sample_traj_dir: Path, tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
     client = TestClient(app)
-    resp = client.post("/api/v1/amc/commit", json=_payload(sample_traj_dir, "traj1.json"))
+    resp = client.post("/api/v1/amc/commit", json=_payload(sample_traj_dir, "traj1.json"), headers=_header())
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "accepted"
@@ -71,7 +97,7 @@ def test_i01_post_commit_accepted(sample_traj_dir: Path, tmp_path: Path) -> None
 def test_i02_fs_writes_trajectory_bundle(sample_traj_dir: Path, tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
     client = TestClient(app)
-    resp = client.post("/api/v1/amc/commit", json=_payload(sample_traj_dir, "traj2.json"))
+    resp = client.post("/api/v1/amc/commit", json=_payload(sample_traj_dir, "traj2.json"), headers=_header())
     body = resp.json()
     tid = body["trajectory_id"]
 
@@ -107,7 +133,9 @@ def test_i03_neo4j_raw_clean_graph_kinds(sample_traj_dir: Path, tmp_path: Path) 
 
     app = create_app(settings)
     client = TestClient(app)
-    body = client.post("/api/v1/amc/commit", json=_payload(sample_traj_dir, "traj1.json")).json()
+    body = client.post(
+        "/api/v1/amc/commit", json=_payload(sample_traj_dir, "traj1.json"), headers=_header()
+    ).json()
     tid = body["trajectory_id"]
 
     driver = GraphDatabase.driver(
@@ -149,16 +177,11 @@ def test_i03_neo4j_raw_clean_graph_kinds(sample_traj_dir: Path, tmp_path: Path) 
         driver.close()
 
 
-@pytest.mark.skip(reason="I-04 requires Chroma upsert wiring (Phase 1.1)")
-def test_i04_chroma_upsert_idempotent() -> None:
-    pass
-
-
 def test_i05_audit_entry_written(sample_traj_dir: Path, tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     app = create_app(settings)
     client = TestClient(app)
-    _ = client.post("/api/v1/amc/commit", json=_payload(sample_traj_dir, "traj5.json"))
+    _ = client.post("/api/v1/amc/commit", json=_payload(sample_traj_dir, "traj5.json"), headers=_header())
     audit_file = Path(settings.storage.audit_file_path)
     assert audit_file.exists()
     lines = [ln for ln in audit_file.read_text(encoding="utf-8").splitlines() if ln.strip()]
@@ -172,7 +195,7 @@ def test_i06_replay_reads_steps(sample_traj_dir: Path, tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
     client = TestClient(app)
     payload = _payload(sample_traj_dir, "traj3.json")
-    commit = client.post("/api/v1/amc/commit", json=payload).json()
+    commit = client.post("/api/v1/amc/commit", json=payload, headers=_header()).json()
     tid = commit["trajectory_id"]
     replay = client.get(f"/api/v1/amc/replay/{tid}")
     assert replay.status_code == 200
@@ -188,9 +211,99 @@ def test_repeated_commit_updates_when_idempotency_disabled(
     app = create_app(_settings_idempotency_disabled(tmp_path))
     client = TestClient(app)
     payload = _payload(sample_traj_dir, "traj1.json")
-    first = client.post("/api/v1/amc/commit", json=payload)
-    second = client.post("/api/v1/amc/commit", json=payload)
+    first = client.post("/api/v1/amc/commit", json=payload, headers=_header())
+    second = client.post("/api/v1/amc/commit", json=payload, headers=_header())
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json()["status"] == "accepted"
     assert second.json()["status"] == "accepted"
+
+
+def test_commit_header_mode_without_legacy_body_fields(sample_traj_dir: Path, tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    payload = _payload_header_mode(sample_traj_dir, "traj1.json")
+    resp = client.post(
+        "/api/v1/amc/commit",
+        json=payload,
+        headers={"X-Account-Id": "acc-header", "X-Agent-Id": "agent-header"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "accepted"
+    assert isinstance(body["warnings"], list)
+    assert not any("deprecated" in str(w).lower() for w in body["warnings"])
+
+
+def test_commit_legacy_body_fields_emit_deprecation_warnings(sample_traj_dir: Path, tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    legacy = _payload(sample_traj_dir, "traj2.json")
+    legacy.pop("account_id", None)
+    legacy.pop("scope", None)
+    legacy.pop("owner_space", None)
+    legacy["tenant_id"] = "tenant-a"
+    legacy["agent_id"] = "agent-1"
+    resp = client.post("/api/v1/amc/commit", json=legacy)
+    assert resp.status_code == 200
+    warnings = [str(x).lower() for x in (resp.json().get("warnings") or [])]
+    assert any("body.tenant_id is deprecated" in w for w in warnings)
+    assert any("body.agent_id is deprecated" in w for w in warnings)
+
+
+def test_commit_scope_owner_space_must_match_agent_scope_rule(
+    sample_traj_dir: Path, tmp_path: Path
+) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    payload = _payload_header_mode(sample_traj_dir, "traj3.json")
+    payload["owner_space"] = "another-agent"
+    resp = client.post(
+        "/api/v1/amc/commit",
+        json=payload,
+        headers={"X-Account-Id": "acc-header", "X-Agent-Id": "agent-header"},
+    )
+    assert resp.status_code == 422
+    assert "scope=agent requires owner_space" in str(resp.json().get("detail") or "")
+
+
+def test_retrieve_header_mode_without_legacy_body_fields(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/amc/retrieve",
+        json=_retrieve_payload_header_mode(),
+        headers={"X-Account-Id": "acc-header", "X-Agent-Id": "agent-header"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "warnings" in body
+    assert not any("deprecated" in str(w).lower() for w in (body.get("warnings") or []))
+
+
+def test_retrieve_legacy_body_fields_emit_deprecation_warnings(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    payload = _retrieve_payload_header_mode()
+    payload["tenant_id"] = "tenant-a"
+    payload["agent_id"] = "agent-1"
+    resp = client.post("/api/v1/amc/retrieve", json=payload)
+    assert resp.status_code == 200
+    warnings = [str(x).lower() for x in (resp.json().get("warnings") or [])]
+    assert any("body.tenant_id is deprecated" in w for w in warnings)
+    assert any("body.agent_id is deprecated" in w for w in warnings)
+
+
+def test_retrieve_header_body_context_mismatch_returns_422(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    payload = _retrieve_payload_header_mode()
+    payload["tenant_id"] = "tenant-body"
+    payload["agent_id"] = "agent-body"
+    resp = client.post(
+        "/api/v1/amc/retrieve",
+        json=payload,
+        headers={"X-Account-Id": "tenant-header", "X-Agent-Id": "agent-header"},
+    )
+    assert resp.status_code == 422
+    assert "context mismatch" in str(resp.json().get("detail") or "")

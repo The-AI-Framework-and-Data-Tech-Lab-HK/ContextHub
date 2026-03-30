@@ -53,16 +53,16 @@
 | U-11 | reasoning 边（thinking 依据） | traj1 + traj5 | 存在 `dep_type=reasoning`；`signal_detail.reason_summary` 非空；`src.ai_step < dst.ai_step` |
 | U-12 | reasoning 证据来源约束（弱约束） | 构造样例 | `reason_summary` 必填；禁止把 `src.tool_args` 作为 source 输出证据主来源；`matched_evidence` 允许语义归纳，不强制逐字命中 |
 | U-08 | 确定性 ID | 同一轨迹两次构建 | 相同输入 → 相同 `trajectory_id`（若由输入哈希决定）或相同 `node_id` 规则 |
-| U-09 | 幂等键 | 相同 `tenant_id+task_id+trajectory` | 当幂等开启时第二次 commit 返回 **idempotent** 或相同 `trajectory_id`；默认关闭时两次均 `accepted` |
+| U-09 | 幂等键 | 相同 `account_id+task_id+trajectory` | 当幂等开启时第二次 commit 返回 **idempotent** 或相同 `trajectory_id`；默认关闭时两次均 `accepted` |
 
-### B. 集成测试（`src/tests/integration/`，需 Neo4j / Chroma / 本地 FS）
+### B. 集成测试（`src/tests/integration/`，需 Neo4j / pgvector / 本地 FS）
 
 | 编号 | 场景 | 依赖 | 断言要点 |
 |------|------|------|----------|
-| I-01 | `POST /api/v1/amc/commit` 成功 | FastAPI + 真实或 testcontainer Neo4j + Chroma + temp 目录 | `status=accepted`；`nodes/edges` > 0；HTTP 201/200 |
+| I-01 | `POST /api/v1/amc/commit` 成功 | FastAPI + 真实或 testcontainer Neo4j + pgvector + temp 目录 | `status=accepted`；`nodes/edges` > 0；HTTP 201/200 |
 | I-02 | FS 落盘 | 同上 | 存在 `trajectory.json`、`.abstract.md`、`.overview.md`、`graph_pointer.json`；URI 形态符合 `ctx://agent/{agent_id}/memories/trajectories/{id}/` 映射（实现层路径等价即可） |
 | I-03 | Neo4j raw/clean | Neo4j | 可查询到 `graph_kind=raw|clean`（或等价标签/属性）；边含 `dep_type`、`confidence` |
-| I-04 | Chroma 索引 | Chroma + Embedding（可用 fake embedding 注入） | collection 中存在 `id=md5(tenant+uri)` 与 `uri/tenant_id/level/content_sha256` metadata；重复 commit 时若文件原文 hash 变化则重算并更新 embedding，未变化可跳过；不持久化正文内容；embedding 输入与 `uri` 对应文件原文一致 |
+| I-04 | pgvector 索引 | pgvector + Embedding（可用 fake embedding 注入） | 表中存在 `id=md5(account+uri)` 与 `uri/account_id/scope/owner_space/level/content_sha256` metadata；重复 commit 时若文件原文 hash 变化则重算并更新 embedding，未变化可跳过；不持久化正文内容；embedding 输入与 `uri` 对应文件原文一致 |
 | I-05 | 审计 | 文件 audit sink | commit 产生一条审计；`query_text` 按策略 redact |
 | I-06 | 单轨迹详情/回放 | `GET .../replay/{trajectory_id}` 或内部 repo | 能读回与 sample 一致的 step 序列或 raw_refs |
 | I-07 | reasoning 可视化颜色区分 | 图渲染 + PNG | `reasoning` 边使用独立颜色（与 dataflow/temporal/retry 不同） |
@@ -78,7 +78,7 @@
 ## 13.4 测试数据与 Fixture 约定
 
 - **路径常量**：`PROJECT_ROOT / "sample_traj" / "traj{n}.json"`（避免复制大 JSON 进测试代码）。
-- **请求封装**：将 `list[dict]` 包装为 commit body：`tenant_id`、`agent_id`、`session_id`、`task_id`、`labels.task_type`（如 `sql_analysis`）、`is_incremental=false`。
+- **请求封装**：将 `list[dict]` 包装为 commit body：`session_id`、`task_id`、`labels.task_type`（如 `sql_analysis`）、`is_incremental=false`，并通过 header 提供 `X-Account-Id/X-Agent-Id`（兼容阶段允许 body 旧字段）。
 - **`task_id` 策略**：每个文件使用稳定唯一 `task_id`（如 `task-traj1-sample`），避免与幂等测试冲突；幂等测试需固定 `task_id` 与轨迹内容。
 
 ---
@@ -96,7 +96,7 @@
 | 标记 | 含义 |
 |------|------|
 | `@pytest.mark.unit` | 纯逻辑，默认 CI 必跑 |
-| `@pytest.mark.integration` | 需要 Neo4j/Chroma/网络 |
+| `@pytest.mark.integration` | 需要 Neo4j/pgvector/网络 |
 | `@pytest.mark.m1` | M1 里程碑验收用例 |
 
 ---

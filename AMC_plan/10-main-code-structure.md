@@ -4,7 +4,7 @@
 
 1. 给实现阶段提供统一目录和接口蓝图；
 2. 明确 `commit / retrieve` 主链路与 `feedback / propagation` 的耦合点；
-3. 以开发便利优先（Vector=Chroma，Graph=Neo4j），同时保证后续可替换。
+3. 以开发便利优先（Vector=pgvector，Graph=Neo4j），同时保证后续可替换。
 
 ---
 
@@ -17,7 +17,7 @@
 
 ### 约束
 - 图结构必须落 Graph Store（开发态 Neo4j）；
-- 语义召回走 Vector Store（开发态 Chroma）；
+- 语义召回走 Vector Store（开发态 pgvector）；
 - 文件系统仅保存 trajectory-level 元信息与 L0/L1 文档；
 - ACL、审计、stale/lifecycle、feedback 作为跨链路标准能力，不做旁路实现。
 
@@ -97,7 +97,7 @@ src/
         trajectory_repo.py
       vector/
         base.py
-        chroma_adapter.py
+        pgvector_adapter.py
       graph/
         base.py
         neo4j_adapter.py
@@ -134,7 +134,7 @@ src/
 
 说明：
 - `core/` 放业务算法与流程，不依赖具体 DB SDK；
-- `infra/` 放后端适配器（Chroma/Neo4j/JSONL）；
+- `infra/` 放后端适配器（pgvector/Neo4j/JSONL）；
 - `app/orchestrators/` 负责把 `core + infra + security + audit` 串起来；
 - `api/` 仅负责协议层（HTTP 输入输出和错误映射）。
 
@@ -184,7 +184,7 @@ src/
 - `audit_logger`：commit/retrieve/feedback/promote/replay 全链路审计。
 
 ### G. Storage Adapters
-- `VectorStore`（dev: Chroma）：L0/L1 upsert/search；
+- `VectorStore`（dev: pgvector）：L0/L1 upsert/search；
 - `GraphStore`（dev: Neo4j）：raw/clean graph 持久化与查询；
 - `FS Repo`：trajectory-level 文件读写；
 - `EventLog`（dev: JSONL）：append-only 事件落盘。
@@ -198,8 +198,8 @@ src/
 class VectorStore(Protocol):
     async def upsert_docs(self, docs: list[IndexDoc]) -> None: ...
     async def search(self, query_vec: list[float], filters: dict, top_k: int) -> list[VectorHit]: ...
-    async def delete_by_trajectory(self, tenant_id: str, trajectory_id: str) -> None: ...
-    async def update_filter_fields(self, tenant_id: str, trajectory_id: str, fields: dict) -> None: ...
+    async def delete_by_trajectory(self, account_id: str, trajectory_id: str) -> None: ...
+    async def update_filter_fields(self, account_id: str, trajectory_id: str, fields: dict) -> None: ...
 ```
 
 ### 2) GraphStore（抽象）
@@ -207,15 +207,15 @@ class VectorStore(Protocol):
 class GraphStore(Protocol):
     async def upsert_raw_clean(self, traj: Trajectory, raw: GraphData, clean: GraphData) -> GraphPointer: ...
     async def get_nodes_edges(self, pointer: GraphPointer, graph_kind: str, node_ids: list[str] | None = None) -> GraphData: ...
-    async def match_similar_subgraph(self, query_graph: GraphData, tenant_id: str, top_k: int, use_raw: bool = False) -> list[GraphHit]: ...
-    async def mark_stale(self, tenant_id: str, trajectory_ids: list[str], reason: str) -> int: ...
+    async def match_similar_subgraph(self, query_graph: GraphData, account_id: str, top_k: int, use_raw: bool = False) -> list[GraphHit]: ...
+    async def mark_stale(self, account_id: str, trajectory_ids: list[str], reason: str) -> int: ...
 ```
 
 ### 3) TrajectoryRepository（FS）
 ```python
 class TrajectoryRepository(Protocol):
     async def put_trajectory_bundle(self, bundle: TrajectoryBundle) -> None: ...
-    async def get_trajectory_meta(self, tenant_id: str, trajectory_id: str) -> TrajectoryMeta: ...
+    async def get_trajectory_meta(self, account_id: str, trajectory_id: str) -> TrajectoryMeta: ...
     async def get_overview(self, uri: str) -> str: ...
     async def put_audit(self, entry: AMCAuditEntry) -> None: ...
 ```
@@ -279,7 +279,7 @@ ChangeEvent(skill/table/tool)
 ## 10.6 跨模块契约（必须统一）
 
 1. `trajectory_id/node_id/edge_id` 为确定性 ID，避免跨后端漂移；
-2. `tenant_id` 必须贯穿所有索引和查询条件；
+2. `account_id` 必须贯穿所有索引和查询条件；
 3. `lifecycle_status + stale_flag` 同步更新 FS/Vector/Graph；
 4. retrieve 返回必须包含 evidence（至少 `trajectory_id + matched_nodes`）；
 5. 所有 write/read 动作必须记录审计条目（含 result）。
@@ -288,8 +288,8 @@ ChangeEvent(skill/table/tool)
 
 ## 10.7 开发态技术选型落地
 
-### Vector（Chroma）
-- 用 collection metadata 存 `tenant_id/task_type/owner_space/stale_flag/lifecycle_status`；
+### Vector（pgvector）
+- 用 metadata 存 `account_id/scope/owner_space/task_type/stale_flag/lifecycle_status`；
 - 仅索引 `.abstract.md` 与 `.overview.md`；
 - 使用确定性主键做 upsert，保证幂等。
 
@@ -304,7 +304,7 @@ ChangeEvent(skill/table/tool)
 
 ### Phase 1（M1）
 - 完成 `commit` 全链路；
-- 跑通 `Neo4j + FS + Chroma` 写入；
+- 跑通 `Neo4j + FS + pgvector` 写入；
 - 提供单轨迹回放查询能力。
 
 ### Phase 2（M2）
@@ -328,7 +328,7 @@ ChangeEvent(skill/table/tool)
 1. 发送 sample trajectory 到 `/commit`，返回 accepted；
 2. Neo4j 可见 raw/clean 节点边；
 3. FS 可见 `trajectory.json + graph_pointer + .abstract + .overview + .deps`；
-4. Chroma 可检索该 trajectory 的 L0/L1；
+4. pgvector 可检索该 trajectory 的 L0/L1；
 5. 用 task + partial trajectory 调 `/retrieve`，返回 evidence；
 6. 提交 `/feedback(adopted)` 后，下一次 retrieve 排序有可观测变化；
 7. 触发 skill breaking 事件后，目标 trajectory `stale_flag=true` 且默认降权。

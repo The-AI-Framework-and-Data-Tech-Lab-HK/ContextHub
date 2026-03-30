@@ -15,7 +15,7 @@
 | 来源 | 内容 |
 |------|------|
 | `config.yaml` | 服务端口、存储后端类型、commit/retrieve 行为、审计开关等非密钥 |
-| `.env` | Neo4j 密码、Embedding API Key、Chroma 路径等 |
+| `.env` | Neo4j 密码、Embedding API Key、pgvector DSN 等 |
 
 ---
 
@@ -50,7 +50,7 @@ security:
     enabled: true             # retrieve 返回前是否做字段脱敏
 
 # ---------------------------------------------------------------------------
-# 存储抽象（开发态：LocalFS + Chroma + Neo4j + JSONL 事件）
+# 存储抽象（开发态：LocalFS + pgvector + Neo4j + JSONL 事件）
 # ---------------------------------------------------------------------------
 storage:
   content_store:
@@ -58,8 +58,10 @@ storage:
     localfs_root: "./data/content"  # ctx 映射根目录（实现层约定子路径）
 
   vector_store:
-    backend: chroma           # 语义召回；生产可换 milvus / qdrant
-    collection_name: "amc_trajectory_index"  # Chroma collection 名
+    backend: pgvector         # 语义召回默认后端
+    pgvector_dsn: "postgresql://amc_user:amc_password@127.0.0.1:5432/amc_db"
+    pgvector_schema: "public"
+    pgvector_table: "amc_trajectory_index"
     distance: cosine          # 向量距离度量，需与召回实现一致
     search_timeout_ms: 2000   # 单次向量检索超时（毫秒）
 
@@ -176,8 +178,11 @@ AMC_LOG_LEVEL=INFO
 # ---------- Content：轨迹文件根目录（与 storage.content_store.localfs_root 一致）----------
 AMC_CONTENT_LOCAL_ROOT=./data/content
 
-# ---------- Chroma：持久化目录（嵌入式模式）----------
-AMC_CHROMA_PERSIST_DIR=./data/chroma
+# ---------- pgvector ----------
+AMC_VECTOR_STORE_BACKEND=pgvector
+AMC_PGVECTOR_DSN=postgresql://amc_user:amc_password@127.0.0.1:5432/amc_db
+AMC_PGVECTOR_SCHEMA=public
+AMC_PGVECTOR_TABLE=amc_trajectory_index
 
 # ---------- Neo4j（图存储，AMC 必需）----------
 AMC_NEO4J_URI=bolt://127.0.0.1:7687
@@ -199,13 +204,13 @@ AMC_EVENT_JSONL_PATH=./data/events/amc_events.jsonl
 AMC_AUDIT_FILE=./data/audit/amc_audit.log
 ```
 
-**已删除的 .env 项（原因）**
+**已删除或降级为可选的 .env 项（原因）**
 
 | 原变量 | 原因 |
 |--------|------|
-| `AMC_CHROMA_MODE` | 与 `AMC_CHROMA_PERSIST_DIR` 同时出现时冗余；实现上「有持久目录即 persistent」即可 |
+| `AMC_CHROMA_PERSIST_DIR` | 默认后端已切换 pgvector；仅在启用 `backend=chroma` 时才需要 |
 | `AMC_QUEUE_BACKEND` | MVP 默认进程内队列，与 yaml `indexing` 合并后再暴露 |
-| 重复的 Chroma HTTP 示例 | 开发以嵌入式为主；需 HTTP 时在实现文档中补一行 `CHROMA_URL` |
+| 重复的 Chroma HTTP 示例 | 非默认后端，避免污染主配置口径 |
 
 ---
 
@@ -216,9 +221,11 @@ from pydantic import BaseModel, Field
 
 
 class VectorStoreConfig(BaseModel):
-    """Chroma（或可替换后端）连接与集合名。"""
-    backend: str = "chroma"
-    collection_name: str = "amc_trajectory_index"
+    """pgvector（默认）或可替换后端配置。"""
+    backend: str = "pgvector"
+    pgvector_dsn: str = ""
+    pgvector_schema: str = "public"
+    pgvector_table: str = "amc_trajectory_index"
     distance: str = "cosine"
     search_timeout_ms: int = 2000
 

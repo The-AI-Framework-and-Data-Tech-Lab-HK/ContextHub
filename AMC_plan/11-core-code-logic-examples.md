@@ -3,6 +3,10 @@
 本文件承接 `10-main-code-structure.md`，提供“可落地的示意实现”。
 目标是明确主流程和模块交互，不追求可直接运行。
 
+说明（口径统一）：
+- 本文示意代码统一使用 `account_id` 作为隔离主键；
+- 图相似字段统一使用 `graph_match_score`（不再使用 `graph_score`）。
+
 ---
 
 ## 11.1 CommitOrchestrator（主流程）
@@ -14,7 +18,7 @@ from typing import Any
 
 @dataclass
 class CommitCommand:
-    tenant_id: str
+    account_id: str
     agent_id: str
     session_id: str
     task_id: str
@@ -100,7 +104,7 @@ class CommitOrchestrator:
             graph_pointer = await self.graph_store.upsert_raw_clean(
                 traj_meta={
                     "trajectory_id": trajectory_id,
-                    "tenant_id": cmd.tenant_id,
+                    "account_id": cmd.account_id,
                     "agent_id": cmd.agent_id,
                     "task_type": cmd.labels.get("task_type"),
                     "failure_signature": failure_signature,
@@ -112,7 +116,7 @@ class CommitOrchestrator:
             await self.audit_logger.write(
                 action="commit",
                 actor=actor,
-                tenant_id=cmd.tenant_id,
+                account_id=cmd.account_id,
                 target_uri=f"ctx://agent/{cmd.agent_id}/memories/trajectories/{trajectory_id}",
                 result="error",
                 metadata={"stage": "graph_store", "error": str(e)},
@@ -131,7 +135,7 @@ class CommitOrchestrator:
                 "trajectory_uri": traj_uri,
                 "trajectory_json": {
                     "trajectory_id": trajectory_id,
-                    "tenant_id": cmd.tenant_id,
+                    "account_id": cmd.account_id,
                     "agent_id": cmd.agent_id,
                     "task_type": cmd.labels.get("task_type"),
                     "status": "success_or_partial",
@@ -147,7 +151,7 @@ class CommitOrchestrator:
 
         event = {
             "type": "TrajectoryCommitted",
-            "tenant_id": cmd.tenant_id,
+            "account_id": cmd.account_id,
             "trajectory_id": trajectory_id,
             "trajectory_uri": traj_uri,
             "task_type": cmd.labels.get("task_type"),
@@ -158,7 +162,7 @@ class CommitOrchestrator:
         await self.audit_logger.write(
             action="commit",
             actor=actor,
-            tenant_id=cmd.tenant_id,
+            account_id=cmd.account_id,
             target_uri=traj_uri,
             result="success",
             metadata={"nodes": len(raw_graph["nodes"]), "edges": len(raw_graph["edges"])},
@@ -187,7 +191,7 @@ from typing import Any
 
 @dataclass
 class RetrieveCommand:
-    tenant_id: str
+    account_id: str
     agent_id: str
     task_description: str
     partial_trajectory: list[dict[str, Any]] | None
@@ -238,7 +242,7 @@ class RetrieveOrchestrator:
         )
 
         sem_candidates = await self.semantic_recall.search(
-            tenant_id=cmd.tenant_id,
+            account_id=cmd.account_id,
             query_text=q["embedding_text"],
             filters={
                 "task_type": cmd.task_type,
@@ -255,7 +259,7 @@ class RetrieveOrchestrator:
             q_nodes = self.query_graph_builder.to_nodes(q_steps)
             q_graph = self.query_graph_builder.to_query_graph(q_nodes)
             graph_candidates = await self.graph_recall.search(
-                tenant_id=cmd.tenant_id,
+                account_id=cmd.account_id,
                 query_graph=q_graph,
                 top_n=50,
                 include_raw_when_failure_clue=q["has_failure_clue"],
@@ -263,7 +267,7 @@ class RetrieveOrchestrator:
 
         merged = self._union_candidates(sem_candidates, graph_candidates)
         fb_map = await self.feedback_repo.get_feedback_boost_map(
-            tenant_id=cmd.tenant_id,
+            account_id=cmd.account_id,
             trajectory_ids=[c["trajectory_id"] for c in merged],
         )
         ranked = self.reranker.hybrid_rank(
@@ -274,10 +278,10 @@ class RetrieveOrchestrator:
 
         items = []
         for c in ranked:
-            meta = await self.fs_repo.get_trajectory_meta(cmd.tenant_id, c["trajectory_id"])
+            meta = await self.fs_repo.get_trajectory_meta(cmd.account_id, c["trajectory_id"])
             overview = await self.fs_repo.get_overview(meta["overview_uri"])
             evidence = await self.evidence_builder.build(
-                tenant_id=cmd.tenant_id,
+                account_id=cmd.account_id,
                 trajectory_id=c["trajectory_id"],
                 graph_pointer=meta["graph_pointer"],
                 semantic_hit=c.get("semantic_hit"),
@@ -287,7 +291,7 @@ class RetrieveOrchestrator:
                 "trajectory_id": c["trajectory_id"],
                 "score": c["final_score"],
                 "semantic_score": c.get("semantic_score"),
-                "graph_score": c.get("graph_score"),
+                "graph_match_score": c.get("graph_match_score"),
                 "rationale": c["rationale"],
                 "overview": overview,
                 "evidence": evidence,
@@ -303,7 +307,7 @@ class RetrieveOrchestrator:
         await self.audit_logger.write(
             action="retrieve",
             actor=actor,
-            tenant_id=cmd.tenant_id,
+            account_id=cmd.account_id,
             target_uri=f"ctx://agent/{cmd.agent_id}/memories/trajectories/*",
             result="success",
             metadata={"query_hash": q["query_hash"], "returned": [x["trajectory_id"] for x in items], "top_k": cmd.top_k},
@@ -319,7 +323,7 @@ class RetrieveOrchestrator:
                 "trajectory_id": tid,
                 "semantic_score": s["score"],
                 "semantic_hit": s,
-                "graph_score": None,
+                "graph_match_score": None,
                 "graph_hit": None,
             }
         for g in graph_candidates:
@@ -329,11 +333,11 @@ class RetrieveOrchestrator:
                     "trajectory_id": tid,
                     "semantic_score": 0.0,
                     "semantic_hit": None,
-                    "graph_score": g["score"],
+                    "graph_match_score": g["score"],
                     "graph_hit": g,
                 }
             else:
-                merged[tid]["graph_score"] = g["score"]
+                merged[tid]["graph_match_score"] = g["score"]
                 merged[tid]["graph_hit"] = g
         return list(merged.values())
 ```
@@ -349,7 +353,7 @@ from datetime import datetime
 
 @dataclass
 class FeedbackCommand:
-    tenant_id: str
+    account_id: str
     trajectory_id: str
     session_id: str
     outcome: str
@@ -377,7 +381,7 @@ class FeedbackOrchestrator:
         )
 
         fb = {
-            "tenant_id": cmd.tenant_id,
+            "account_id": cmd.account_id,
             "trajectory_id": cmd.trajectory_id,
             "session_id": cmd.session_id,
             "outcome": cmd.outcome,
@@ -388,14 +392,14 @@ class FeedbackOrchestrator:
 
         delta = self.quality_updater.compute_delta(cmd.outcome)
         quality_state = await self.quality_updater.apply(
-            tenant_id=cmd.tenant_id,
+            account_id=cmd.account_id,
             trajectory_id=cmd.trajectory_id,
             delta=delta,
             evidence=cmd.evidence,
         )
 
         await self.vector_store.update_filter_fields(
-            tenant_id=cmd.tenant_id,
+            account_id=cmd.account_id,
             trajectory_id=cmd.trajectory_id,
             fields={
                 "quality_score": quality_state["trajectory_quality_score"],
@@ -405,7 +409,7 @@ class FeedbackOrchestrator:
             },
         )
         await self.graph_store.update_reusability(
-            tenant_id=cmd.tenant_id,
+            account_id=cmd.account_id,
             trajectory_id=cmd.trajectory_id,
             outcome=cmd.outcome,
             evidence=cmd.evidence,
@@ -414,7 +418,7 @@ class FeedbackOrchestrator:
         await self.event_log.append(
             {
                 "type": "TrajectoryFeedbackReceived",
-                "tenant_id": cmd.tenant_id,
+            "account_id": cmd.account_id,
                 "trajectory_id": cmd.trajectory_id,
                 "outcome": cmd.outcome,
             }
@@ -422,7 +426,7 @@ class FeedbackOrchestrator:
         await self.audit_logger.write(
             action="feedback",
             actor=actor,
-            tenant_id=cmd.tenant_id,
+            account_id=cmd.account_id,
             target_uri=f"ctx://agent/*/memories/trajectories/{cmd.trajectory_id}",
             result="success",
             metadata={"outcome": cmd.outcome, "quality_score": quality_state["trajectory_quality_score"]},
@@ -444,7 +448,7 @@ router = APIRouter(prefix="/api/v1/amc", tags=["amc"])
 async def commit_endpoint(req: CommitRequest, actor=Depends(current_actor), oc=Depends(commit_orchestrator)):
     result = await oc.handle(
         CommitCommand(
-            tenant_id=req.tenant_id,
+            account_id=req.account_id,
             agent_id=req.agent_id,
             session_id=req.session_id,
             task_id=req.task_id,
@@ -462,7 +466,7 @@ async def commit_endpoint(req: CommitRequest, actor=Depends(current_actor), oc=D
 async def retrieve_endpoint(req: RetrieveRequest, actor=Depends(current_actor), orc=Depends(retrieve_orchestrator)):
     return await orc.handle(
         RetrieveCommand(
-            tenant_id=req.tenant_id,
+            account_id=req.account_id,
             agent_id=req.agent_id,
             task_description=req.query.task_description,
             partial_trajectory=req.query.partial_trajectory,
@@ -479,7 +483,7 @@ async def retrieve_endpoint(req: RetrieveRequest, actor=Depends(current_actor), 
 async def feedback_endpoint(req: FeedbackRequest, actor=Depends(current_actor), ofb=Depends(feedback_orchestrator)):
     return await ofb.handle(
         FeedbackCommand(
-            tenant_id=req.tenant_id,
+            account_id=req.account_id,
             trajectory_id=req.trajectory_id,
             session_id=req.session_id,
             outcome=req.outcome,
