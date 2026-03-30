@@ -139,7 +139,7 @@ pytest src/tests -m integration          # 集成测试（需 Neo4j 等，部分
 
 ### FastAPI 功能脚本（拆分版）
 
-先启动 FastAPI 服务（否则脚本会报 `ConnectError: [Errno 111] Connection refused`）：
+先启动 FastAPI 服务：
 
 ```bash
 uvicorn main:app --app-dir src --host 127.0.0.1 --port 8000 --reload

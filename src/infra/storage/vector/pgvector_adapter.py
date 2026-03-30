@@ -91,10 +91,46 @@ class PgVectorAdapter(VectorStoreAdapter):
                         (rid, _to_vector_literal(emb), json.dumps(meta, ensure_ascii=False)),
                     )
 
-    def query(self, embedding: list[float], top_k: int) -> list[dict[str, Any]]:
+    def query(
+        self,
+        embedding: list[float],
+        top_k: int,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         if not embedding:
             return []
         vec = _to_vector_literal(embedding)
+        scalar = dict(filters or {})
+        where_parts: list[str] = ["1=1"]
+        params: list[Any] = []
+        account_id = str(scalar.get("account_id") or "").strip()
+        if account_id:
+            where_parts.append("COALESCE(metadata->>'account_id', metadata->>'tenant_id', '') = %s")
+            params.append(account_id)
+        scopes_raw = scalar.get("scopes")
+        scopes = [str(x).strip().lower() for x in (scopes_raw or []) if str(x).strip()]
+        if scopes:
+            where_parts.append("LOWER(COALESCE(metadata->>'scope', 'agent')) = ANY(%s)")
+            params.append(scopes)
+        owners_raw = scalar.get("owner_spaces")
+        owners = [str(x).strip() for x in (owners_raw or []) if str(x).strip()]
+        if owners:
+            where_parts.append("COALESCE(metadata->>'owner_space', metadata->>'agent_id', '') = ANY(%s)")
+            params.append(owners)
+        excluded_statuses_raw = scalar.get("exclude_statuses")
+        excluded_statuses = [
+            str(x).strip().lower() for x in (excluded_statuses_raw or []) if str(x).strip()
+        ]
+        if excluded_statuses:
+            where_parts.append(
+                "LOWER(COALESCE(metadata->>'status', metadata->>'lifecycle_status', 'active')) <> ALL(%s)"
+            )
+            params.append(excluded_statuses)
+        task_type = str(scalar.get("task_type") or "").strip()
+        if task_type:
+            where_parts.append("COALESCE(metadata->>'task_type', '') = %s")
+            params.append(task_type)
+        where_sql = " AND ".join(where_parts)
         with connect(self.dsn, autocommit=True, row_factory=dict_row) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -102,11 +138,14 @@ class PgVectorAdapter(VectorStoreAdapter):
                         """
                         SELECT id, metadata, (embedding <-> %s::vector) AS distance
                         FROM {}.{}
+                        WHERE """
+                        + where_sql
+                        + """
                         ORDER BY embedding <-> %s::vector ASC
                         LIMIT %s
                         """
                     ).format(Identifier(self.schema), Identifier(self.table)),
-                    (vec, vec, max(1, int(top_k))),
+                    (vec, *params, vec, max(1, int(top_k))),
                 )
                 rows = cur.fetchall()
         out: list[dict[str, Any]] = []

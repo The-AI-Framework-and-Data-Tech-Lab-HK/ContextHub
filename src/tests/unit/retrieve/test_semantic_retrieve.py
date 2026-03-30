@@ -11,6 +11,7 @@ pytestmark = pytest.mark.unit
 class _FakeVectorStore:
     def __init__(self, rows: list[dict]) -> None:
         self.rows = rows
+        self.last_filters: dict | None = None
 
     def get_metadatas(self, ids: list[str]) -> dict[str, dict]:
         return {}
@@ -18,7 +19,8 @@ class _FakeVectorStore:
     def upsert_embeddings(self, records: list[dict]) -> None:
         return None
 
-    def query(self, embedding: list[float], top_k: int) -> list[dict]:
+    def query(self, embedding: list[float], top_k: int, filters: dict | None = None) -> list[dict]:
+        self.last_filters = dict(filters or {})
         return self.rows[:top_k]
 
 
@@ -320,3 +322,28 @@ def test_retrieve_service_applies_acl_filter_visible() -> None:
     assert len(out.items) == 1
     assert out.items[0]["trajectory_id"] == "traj-visible"
     assert any("acl filtered 1 invisible candidates" in w for w in out.warnings)
+
+
+def test_semantic_recall_passes_scalar_filters_to_vector_query() -> None:
+    fake = _FakeVectorStore(rows=[])
+    recall = SemanticRecall(
+        vector_store=fake,
+        embedding_model="dummy",
+        api_key="dummy",
+        embedding_fn=lambda _: [0.1, 0.2],
+    )
+    _ = recall.recall(
+        account_id="acc-1",
+        agent_id="agent-1",
+        query_text="q",
+        top_k=3,
+        scope_filter=["team", "agent"],
+        owner_space_filter=["team-alpha"],
+        task_type="sql_analysis",
+    )
+    assert fake.last_filters is not None
+    assert fake.last_filters.get("account_id") == "acc-1"
+    assert fake.last_filters.get("exclude_statuses") == ["deleted"]
+    assert sorted(fake.last_filters.get("scopes") or []) == ["agent", "team"]
+    assert fake.last_filters.get("owner_spaces") == ["team-alpha"]
+    assert fake.last_filters.get("task_type") == "sql_analysis"

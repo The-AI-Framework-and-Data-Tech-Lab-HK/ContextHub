@@ -34,8 +34,9 @@
 ### Phase 2：Retrieve 双路召回
 
 8. 实现语义召回（trajectory-level L0/L1 向量检索）；
-   - 8.1 pgvector 查询先做标量过滤（`account_id/scope/owner_space/status`），再做向量相似度排序；
-   - 8.2 召回候选必须经过 ACL `filter_visible` 兜底；
+   - 8.1 pgvector 查询先做 SQL 主过滤（`account_id/scope/owner_space/status`），再做向量相似度排序；
+   - 8.2 应用层执行同口径标量复核过滤（兜底）；
+   - 8.3 candidate union 后必须执行 ACL `filter_visible` 最终授权裁决；
 9. 实现图特征抽取与近似匹配（仅当传入 `partial_trajectory` 时启用）：
    - 9.1 构建 query graph（raw/clean，默认 clean）；
    - 9.2 定义 MCS 匹配规则（节点按 action 函数名相同，边按 edge_type 相同；不要求 args/output/其他属性一致）；
@@ -149,7 +150,9 @@
 1. retrieve 路由支持 header 上下文；
 2. 请求体新增 `scope` 过滤；
 3. 结果返回补齐 `scope/owner_space/uri`；
-4. 在 candidate union 后强制 ACL `filter_visible`。
+4. pgvector 检索改为 SQL `WHERE(account_id/scope/owner_space/status)` + `ORDER BY embedding`；
+5. 应用层保留同口径过滤作为兜底；
+6. 在 candidate union 后强制 ACL `filter_visible`。
 
 验收：
 - 越权结果返回率 = 0；

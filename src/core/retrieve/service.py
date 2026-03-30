@@ -115,6 +115,7 @@ class RetrieveService:
             top_k=cmd.top_k,
             scope_filter=cmd.scope_filter,
             owner_space_filter=cmd.owner_space_filter,
+            task_type=pq.task_type,
         )
         unioned = union_candidates(hits)
         ranked_semantic = rerank_semantic_only(unioned)

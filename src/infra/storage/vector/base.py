@@ -20,5 +20,10 @@ class VectorStoreAdapter(Protocol):
     def upsert_embeddings(self, records: list[dict[str, Any]]) -> None:
         """Insert/update vectors with metadata."""
 
-    def query(self, embedding: list[float], top_k: int) -> list[dict[str, Any]]:
-        """Query nearest neighbor documents."""
+    def query(
+        self,
+        embedding: list[float],
+        top_k: int,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Query nearest neighbors with optional scalar filters."""

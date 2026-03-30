@@ -64,10 +64,11 @@ Query Parse -> Build Query Graph (optional)
 - 产出 top-N（如 50）候选轨迹。
 
 pgvector 执行策略（实现建议）：
-1. 先 `WHERE` 做标量过滤（至少 `account_id`，可选 `scope/owner_space/status/task_type/tool_set`）；
+1. 先在 pgvector SQL `WHERE` 做主过滤（至少 `account_id`，可选 `scope/owner_space/status/task_type/tool_set`）；
 2. 再 `ORDER BY embedding <-> :query_vector` 做相似度排序；
 3. `LIMIT top_n` 取候选；
-4. 候选仍需经过 ACL `filter_visible` 兜底。
+4. 应用层执行与 SQL 同口径的标量复核（兜底，防止 SQL 漏条件/历史脏数据）；
+5. 最后执行 ACL `filter_visible` 作为最终授权裁决。
 
 示例（伪 SQL）：
 
@@ -85,6 +86,9 @@ LIMIT :top_n;
 说明：
 - `failure clues` 例如报错关键词（`no such column`、`syntax error`）；
 - `scope` 与 `owner_space` 联动，避免越权召回。
+- `agent_id` 的使用分层：
+  - 在 `scope=agent|user` 下可作为 `owner_space == agent_id` 的 SQL 预过滤条件；
+  - 但无论是否下推，ACL 层仍必须以 `agent_id` 做最终可见性判定。
 
 索引来源说明：
 - 向量记录来自 `ctx://agent/{agent_id}/memories/trajectories/{trajectory_id}/.abstract.md` 与 `.overview.md`；
@@ -271,9 +275,10 @@ retrieve 使用 header 注入上下文（与 main 一致）：
 ### (2) 检索过滤口径
 
 与 main `retrieval_service` 保持一致：
-1. 先做向量/图候选召回（向量分支先标量过滤再相似度排序）；
-2. 再按 `scope/context_type/status` 过滤；
-3. 最后执行 ACL `filter_visible`。
+1. 向量分支先执行 SQL 主过滤（`account_id/scope/owner_space/status`）+ 相似度排序；
+2. 应用层执行同口径复核过滤（兜底）；
+3. 图分支与语义分支 candidate union 后，统一执行 ACL `filter_visible`；
+4. ACL 通过后再进入返回裁剪/脱敏流程。
 
 ACL 规则对齐：
 - `agent`：仅 `owner_space == X-Agent-Id`
