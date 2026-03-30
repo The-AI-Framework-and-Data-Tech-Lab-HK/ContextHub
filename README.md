@@ -99,45 +99,84 @@ ContextHub is enterprise context governance middleware that provides a **unified
 - `SET LOCAL app.account_id` scoped to each transaction via request-scoped `ScopedRepo`
 - Default visibility based on team hierarchy + scope rules; explicit ACL as post-MVP overlay
 
-## Quick Start
+## Usage
 
-### Prerequisites
+ContextHub is designed as a **context engine** for AI agent runtimes. The primary integration is with [OpenClaw](https://github.com/anthropics/openclaw) — ContextHub replaces OpenClaw's built-in context engine, providing enterprise-grade context governance to every agent session.
 
-- Python 3.12+
-- Docker & Docker Compose
-- PostgreSQL 16 with pgvector (provided via docker-compose)
+### As OpenClaw Context Engine
 
-### 1. Clone and install
+Install ContextHub as an OpenClaw context engine plugin:
 
 ```bash
-git clone https://github.com/The-AI-Framework-and-Data-Tech-Lab-HK/ContextHub.git
-cd ContextHub
-pip install -e ".[dev]"
+pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 ```
 
-### 2. Start PostgreSQL
+Once installed, ContextHub works transparently with every OpenClaw session:
 
-```bash
-docker compose up -d
+```
+User ──► OpenClaw TUI ──► Gateway ──► ContextHub Bridge (TS)
+                                        └─► Python Sidecar (:9100)
+                                             └─► ContextHub Server (:8000)
+                                                  └─► PostgreSQL + pgvector
 ```
 
-This starts PostgreSQL 16 with pgvector on port 5432 (user: `contexthub`, password: `contexthub`, database: `contexthub`).
+**Automatic behaviors — no agent code changes needed:**
 
-### 3. Run database migrations
+| Event | What ContextHub Does |
+|-------|---------------------|
+| Agent receives a prompt | `assemble()` searches all visible contexts (memories, skills, schemas) and injects relevant ones into the system prompt |
+| Agent completes a response | `afterTurn()` extracts reusable facts from the response and stores them as private memories |
 
-```bash
-alembic upgrade head
+**Agent tools — available in every session:**
+
+| Tool | Description |
+|------|-------------|
+| `ls` | List contexts under a `ctx://` path |
+| `read` | Read context content (skills auto-resolve via version logic) |
+| `grep` | Search context content by keyword |
+| `stat` | Get metadata for a context entry |
+| `contexthub_store` | Store a new private memory |
+| `contexthub_promote` | Promote a memory from private → team scope |
+| `contexthub_skill_publish` | Publish a new skill version |
+
+### Multi-Agent Collaboration in Action
+
+Two agents in different departments — sharing knowledge through ContextHub with zero manual handoff:
+
+```
+Org Structure:
+  engineering/
+    └── engineering/backend    ← query-agent (backend engineer)
+  data/
+    └── data/analytics         ← analysis-agent (data analyst, also engineering member)
 ```
 
-### 4. Start the server
+**Scenario: cross-department knowledge reuse**
 
-```bash
-uvicorn contexthub.main:app --reload
+```
+1. query-agent stores a SQL pattern as private memory:
+   "JOIN orders and products, GROUP BY month for monthly sales"
+
+2. query-agent promotes this memory to the engineering team:
+   → ctx://team/engineering/shared_knowledge/monthly-sales-pattern
+
+3. analysis-agent asks: "How should I query monthly sales?"
+   → ContextHub auto-recalls the promoted pattern (via assemble)
+   → analysis-agent receives the knowledge — no manual sharing needed
+
+4. query-agent publishes a breaking Skill v2 (sql-generator):
+   → analysis-agent (pinned to v1) continues using v1 stably
+   → advisory: "v2 available with breaking changes"
+   → analysis-agent upgrades at their own pace
 ```
 
-The API is available at `http://localhost:8000`. OpenAPI docs at `/docs`.
+**What makes this different from a shared document?** ContextHub enforces visibility boundaries (private stays private unless explicitly promoted), tracks lineage (`derived_from`), and propagates changes through dependency graphs — not just "latest version wins."
 
-### 5. Use the SDK
+For the full OpenClaw integration setup (5-terminal stack), see the [OpenClaw Integration Guide](docs/openclaw-integration-guide.md).
+
+### Using the Python SDK
+
+For direct programmatic access without OpenClaw:
 
 ```python
 from contexthub_sdk import ContextHubClient
@@ -160,58 +199,6 @@ version = await client.publish_skill_version(
     changelog="Added window function support",
     is_breaking=True,
 )
-```
-
-## API Overview
-
-All requests require `X-Account-Id`, `X-Agent-Id`, and `X-API-Key` headers for tenant isolation and authentication.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/contexts` | Create context |
-| GET | `/api/v1/contexts/{uri}` | Read context (skills resolve via version logic) |
-| PATCH | `/api/v1/contexts/{uri}` | Update context (optimistic locking via `If-Match`) |
-| DELETE | `/api/v1/contexts/{uri}` | Logical delete |
-| POST | `/api/v1/search` | Unified semantic search |
-| POST | `/api/v1/memories` | Add private memory |
-| POST | `/api/v1/memories/promote` | Promote memory to team scope |
-| POST | `/api/v1/skills/versions` | Publish new skill version |
-| POST | `/api/v1/skills/subscribe` | Subscribe to a skill |
-| POST | `/api/v1/tools/{ls,read,grep,stat}` | Agent tool-use endpoints |
-
-## Tech Stack
-
-| Component | Choice | Why |
-|-----------|--------|-----|
-| Web Framework | FastAPI | Async, type-safe, auto-generated OpenAPI |
-| Database | PostgreSQL 16 | Unified storage for metadata + content + vectors + events |
-| Vector Search | pgvector | Same-DB, same-transaction consistency; no dual-write |
-| Async Driver | asyncpg | High-performance async PG with native LISTEN/NOTIFY |
-| Migrations | Alembic | Schema version management |
-| Embedding | text-embedding-3-small (1536-dim) | Cost-effective for L0 summaries |
-| HTTP Client | httpx | Lightweight async HTTP for embedding API calls |
-
-## Project Structure
-
-```
-contexthub/
-├── src/contexthub/
-│   ├── api/              # FastAPI routers + middleware + dependency injection
-│   ├── db/               # PgRepository, ScopedRepo (request-scoped DB executor)
-│   ├── models/           # Pydantic models
-│   ├── services/         # Business logic (memory, skill, retrieval, propagation, ACL)
-│   ├── store/            # ContextStore (URI routing: read/write/ls/stat)
-│   ├── retrieval/        # Search strategies (vector, keyword, BM25 rerank)
-│   ├── propagation/      # Change propagation rules (skill_dep, table_schema, derived_from)
-│   ├── generation/       # L0/L1 content generation
-│   ├── llm/              # Embedding client abstraction (OpenAI, NoOp)
-│   └── connectors/       # Catalog connectors (mock for MVP)
-├── sdk/                  # Python SDK (typed HTTP client)
-├── plugins/openclaw/     # OpenClaw context-engine plugin
-├── alembic/              # Database migrations
-├── tests/                # Integration tests (visibility, propagation, retrieval, etc.)
-├── plan/                 # Design documents (15 files, from invariants to implementation plan)
-└── docs/                 # Setup guides, verification plans, integration guides
 ```
 
 ## Roadmap
@@ -246,7 +233,16 @@ contexthub/
   - Real catalog connectors (Hive/Iceberg/Delta)
   - Run snapshot / context bundle
 
-## Design Documents
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [OpenClaw Integration Guide](docs/openclaw-integration-guide.md) | Full setup for running ContextHub as OpenClaw's context engine |
+| [Local Setup & E2E Verification](docs/local-setup&end2end-verification-guide.md) | Development environment, database migrations, E2E demo |
+| [MVP Verification Plan](docs/mvp-verification-plan.md) | Three-layer verification: automated tests → API demo → runtime contract |
+| [Developer Guide](docs/development-guide.md) | API overview, tech stack, project structure |
+
+### Design Documents
 
 The `plan/` directory contains 15 design documents covering the full system design:
 
