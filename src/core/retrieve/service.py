@@ -87,9 +87,9 @@ class RetrieveService:
         if s in {"agent", "user"}:
             return o == agent_id
         if s == "team":
-            # MVP rule: team resource is visible when requester belongs to that owner space.
-            # Detailed team-closure expansion is delegated to ACL service integration later.
-            return o == agent_id
+            # AMC MVP currently treats team-scoped trajectories as account-shared.
+            # Team-path ACL closure should be delegated to a dedicated ACL service later.
+            return True
         return False
 
     @classmethod

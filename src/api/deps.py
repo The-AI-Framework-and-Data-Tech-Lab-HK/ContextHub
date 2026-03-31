@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from app.orchestrators.commit_orchestrator import CommitOrchestrator
+from app.orchestrators.promote_orchestrator import PromoteOrchestrator
 from app.orchestrators.retrieve_orchestrator import RetrieveOrchestrator
 
 
@@ -15,3 +16,7 @@ def get_commit_orchestrator(request: Request) -> CommitOrchestrator:
 
 def get_retrieve_orchestrator(request: Request) -> RetrieveOrchestrator:
     return request.app.state.retrieve_orchestrator
+
+
+def get_promote_orchestrator(request: Request) -> PromoteOrchestrator:
+    return request.app.state.promote_orchestrator

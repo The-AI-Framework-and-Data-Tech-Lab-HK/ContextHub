@@ -102,6 +102,7 @@ class TrajectoryVectorIndexer:
         base_path: str,
         lifecycle_status: str = "active",
         stale_flag: bool = False,
+        force_reindex: bool = False,
     ) -> dict[str, Any]:
         base = Path(base_path)
         parent_uri = _build_parent_uri(
@@ -130,7 +131,7 @@ class TrajectoryVectorIndexer:
             content_sha = _sha256(text)
             vid = _md5(f"{tenant_id}:{uri}")
             old = existing.get(vid) or {}
-            if str(old.get("content_sha256") or "") == content_sha:
+            if (not force_reindex) and str(old.get("content_sha256") or "") == content_sha:
                 skipped_unchanged += 1
                 continue
             emb = self._embed(text)

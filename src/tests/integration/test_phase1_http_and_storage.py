@@ -307,3 +307,93 @@ def test_retrieve_header_body_context_mismatch_returns_422(tmp_path: Path) -> No
     )
     assert resp.status_code == 422
     assert "context mismatch" in str(resp.json().get("detail") or "")
+
+
+def test_promote_agent_trajectory_to_team_scope(sample_traj_dir: Path, tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    payload = _payload(sample_traj_dir, "traj1.json")
+    payload["owner_space"] = "agent-a"
+    commit = client.post(
+        "/api/v1/amc/commit",
+        json=payload,
+        headers={"X-Account-Id": "account-a", "X-Agent-Id": "agent-a"},
+    )
+    assert commit.status_code == 200
+    tid = str(commit.json()["trajectory_id"])
+
+    promote = client.post(
+        "/api/v1/amc/promote",
+        json={"trajectory_id": tid, "target_team": "engineering", "reason": "demo reuse"},
+        headers={"X-Account-Id": "account-a", "X-Agent-Id": "agent-a"},
+    )
+    assert promote.status_code == 200
+    body = promote.json()
+    assert body["trajectory_id"] == tid
+    assert body["scope"] == "team"
+    assert body["owner_space"] == "engineering"
+    assert body["source_uri"].startswith("ctx://agent/agent-a/memories/trajectories/")
+    assert body["target_uri"].startswith("ctx://team/engineering/memories/trajectories/")
+
+    promoted_meta = (
+        tmp_path
+        / "content"
+        / "accounts"
+        / "account-a"
+        / "scope"
+        / "team"
+        / "engineering"
+        / "memories"
+        / "trajectories"
+        / tid
+        / "meta.json"
+    )
+    assert promoted_meta.exists()
+
+
+def test_promote_forbidden_when_not_source_owner(sample_traj_dir: Path, tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    payload = _payload(sample_traj_dir, "traj2.json")
+    payload["owner_space"] = "agent-a"
+    commit = client.post(
+        "/api/v1/amc/commit",
+        json=payload,
+        headers={"X-Account-Id": "account-a", "X-Agent-Id": "agent-a"},
+    )
+    assert commit.status_code == 200
+    tid = str(commit.json()["trajectory_id"])
+
+    promote = client.post(
+        "/api/v1/amc/promote",
+        json={"trajectory_id": tid, "target_team": "engineering"},
+        headers={"X-Account-Id": "account-a", "X-Agent-Id": "agent-b"},
+    )
+    assert promote.status_code == 403
+
+
+def test_promote_conflict_on_duplicate_target(sample_traj_dir: Path, tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    payload = _payload(sample_traj_dir, "traj3.json")
+    payload["owner_space"] = "agent-a"
+    commit = client.post(
+        "/api/v1/amc/commit",
+        json=payload,
+        headers={"X-Account-Id": "account-a", "X-Agent-Id": "agent-a"},
+    )
+    assert commit.status_code == 200
+    tid = str(commit.json()["trajectory_id"])
+
+    first = client.post(
+        "/api/v1/amc/promote",
+        json={"trajectory_id": tid, "target_team": "engineering"},
+        headers={"X-Account-Id": "account-a", "X-Agent-Id": "agent-a"},
+    )
+    assert first.status_code == 200
+    second = client.post(
+        "/api/v1/amc/promote",
+        json={"trajectory_id": tid, "target_team": "engineering"},
+        headers={"X-Account-Id": "account-a", "X-Agent-Id": "agent-a"},
+    )
+    assert second.status_code == 409

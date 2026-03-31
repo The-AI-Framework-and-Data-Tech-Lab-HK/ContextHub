@@ -5,10 +5,12 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from api.routes.commit import router as commit_router
+from api.routes.promote import router as promote_router
 from api.routes.replay import router as replay_router
 from api.routes.retrieve import router as retrieve_router
 from app.config import AppSettings, load_settings
 from app.orchestrators.commit_orchestrator import CommitOrchestrator
+from app.orchestrators.promote_orchestrator import PromoteOrchestrator
 from app.orchestrators.retrieve_orchestrator import RetrieveOrchestrator
 from core.commit.dataflow_llm import LLMDataflowExtractor
 from core.commit.service import CommitService
@@ -106,13 +108,20 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         audit=audit,
         clean_graph_loader=clean_graph_loader,
     )
+    promote_orchestrator = PromoteOrchestrator(
+        repo=repo,
+        audit=audit,
+        vector_indexer=vector_indexer,
+    )
 
     # Store wired singletons in app.state for FastAPI dependencies.
     app.state.settings = cfg
     app.state.commit_orchestrator = orchestrator
     app.state.retrieve_orchestrator = retrieve_orchestrator
+    app.state.promote_orchestrator = promote_orchestrator
 
     app.include_router(commit_router, prefix=cfg.api.prefix)
+    app.include_router(promote_router, prefix=cfg.api.prefix)
     app.include_router(replay_router, prefix=cfg.api.prefix)
     app.include_router(retrieve_router, prefix=cfg.api.prefix)
 

@@ -145,10 +145,11 @@ pytest src/tests -m integration          # 集成测试（需 Neo4j 等，部分
 uvicorn main:app --app-dir src --host 127.0.0.1 --port 8000 --reload
 ```
 
-再分别测试 commit 与 retrieve：
+再分别测试 commit / promote / retrieve：
 
 ```bash
 python scripts/test_commit_api.py --pretty
+python scripts/test_promote_api.py --trajectory-id <committed_trajectory_id> --pretty
 python scripts/test_retrieve_api.py --pretty
 ```
 
@@ -177,6 +178,52 @@ python scripts/test_retrieve_api.py \
   --task-description "中小微 企业信贷及经营数据" \
   --tool-whitelist local_db_sql \
   --retrieve-timeout 600 \
+  --top-k 5 \
+  --pretty
+```
+
+`promote` 脚本示例：
+
+```bash
+python scripts/test_promote_api.py \
+  --base-url "http://127.0.0.1:8000/api/v1/amc" \
+  --health-url "http://127.0.0.1:8000/healthz" \
+  --account-id acc-demo \
+  --agent-id agent-a \
+  --trajectory-id traj_xxx \
+  --target-team engineering \
+  --reason "promote reusable workflow for cross-agent demo" \
+  --pretty
+```
+
+### Demo 串联：commit -> promote -> retrieve
+
+可用如下顺序验证“一个 agent 存并晋升，另一个 agent 复用检索”：
+
+```bash
+# 1) agent-a 提交轨迹
+python scripts/test_commit_api.py \
+  --account-id acc-demo \
+  --agent-id agent-a \
+  --trajectory-file sample_traj/traj_funnel_diagnosis_strategy_v1.json \
+  --task-id task-funnel-v1 \
+  --task-type analysis_strategy \
+  --pretty
+
+# 2) 把上一步返回的 trajectory_id 晋升到 team 空间
+python scripts/test_promote_api.py \
+  --account-id acc-demo \
+  --agent-id agent-a \
+  --trajectory-id traj_xxx \
+  --target-team engineering \
+  --pretty
+
+# 3) agent-b 在相似任务下检索（team 作用域）
+python scripts/test_retrieve_api.py \
+  --account-id acc-demo \
+  --agent-id agent-b \
+  --task-type analysis_strategy \
+  --task-description "funnel diagnosis and strategy planning for growth campaign" \
   --top-k 5 \
   --pretty
 ```

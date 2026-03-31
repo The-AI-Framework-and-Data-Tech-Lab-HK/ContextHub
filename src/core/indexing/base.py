@@ -21,5 +21,6 @@ class TrajectoryIndexer(Protocol):
         base_path: str,
         lifecycle_status: str = "active",
         stale_flag: bool = False,
+        force_reindex: bool = False,
     ) -> dict[str, Any]:
         """Index trajectory artifacts and return summary."""

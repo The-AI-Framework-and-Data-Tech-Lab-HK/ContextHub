@@ -169,3 +169,17 @@
 - `M2.2`：commit/retrieve API 双栈兼容
 - `M2.3`：ACL 强制 + 旧字段下线
 
+### E. promote 到 team 能力对齐（新增）
+
+1. 新增 `POST /api/v1/amc/promote`（header 读取 `X-Account-Id/X-Agent-Id`）；
+2. promote 校验顺序对齐 main：`读源 -> 类型校验 -> 所有权校验 -> ACL 写目标校验 -> 写目标`；
+3. 目标 URI 固定为 `ctx://team/{target_team}/memories/trajectories/{trajectory_id}`；
+4. 写入 `derived_from` 血缘与审计事件（`promote_trajectory`）；
+5. 向量/图索引补齐 team 视图，确保 retrieve 可命中被提升 workflow。
+
+验收：
+- 仅允许提升本人 agent 私有轨迹；
+- 团队成员可检索命中，非成员不可见；
+- 重复 promote 行为可预测（409 或幂等返回）；
+- 审计可追溯 `source_uri/target_uri/target_team/actor`。
+
