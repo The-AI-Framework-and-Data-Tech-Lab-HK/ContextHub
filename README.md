@@ -2,6 +2,10 @@
 
 **Unified context governance middleware for enterprise multi-agent systems.**
 
+<div align="center">
+<img src="figures/logo.png" width="500">
+</div>
+
 English | [中文](README_zh.md)
 
 ## The Problem: From Memory Management to Context Governance
