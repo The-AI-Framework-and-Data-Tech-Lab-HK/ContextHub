@@ -74,7 +74,6 @@ class LocalFSTrajectoryRepository:
     def save_bundle(
         self,
         *,
-        tenant_id: str,
         agent_id: str,
         account_id: str,
         scope: str,
@@ -97,7 +96,6 @@ class LocalFSTrajectoryRepository:
         graph_pointer = {
             "backend": "localfs_phase1",
             "storage_layout": "accounts_scope_owner_space",
-            "tenant_id": tenant_id,
             "agent_id": agent_id,
             "account_id": account_id,
             "scope": scope,
@@ -159,7 +157,6 @@ class LocalFSTrajectoryRepository:
             json.dumps(
                 {
                     "trajectory_id": trajectory_id,
-                    "tenant_id": tenant_id,
                     "agent_id": agent_id,
                     "account_id": account_id,
                     "scope": scope,

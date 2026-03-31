@@ -51,7 +51,7 @@ def _payload(sample_traj_dir: Path, name: str = "traj1.json") -> dict:
         "session_id": "session-1",
         "task_id": f"task-{name}",
         "trajectory": steps,
-        "labels": {"task_type": "sql_analysis"},
+        "labels": {},
         "scope": "agent",
         "owner_space": "agent-1",
         "is_incremental": False,
@@ -64,7 +64,7 @@ def _payload_header_mode(sample_traj_dir: Path, name: str = "traj1.json") -> dic
         "session_id": "session-header",
         "task_id": f"task-header-{name}",
         "trajectory": steps,
-        "labels": {"task_type": "sql_analysis"},
+        "labels": {},
         "scope": "agent",
         "is_incremental": False,
     }
@@ -235,19 +235,18 @@ def test_commit_header_mode_without_legacy_body_fields(sample_traj_dir: Path, tm
     assert not any("deprecated" in str(w).lower() for w in body["warnings"])
 
 
-def test_commit_legacy_body_fields_emit_deprecation_warnings(sample_traj_dir: Path, tmp_path: Path) -> None:
+def test_commit_legacy_body_agent_field_emits_deprecation_warning(
+    sample_traj_dir: Path, tmp_path: Path
+) -> None:
     app = create_app(_settings(tmp_path))
     client = TestClient(app)
     legacy = _payload(sample_traj_dir, "traj2.json")
-    legacy.pop("account_id", None)
     legacy.pop("scope", None)
     legacy.pop("owner_space", None)
-    legacy["tenant_id"] = "tenant-a"
     legacy["agent_id"] = "agent-1"
     resp = client.post("/api/v1/amc/commit", json=legacy)
     assert resp.status_code == 200
     warnings = [str(x).lower() for x in (resp.json().get("warnings") or [])]
-    assert any("body.tenant_id is deprecated" in w for w in warnings)
     assert any("body.agent_id is deprecated" in w for w in warnings)
 
 
@@ -281,16 +280,14 @@ def test_retrieve_header_mode_without_legacy_body_fields(tmp_path: Path) -> None
     assert not any("deprecated" in str(w).lower() for w in (body.get("warnings") or []))
 
 
-def test_retrieve_legacy_body_fields_emit_deprecation_warnings(tmp_path: Path) -> None:
+def test_retrieve_legacy_body_agent_field_emits_deprecation_warning(tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
     client = TestClient(app)
     payload = _retrieve_payload_header_mode()
-    payload["tenant_id"] = "tenant-a"
     payload["agent_id"] = "agent-1"
-    resp = client.post("/api/v1/amc/retrieve", json=payload)
+    resp = client.post("/api/v1/amc/retrieve", json=payload, headers={"X-Account-Id": "acc-header"})
     assert resp.status_code == 200
     warnings = [str(x).lower() for x in (resp.json().get("warnings") or [])]
-    assert any("body.tenant_id is deprecated" in w for w in warnings)
     assert any("body.agent_id is deprecated" in w for w in warnings)
 
 
@@ -298,12 +295,11 @@ def test_retrieve_header_body_context_mismatch_returns_422(tmp_path: Path) -> No
     app = create_app(_settings(tmp_path))
     client = TestClient(app)
     payload = _retrieve_payload_header_mode()
-    payload["tenant_id"] = "tenant-body"
     payload["agent_id"] = "agent-body"
     resp = client.post(
         "/api/v1/amc/retrieve",
         json=payload,
-        headers={"X-Account-Id": "tenant-header", "X-Agent-Id": "agent-header"},
+        headers={"X-Account-Id": "acc-header", "X-Agent-Id": "agent-header"},
     )
     assert resp.status_code == 422
     assert "context mismatch" in str(resp.json().get("detail") or "")
@@ -372,7 +368,7 @@ def test_promote_forbidden_when_not_source_owner(sample_traj_dir: Path, tmp_path
     assert promote.status_code == 403
 
 
-def test_promote_conflict_on_duplicate_target(sample_traj_dir: Path, tmp_path: Path) -> None:
+def test_promote_duplicate_target_overwrites(sample_traj_dir: Path, tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
     client = TestClient(app)
     payload = _payload(sample_traj_dir, "traj3.json")
@@ -396,4 +392,8 @@ def test_promote_conflict_on_duplicate_target(sample_traj_dir: Path, tmp_path: P
         json={"trajectory_id": tid, "target_team": "engineering"},
         headers={"X-Account-Id": "account-a", "X-Agent-Id": "agent-a"},
     )
-    assert second.status_code == 409
+    assert second.status_code == 200
+    second_body = second.json()
+    assert second_body["trajectory_id"] == tid
+    assert second_body["scope"] == "team"
+    assert second_body["owner_space"] == "engineering"

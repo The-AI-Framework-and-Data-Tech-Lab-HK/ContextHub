@@ -66,7 +66,6 @@ class Neo4jGraphWriter:
     def upsert_trajectory_graphs(
         self,
         *,
-        tenant_id: str,
         agent_id: str,
         account_id: str,
         scope: str,
@@ -84,7 +83,6 @@ class Neo4jGraphWriter:
             )
             session.execute_write(
                 self._merge_trajectory_node,
-                tenant_id=tenant_id,
                 agent_id=agent_id,
                 account_id=account_id,
                 scope=scope,
@@ -94,7 +92,6 @@ class Neo4jGraphWriter:
             self._write_graph_kind(session, trajectory_id=trajectory_id, graph_kind="raw", graph=raw)
             self._write_graph_kind(session, trajectory_id=trajectory_id, graph_kind="clean", graph=clean)
         return self._build_summary(
-            tenant_id=tenant_id,
             agent_id=agent_id,
             account_id=account_id,
             scope=scope,
@@ -172,7 +169,6 @@ class Neo4jGraphWriter:
     @staticmethod
     def _build_summary(
         *,
-        tenant_id: str,
         agent_id: str,
         account_id: str,
         scope: str,
@@ -194,7 +190,6 @@ class Neo4jGraphWriter:
             clean_rel_counts[rel_type] = clean_rel_counts.get(rel_type, 0) + 1
         return {
             "enabled": True,
-            "tenant_id": tenant_id,
             "agent_id": agent_id,
             "account_id": account_id,
             "scope": scope,
@@ -223,7 +218,6 @@ class Neo4jGraphWriter:
     def _merge_trajectory_node(
         tx: Any,
         *,
-        tenant_id: str,
         agent_id: str,
         account_id: str,
         scope: str,
@@ -233,14 +227,12 @@ class Neo4jGraphWriter:
         tx.run(
             """
             MERGE (t:AMCTrajectory {trajectory_id: $trajectory_id})
-            SET t.tenant_id = $tenant_id,
-                t.agent_id = $agent_id,
+            SET t.agent_id = $agent_id,
                 t.account_id = $account_id,
                 t.scope = $scope,
                 t.owner_space = $owner_space
             """,
             trajectory_id=trajectory_id,
-            tenant_id=tenant_id,
             agent_id=agent_id,
             account_id=account_id,
             scope=scope,

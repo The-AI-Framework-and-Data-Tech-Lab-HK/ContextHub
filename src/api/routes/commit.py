@@ -21,11 +21,11 @@ def commit_trajectory(
     x_agent_id: str | None = Header(default=None, alias="X-Agent-Id"),
 ) -> CommitResponse:
     # Map HTTP payload to internal command object.
-    resolved_account_id = (x_account_id or body.account_id or body.tenant_id or "").strip()
+    resolved_account_id = (x_account_id or body.account_id or "").strip()
     if not resolved_account_id:
         raise HTTPException(
             status_code=422,
-            detail="missing account context: provide X-Account-Id header or body.account_id/tenant_id",
+            detail="missing account context: provide X-Account-Id header or body.account_id",
         )
     resolved_agent_id = (x_agent_id or body.agent_id or "").strip()
     if not resolved_agent_id:
@@ -54,16 +54,11 @@ def commit_trajectory(
             detail="owner_space is required when scope is not agent",
         )
     deprecation_warnings: list[str] = []
-    if body.tenant_id:
-        deprecation_warnings.append(
-            "body.tenant_id is deprecated; use X-Account-Id (or body.account_id) instead"
-        )
     if body.agent_id:
         deprecation_warnings.append("body.agent_id is deprecated; use X-Agent-Id instead")
     try:
         result = orchestrator.commit(
             CommitCommand(
-                tenant_id=body.tenant_id or resolved_account_id,
                 agent_id=resolved_agent_id,
                 account_id=resolved_account_id,
                 scope=scope,

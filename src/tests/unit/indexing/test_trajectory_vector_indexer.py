@@ -52,13 +52,11 @@ def test_indexer_skips_unchanged_and_updates_changed_content(tmp_path: Path) -> 
     )
 
     first = indexer.index_trajectory(
-        tenant_id="t1",
         agent_id="a1",
         account_id="acc-1",
         scope="agent",
         owner_space="a1",
         trajectory_id="trajx",
-        task_type="sql_analysis",
         base_path=str(base),
     )
     assert first["upserted_docs"] == 2
@@ -66,13 +64,11 @@ def test_indexer_skips_unchanged_and_updates_changed_content(tmp_path: Path) -> 
     assert embed_calls["n"] == 2
 
     second = indexer.index_trajectory(
-        tenant_id="t1",
         agent_id="a1",
         account_id="acc-1",
         scope="agent",
         owner_space="a1",
         trajectory_id="trajx",
-        task_type="sql_analysis",
         base_path=str(base),
     )
     assert second["upserted_docs"] == 0
@@ -81,13 +77,11 @@ def test_indexer_skips_unchanged_and_updates_changed_content(tmp_path: Path) -> 
 
     (base / ".overview.md").write_text("second overview changed", encoding="utf-8")
     third = indexer.index_trajectory(
-        tenant_id="t1",
         agent_id="a1",
         account_id="acc-1",
         scope="agent",
         owner_space="a1",
         trajectory_id="trajx",
-        task_type="sql_analysis",
         base_path=str(base),
     )
     assert third["upserted_docs"] == 1

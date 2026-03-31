@@ -31,19 +31,13 @@ class PromoteOrchestrator:
 
         vector_summary = {"enabled": False}
         if self.vector_indexer is not None:
-            promoted_bundle = self.repo.load_trajectory_by_uri(str(promoted["target_uri"])) or {}
-            promoted_meta = promoted_bundle.get("meta") if isinstance(promoted_bundle, dict) else {}
-            labels = promoted_meta.get("labels") if isinstance(promoted_meta, dict) else {}
-            task_type = str((labels or {}).get("task_type") or "").strip()
             # Ensure promoted team URI is searchable in vector recall.
             vector_summary = self.vector_indexer.index_trajectory(
-                tenant_id=command.account_id,
                 agent_id=command.agent_id,
                 account_id=command.account_id,
                 scope="team",
                 owner_space=command.target_team,
                 trajectory_id=command.trajectory_id,
-                task_type=task_type,
                 base_path=str(promoted["base_path"]),
                 lifecycle_status="active",
                 stale_flag=False,

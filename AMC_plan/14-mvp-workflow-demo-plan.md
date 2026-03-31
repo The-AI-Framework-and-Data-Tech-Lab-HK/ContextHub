@@ -153,7 +153,7 @@
 
 1. **共享 workflow 名称锚点**：`funnel-diagnosis-and-strategy-planning-v1`；
 2. **共享方法词锚点**：漏斗、分群、驱动因素、策略评估、预算分配；
-3. **统一任务类型**：`task_type=analysis_strategy`（或保持你们当前可用枚举中的同义值）；
+3. **召回不依赖任务类型字段**：主路径仅依赖语义与 scope/owner_space 过滤；
 4. **统一可见域**：`scope=team`, `owner_space=engineering`；
 5. **检索 query 中显式带 workflow 名称**（至少在 demo 录制时这样做）。
 

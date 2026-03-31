@@ -25,9 +25,7 @@ def run(args: argparse.Namespace) -> int:
         if not isinstance(partial_steps, list):
             raise ValueError("partial trajectory file must be a JSON array")
 
-    if args.tenant_id:
-        print("[AMC] --tenant-id is deprecated; use --account-id.")
-    resolved_account_id = str(args.account_id or args.tenant_id or "account-local").strip()
+    resolved_account_id = str(args.account_id or "account-local").strip()
     base = args.base_url.rstrip("/")
     retrieve_url = f"{base}/retrieve"
     retrieve_payload = {
@@ -35,7 +33,6 @@ def run(args: argparse.Namespace) -> int:
             "task_description": args.task_description,
             "partial_trajectory": partial_steps,
             "constraints": {"tool_whitelist": args.tool_whitelist},
-            "task_type": args.task_type,
         },
         "scope": args.scope,
         "owner_space": args.owner_space,
@@ -103,13 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-url", default="http://127.0.0.1:8000/api/v1/amc", help="AMC API base URL")
     p.add_argument("--health-url", default="http://127.0.0.1:8000/healthz", help="Health endpoint URL")
     p.add_argument("--account-id", default="account-local")
-    p.add_argument("--tenant-id", default=None, help="Deprecated alias of account_id")
     p.add_argument("--agent-id", default="agent-local")
-    p.add_argument(
-        "--task-type",
-        default="",
-        help="Optional task type filter. Empty means no task_type filtering.",
-    )
     p.add_argument("--task-description", default="中小微 企业信贷及经营数据")
     p.add_argument("--scope", nargs="*", default=[], help="Optional scope filter list, e.g. team agent")
     p.add_argument(

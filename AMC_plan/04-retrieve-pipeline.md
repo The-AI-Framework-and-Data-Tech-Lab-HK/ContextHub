@@ -11,8 +11,7 @@ request = {
   "query": {
     "task_description": "...",
     "partial_trajectory": [...],      # 可选
-    "constraints": {"tool_whitelist": ["local_db_sql"]},
-    "task_type": "sales_analysis"     # 可选
+    "constraints": {"tool_whitelist": ["local_db_sql"]}
   },
   "top_k": 5
 }
@@ -60,11 +59,11 @@ Query Parse -> Build Query Graph (optional)
 
 - 检索对象：Trajectory-L0/L1（trajectory-level）；
 - query embedding = `task_description + key constraints + failure clues`；
-- 标量过滤：account、scope、task_type、tool_set；
+- 标量过滤：account、scope、owner_space、status（可选 tool_set）；
 - 产出 top-N（如 50）候选轨迹。
 
 pgvector 执行策略（实现建议）：
-1. 先在 pgvector SQL `WHERE` 做主过滤（至少 `account_id`，可选 `scope/owner_space/status/task_type/tool_set`）；
+1. 先在 pgvector SQL `WHERE` 做主过滤（至少 `account_id`，可选 `scope/owner_space/status/tool_set`）；
 2. 再 `ORDER BY embedding <-> :query_vector` 做相似度排序；
 3. `LIMIT top_n` 取候选；
 4. 应用层执行与 SQL 同口径的标量复核（兜底，防止 SQL 漏条件/历史脏数据）；
@@ -152,7 +151,7 @@ graph_match_score = (matched_mcs_edges + matched_mcs_nodes) / max(
 
 阶段 A：候选收缩（coarse filter）
 - 优先使用语义 top-N（如 50）作为图匹配候选池；
-- 可选增加硬过滤：`task_type`、`tool_whitelist`、`account_id/scope/owner_space`；
+- 可选增加硬过滤：`tool_whitelist`、`account_id/scope/owner_space`；
 - 若语义分支为空，可回退到同 account + 可见 scope 的最新 K 条轨迹。
 
 阶段 B：精匹配（fine scoring）
@@ -269,7 +268,7 @@ retrieve 使用 header 注入上下文（与 main 一致）：
 - `owner_space`（可选，细粒度限定）
 
 兼容：
-- 过渡期可接受 `tenant_id/agent_id` body 字段；
+- 过渡期可接受 `agent_id` body 字段；
 - 优先使用 header，body 仅作 fallback。
 
 ### (2) 检索过滤口径

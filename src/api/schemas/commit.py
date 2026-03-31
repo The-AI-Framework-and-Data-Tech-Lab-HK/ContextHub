@@ -8,9 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class CommitRequest(BaseModel):
-    # tenant_id/agent_id are kept for backward compatibility.
+    # agent_id is kept for backward compatibility.
     # Preferred context source is headers: X-Account-Id / X-Agent-Id.
-    tenant_id: str | None = None
     agent_id: str | None = None
     account_id: str | None = None
     scope: str = "agent"

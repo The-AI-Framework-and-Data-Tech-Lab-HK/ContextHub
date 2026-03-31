@@ -107,7 +107,7 @@ class AMCAuditEntry:
 - Agent A 的轨迹默认不对 Agent B 可见；
 - 通过 `promote_trajectory` 将 A 的高质量轨迹提升到 team scope；
 - 被提升轨迹需带：
-  - task_type 标签；
+  - 方法骨架/适用场景标签；
   - 适用边界（applicability）；
   - 风险提示（known pitfalls）。
 

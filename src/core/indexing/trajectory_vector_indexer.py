@@ -92,13 +92,11 @@ class TrajectoryVectorIndexer:
     def index_trajectory(
         self,
         *,
-        tenant_id: str,
         agent_id: str,
         account_id: str,
         scope: str,
         owner_space: str,
         trajectory_id: str,
-        task_type: str | None,
         base_path: str,
         lifecycle_status: str = "active",
         stale_flag: bool = False,
@@ -115,7 +113,7 @@ class TrajectoryVectorIndexer:
             (1, f"{parent_uri}.overview.md", base / ".overview.md"),
         ]
         target = [x for x in files if x[0] in set(self.include_levels)]
-        ids = [_md5(f"{tenant_id}:{uri}") for _, uri, _ in target]
+        ids = [_md5(f"{account_id}:{uri}") for _, uri, _ in target]
         existing = self.vector_store.get_metadatas(ids)
 
         now_iso = datetime.now(UTC).isoformat()
@@ -129,7 +127,7 @@ class TrajectoryVectorIndexer:
             # Embedding must use source file raw content.
             text = file_path.read_text(encoding="utf-8")
             content_sha = _sha256(text)
-            vid = _md5(f"{tenant_id}:{uri}")
+            vid = _md5(f"{account_id}:{uri}")
             old = existing.get(vid) or {}
             if (not force_reindex) and str(old.get("content_sha256") or "") == content_sha:
                 skipped_unchanged += 1
@@ -146,10 +144,8 @@ class TrajectoryVectorIndexer:
                         "account_id": account_id,
                         "scope": scope,
                         "owner_space": owner_space,
-                        "tenant_id": tenant_id,
                         "trajectory_id": trajectory_id,
                         "agent_id": agent_id,
-                        "task_type": task_type or "",
                         "status": lifecycle_status,
                         "lifecycle_status": lifecycle_status,
                         "stale_flag": bool(stale_flag),

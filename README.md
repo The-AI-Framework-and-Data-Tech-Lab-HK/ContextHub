@@ -207,7 +207,6 @@ python scripts/test_commit_api.py \
   --agent-id agent-a \
   --trajectory-file sample_traj/traj_funnel_diagnosis_strategy_v1.json \
   --task-id task-funnel-v1 \
-  --task-type analysis_strategy \
   --pretty
 
 # 2) 把上一步返回的 trajectory_id 晋升到 team 空间
@@ -222,7 +221,6 @@ python scripts/test_promote_api.py \
 python scripts/test_retrieve_api.py \
   --account-id acc-demo \
   --agent-id agent-b \
-  --task-type analysis_strategy \
   --task-description "funnel diagnosis and strategy planning for growth campaign" \
   --top-k 5 \
   --pretty
@@ -233,7 +231,8 @@ Phase 1 用例说明见 `AMC_plan/13-phase1-test-design.md`。
 
 补充说明：
 - `--account-id` 是当前主参数；
-- `--tenant-id` 仍可用，但仅为兼容旧调用方（deprecated 别名）。
+- 账号上下文统一使用 `account_id`（或 `X-Account-Id` 请求头）。
+- 检索默认走语义召回 + scope/owner_space 过滤。
 
 ## 命令行提交轨迹（无 HTTP）
 

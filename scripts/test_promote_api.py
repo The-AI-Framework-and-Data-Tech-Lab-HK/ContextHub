@@ -11,9 +11,7 @@ import httpx
 
 
 def run(args: argparse.Namespace) -> int:
-    if args.tenant_id:
-        print("[AMC] --tenant-id is deprecated; use --account-id.")
-    resolved_account_id = str(args.account_id or args.tenant_id or "account-local").strip()
+    resolved_account_id = str(args.account_id or "account-local").strip()
     if not str(args.trajectory_id or "").strip():
         raise ValueError("trajectory_id is required")
 
@@ -87,7 +85,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-url", default="http://127.0.0.1:8000/api/v1/amc", help="AMC API base URL")
     p.add_argument("--health-url", default="http://127.0.0.1:8000/healthz", help="Health endpoint URL")
     p.add_argument("--account-id", default="account-local")
-    p.add_argument("--tenant-id", default=None, help="Deprecated alias of account_id")
     p.add_argument("--agent-id", default="agent-local")
     p.add_argument("--trajectory-id", required=True)
     p.add_argument("--target-team", default="engineering")

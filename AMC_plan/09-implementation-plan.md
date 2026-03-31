@@ -26,7 +26,7 @@
    向量索引以 `uri` 对应文件，不直接存正文，embedding 时按 `uri` 回 FS 读取；
    重复 commit 时若原文变化需更新对应 embedding）；
 6. 接入审计日志。
-7. 补齐向量索引 metadata（`account_id/scope/owner_space/status/task_type/trajectory_id/uri`），
+7. 补齐向量索引 metadata（`account_id/scope/owner_space/status/trajectory_id/uri`），
    为 Phase 2 的 pgvector 标量过滤提供前置条件。
 
 **里程碑 M1**：可稳定提交并查询单条轨迹详情，图构建成功率 > 95%（样例集）。
@@ -64,7 +64,7 @@
 17. 输出 workflow 草案（人工可审）；
 18. 发布到 team scope 并支持 retrieve 优先命中。
 
-**里程碑 M4**：至少 1 个 task_type 产出可复用 workflow 模板。
+**里程碑 M4**：至少 1 个业务主题产出可复用 workflow 模板。
 
 ## 9.3 验证指标（AMC 专项）
 

@@ -11,7 +11,6 @@ class GraphStoreWriter(Protocol):
     def upsert_trajectory_graphs(
         self,
         *,
-        tenant_id: str,
         agent_id: str,
         account_id: str,
         scope: str,

@@ -14,7 +14,7 @@ request = {
   "task_id": "...",
   "trajectory": [...],           # 原始 steps
   "is_incremental": false,
-  "labels": {"task_type": "sales_analysis"}
+  "labels": {}
 }
 ```
 
@@ -32,7 +32,6 @@ response = {
 - `session_id`：上层会话标识，用于把多次增量 commit 串成同一上下文。
 - `task_id`：业务任务标识（幂等检查关键字段之一）。
 - `is_incremental`：是否为增量提交（true 时会尝试基于已有轨迹版本合并）。
-- `labels.task_type`：任务类型标签，影响后续检索过滤与 workflow 抽象分桶。
 - `nodes/edges`：本次提交后图规模统计（用于调试和监控）。
 - `warnings`：非阻断异常提示（如部分 step 无法解析）。
 
@@ -268,7 +267,7 @@ if enum_hit:
   - `llm_extraction/`（可选；按调用落盘，如 `01_dataflow.json`、`02_reasoning.json`、`03_summary.json`）
   - `raw_steps.jsonl`（可选，保留回放原文）
 - 将 `Trajectory-L0/L1` 写入向量索引（不依赖 node-level 摘要）；
-- 标量索引字段：`account_id, scope, owner_space, agent_id, task_type, tool_set, status, stale_flag, created_at`。
+- 标量索引字段：`account_id, scope, owner_space, agent_id, tool_set, status, stale_flag, created_at`。
 
 ### (6.1) Semantic Indexer 实现要求（参考 OpenViking）
 
@@ -281,7 +280,7 @@ if enum_hit:
 - 向量库记录以 `uri` 为主键锚点（`id = md5(account_id + uri)`），**不直接持久化文件全文**；
 - Embedding 计算时由 worker 按 `uri` 回文件系统读取文本（运行时读取，向量库仅存 embedding + metadata）；
 - **Embedding 输入必须是目标文件原文全文**（按文件编码解码后的完整字符串），禁止改用摘要字段副本、清洗重写文本、截断文本；
-- metadata 至少包含：`uri/level/account_id/scope/owner_space/trajectory_id/agent_id/task_type/status`（可选 `content_sha256` 用于变更检测）；
+- metadata 至少包含：`uri/level/account_id/scope/owner_space/trajectory_id/agent_id/status`（可选 `content_sha256` 用于变更检测）；
 - 不索引 node-level 摘要（当前阶段）。
 
 推荐流水线（异步）：
@@ -302,7 +301,6 @@ class IndexDoc:
     owner_space: str        # 可见性作用域（ACL 过滤字段）
     trajectory_id: str      # 所属轨迹 ID（回源关联）
     agent_id: str           # 轨迹所属 agent ID
-    task_type: str | None   # 任务类型标签（检索过滤/聚类分桶）
     lifecycle_status: str   # 生命周期状态（active/cold/archived/deleted）
     stale_flag: bool        # 兼容性标记（true 表示被变更传播标记为 stale）
     created_at: datetime    # 首次写入时间
@@ -314,7 +312,7 @@ Embedding Worker 根据 `uri` 回文件系统读取对应的 `.abstract.md/.over
 Vector Store 推荐记录结构（MVP）：
 - `id`：`md5(account_id + uri)`
 - `embedding`：向量
-- `metadata`：`uri, parent_uri, level, account_id, scope, owner_space, trajectory_id, agent_id, task_type, status, lifecycle_status, stale_flag, updated_at, content_sha256`
+- `metadata`：`uri, parent_uri, level, account_id, scope, owner_space, trajectory_id, agent_id, status, lifecycle_status, stale_flag, updated_at, content_sha256`
 - 不存 `document/content` 原文字段（正文仅在 FS）
 
 幂等策略：
@@ -389,7 +387,7 @@ commit 生成的 trajectory URI 对齐 main 规范：
 
 ### (3) Commit API 改动（兼容版）
 
-建议由“body 直传 tenant/agent”切换为“header 上下文 + body 作用域”：
+建议由“body 直传账号/agent”切换为“header 上下文 + body 作用域”：
 
 请求头（新增）：
 - `X-Account-Id`（必须）
@@ -400,9 +398,9 @@ commit 生成的 trajectory URI 对齐 main 规范：
 - `owner_space: str | null`（agent/team 必填规则同 main）
 
 兼容策略：
-1. 第一阶段保留 `tenant_id/agent_id` 字段，但标记 deprecated；
-2. 若 header 缺失则回退旧字段；
-3. 第二阶段移除 `tenant_id` body 入参，仅保留 header。
+1. 保留 `agent_id` body 字段作为兼容输入（deprecated）；
+2. 若 header 缺失可回退到 body.agent_id；
+3. 账号上下文统一来自 `X-Account-Id`。
 
 ### (4) Commit 写入口径
 
@@ -425,7 +423,6 @@ commit 生成的 trajectory URI 对齐 main 规范：
 - `scope`（`agent|team|datalake`）
 - `owner_space`（agent_id 或 team path）
 - `status`（至少支持 `active/stale/archived/deleted`）
-- `task_type`
 - `tool_set`（可选，建议保留用于约束过滤）
 - `trajectory_id`
 - `agent_id`

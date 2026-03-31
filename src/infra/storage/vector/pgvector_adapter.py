@@ -105,7 +105,7 @@ class PgVectorAdapter(VectorStoreAdapter):
         params: list[Any] = []
         account_id = str(scalar.get("account_id") or "").strip()
         if account_id:
-            where_parts.append("COALESCE(metadata->>'account_id', metadata->>'tenant_id', '') = %s")
+            where_parts.append("COALESCE(metadata->>'account_id', '') = %s")
             params.append(account_id)
         scopes_raw = scalar.get("scopes")
         scopes = [str(x).strip().lower() for x in (scopes_raw or []) if str(x).strip()]
@@ -126,10 +126,6 @@ class PgVectorAdapter(VectorStoreAdapter):
                 "LOWER(COALESCE(metadata->>'status', metadata->>'lifecycle_status', 'active')) <> ALL(%s)"
             )
             params.append(excluded_statuses)
-        task_type = str(scalar.get("task_type") or "").strip()
-        if task_type:
-            where_parts.append("COALESCE(metadata->>'task_type', '') = %s")
-            params.append(task_type)
         where_sql = " AND ".join(where_parts)
         with connect(self.dsn, autocommit=True, row_factory=dict_row) as conn:
             with conn.cursor() as cur:

@@ -108,13 +108,12 @@ Example retrieve endpoint (Phase 2 semantic recall only):
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/v1/amc/retrieve" \
   -H "Content-Type: application/json" \
+  -H "X-Account-Id: account-local" \
+  -H "X-Agent-Id: agent-local" \
   -d '{
-    "tenant_id": "tenant-local",
-    "agent_id": "agent-local",
     "query": {
       "task_description": "analyze revenue trend and churn factors",
-      "constraints": {"tool_whitelist": ["local_db_sql"]},
-      "task_type": "sql_analysis"
+      "constraints": {"tool_whitelist": ["local_db_sql"]}
     },
     "top_k": 5
   }'
@@ -168,10 +167,9 @@ Use this command to quickly benchmark retrieve latency with repeated runs:
 
 ```bash
 amc-retrieve-trajectory \
-  --tenant-id tenant-local \
+  --account-id account-local \
   --agent-id agent-local \
   --task-description "analyze revenue trend and churn factors" \
-  --task-type sql_analysis \
   --tool-whitelist local_db_sql \
   --top-k 5 \
   --repeat 20 \

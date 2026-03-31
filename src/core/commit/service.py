@@ -17,8 +17,8 @@ from core.commit.validator import validate_raw_steps
 
 @dataclass
 class CommitCommand:
-    tenant_id: str
     agent_id: str
+    account_id: str
     session_id: str
     task_id: str
     trajectory: list[dict[str, Any]]
@@ -26,12 +26,11 @@ class CommitCommand:
     is_incremental: bool = False
     trajectory_id: str | None = None
     visualize_graph_png: bool = False
-    account_id: str | None = None
     scope: str = "agent"
     owner_space: str | None = None
 
     def resolved_account_id(self) -> str:
-        return str(self.account_id or self.tenant_id)
+        return str(self.account_id)
 
     def resolved_scope(self) -> str:
         value = str(self.scope or "agent").strip().lower()

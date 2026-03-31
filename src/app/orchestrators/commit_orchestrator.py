@@ -49,13 +49,11 @@ class CommitOrchestrator:
             if self.vector_indexer is not None and bundle and bundle.get("base_path"):
                 try:
                     vector_summary = self.vector_indexer.index_trajectory(
-                        tenant_id=command.tenant_id,
                         agent_id=command.agent_id,
                         account_id=account_id,
                         scope=scope,
                         owner_space=owner_space,
                         trajectory_id=existing_id,
-                        task_type=str(command.labels.get("task_type", "") or ""),
                         base_path=str(bundle["base_path"]),
                         lifecycle_status="active",
                         stale_flag=False,
@@ -82,7 +80,6 @@ class CommitOrchestrator:
                 action="commit",
                 result="idempotent",
                 details={
-                    "tenant_id": command.tenant_id,
                     "agent_id": command.agent_id,
                     "account_id": account_id,
                     "scope": scope,
@@ -97,7 +94,6 @@ class CommitOrchestrator:
         neo4j_summary: dict[str, Any] | None = None
         if self.graph_store is not None:
             neo4j_summary = self.graph_store.upsert_trajectory_graphs(
-                tenant_id=command.tenant_id,
                 agent_id=command.agent_id,
                 account_id=account_id,
                 scope=scope,
@@ -108,7 +104,6 @@ class CommitOrchestrator:
             )
         result.payload["neo4j_summary"] = neo4j_summary or {"enabled": False}
         base_path = self.repo.save_bundle(
-            tenant_id=command.tenant_id,
             agent_id=command.agent_id,
             account_id=account_id,
             scope=scope,
@@ -122,13 +117,11 @@ class CommitOrchestrator:
         if self.vector_indexer is not None:
             try:
                 vector_summary = self.vector_indexer.index_trajectory(
-                    tenant_id=command.tenant_id,
                     agent_id=command.agent_id,
                     account_id=account_id,
                     scope=scope,
                     owner_space=owner_space,
                     trajectory_id=result.trajectory_id,
-                    task_type=str(command.labels.get("task_type", "") or ""),
                     base_path=base_path,
                     lifecycle_status="active",
                     stale_flag=False,
@@ -141,7 +134,6 @@ class CommitOrchestrator:
             action="commit",
             result="accepted" if self.idempotency_enabled else "accepted_idempotency_disabled",
             details={
-                "tenant_id": command.tenant_id,
                 "agent_id": command.agent_id,
                 "account_id": account_id,
                 "scope": scope,
