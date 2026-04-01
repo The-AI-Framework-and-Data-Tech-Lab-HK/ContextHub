@@ -228,6 +228,7 @@ python scripts/test_retrieve_api.py \
 
 Phase 1 用例说明见 `AMC_plan/13-phase1-test-design.md`。
 运行与部署方式见 `docs/run-and-test.md`。
+AMC v0 作为 OpenClaw context engine 的接入步骤见 `docs/amc-openclaw-integration-guide.md`。
 
 补充说明：
 - `--account-id` 是当前主参数；

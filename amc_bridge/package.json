@@ -1,0 +1,27 @@
+{
+  "name": "amc",
+  "version": "0.1.0",
+  "description": "AMC v0 OpenClaw context-engine bridge",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "devDependencies": {
+    "typescript": "^5.4"
+  }
+}
