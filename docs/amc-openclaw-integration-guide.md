@@ -100,7 +100,11 @@ ls /home/qchenax/ContextHub/openclaw_message
 ```
 
 Files are written under:
-- `openclaw_message/{session_id}/{timestamp}_{seq}.json`
+- transient single-message files: `openclaw_message/{session_id}/{timestamp}_{seq}.json`
+- merged trajectories: `openclaw_message/trajectories/{session_id}/{timestamp}_{seq}.json`
+
+By default, when a merged trajectory snapshot is written, its corresponding
+single-message files are deleted automatically.
 
 Each file includes:
 - `session_id`
@@ -109,7 +113,15 @@ Each file includes:
 - `received_at`
 - `source` (`ingest`)
 - `message` (full message object)
-- `raw_request`
+
+Merged trajectory files include:
+- `messages` (single-level ordered list of content blocks, flattened from each message's `content`)
+- `message_count`
+- `trajectory_started_at` / `trajectory_ended_at`
+- `finished_reason` (`stop` or `new_user_start_without_stop`)
+
+Only trajectories containing at least one `toolCall` are persisted in
+`openclaw_message/trajectories/...`. Pure chat-only turns are skipped.
 
 ### Verify assemble returns empty
 

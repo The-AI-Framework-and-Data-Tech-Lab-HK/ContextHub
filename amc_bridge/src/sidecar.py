@@ -21,6 +21,93 @@ app = FastAPI(title="AMC v0 Sidecar")
 
 _output_dir = Path("/home/qchenax/ContextHub/openclaw_message")
 _seq = count(1)
+_traj_seq = count(1)
+_session_buffers: dict[str, list[dict[str, Any]]] = {}
+_trajectory_subdir = "trajectories"
+
+
+def _message_role(message: Any) -> str:
+    if isinstance(message, dict):
+        return str(message.get("role") or "").strip().lower()
+    return ""
+
+
+def _message_stop_reason(message: Any) -> str:
+    if isinstance(message, dict):
+        # Keep compatibility with possible naming variants.
+        return str(
+            message.get("stopReason")
+            or message.get("stop_reason")
+            or message.get("stopreason")
+            or ""
+        ).strip().lower()
+    return ""
+
+
+def _write_trajectory_snapshot(
+    *,
+    session_id: str,
+    account_id: str,
+    agent_id: str,
+    records: list[dict[str, Any]],
+    finished_reason: str,
+) -> None:
+    if not records:
+        return
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    seq = next(_traj_seq)
+    out_dir = _output_dir / _trajectory_subdir / session_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    flattened_contents: list[Any] = []
+    for rec in records:
+        msg = rec.get("message")
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if isinstance(content, list):
+            flattened_contents.extend(content)
+        elif content is not None:
+            flattened_contents.append(content)
+
+    # v0 rule: only persist merged trajectories that contain at least one toolCall.
+    has_tool_call = any(
+        isinstance(block, dict) and str(block.get("type") or "") == "toolCall"
+        for block in flattened_contents
+    )
+    if not has_tool_call:
+        return
+
+    payload: dict[str, Any] = {
+        "session_id": session_id,
+        "account_id": account_id,
+        "agent_id": agent_id,
+        "source": "trajectory_merged",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "trajectory_started_at": records[0].get("received_at"),
+        "trajectory_ended_at": records[-1].get("received_at"),
+        "finished_reason": finished_reason,
+        "message_count": len(records),
+        # Keep merged trajectory compact with single-level content blocks.
+        "messages": flattened_contents,
+    }
+    (out_dir / f"{ts}_{seq:06d}.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _cleanup_single_message_files(records: list[dict[str, Any]]) -> None:
+    for rec in records:
+        path = rec.get("_single_file_path")
+        if not isinstance(path, str) or not path:
+            continue
+        p = Path(path)
+        try:
+            if p.exists():
+                p.unlink()
+        except Exception:
+            # Best-effort cleanup; keep ingest flow resilient.
+            pass
 
 
 @app.get("/health")
@@ -51,6 +138,38 @@ async def ingest(request: Request) -> dict[str, bool]:
     target_dir.mkdir(parents=True, exist_ok=True)
     target_file = target_dir / f"{ts}_{seq:06d}.json"
     target_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    payload["_single_file_path"] = str(target_file)
+
+    # Aggregate single messages into trajectory-level snapshots.
+    message = payload.get("message")
+    role = _message_role(message)
+    stop_reason = _message_stop_reason(message)
+    buffer = _session_buffers.setdefault(session_id, [])
+
+    # If a new user message arrives before previous trajectory closed, flush stale buffer.
+    if role == "user" and buffer:
+        _write_trajectory_snapshot(
+            session_id=session_id,
+            account_id=account_id,
+            agent_id=agent_id,
+            records=buffer,
+            finished_reason="new_user_start_without_stop",
+        )
+        _cleanup_single_message_files(buffer)
+        buffer.clear()
+
+    buffer.append(payload)
+    if stop_reason == "stop":
+        _write_trajectory_snapshot(
+            session_id=session_id,
+            account_id=account_id,
+            agent_id=agent_id,
+            records=buffer,
+            finished_reason="stop",
+        )
+        _cleanup_single_message_files(buffer)
+        buffer.clear()
+
     return {"ingested": True}
 
 
