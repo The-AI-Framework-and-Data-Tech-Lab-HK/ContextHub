@@ -4,7 +4,66 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from typing import Any
+
+
+def _sanitize_tool_name(name: str) -> str:
+    lowered = (name or "").strip().lower().replace("/", " ")
+    # Remove ALFWorld placeholder markers like "_" from "put _ in/on".
+    lowered = re.sub(r"\b_\b", " ", lowered)
+    lowered = re.sub(r"[^a-z0-9]+", "_", lowered)
+    return lowered.strip("_")
+
+
+def _parse_placeholder_action(action: str) -> dict[str, Any] | None:
+    """
+    Parse placeholder-style actions used by ALFWorld-like traces, e.g.:
+    - ``go to _(recep="toiletpaperhanger 1")``
+    - ``take _ from _(obj="apple 1", recep="table 1")``
+    - ``put _ in/on _(obj="x", recep="y")``
+    """
+    text = (action or "").strip()
+    if not text or not text.endswith(")"):
+        return None
+
+    marker = "_("
+    idx = text.rfind(marker)
+    if idx <= 0:
+        return None
+
+    prefix = text[:idx].strip()
+    args_src = text[idx + len(marker) : -1].strip()
+    tool_name = _sanitize_tool_name(prefix)
+    if not tool_name:
+        return None
+
+    parsed: dict[str, Any] = {"tool_name": tool_name}
+    if not args_src:
+        return parsed
+
+    try:
+        fake_call = ast.parse(f"f({args_src})", mode="eval").body
+    except SyntaxError:
+        return parsed
+
+    if not isinstance(fake_call, ast.Call):
+        return parsed
+
+    def _safe_eval(expr: ast.expr) -> Any:
+        try:
+            return ast.literal_eval(expr)
+        except Exception:
+            return ast.unparse(expr)
+
+    for i, arg in enumerate(fake_call.args):
+        parsed[f"arg{i}"] = _safe_eval(arg)
+    for kw in fake_call.keywords:
+        if kw.arg is None:
+            parsed["kwargs"] = _safe_eval(kw.value)
+        else:
+            parsed[kw.arg] = _safe_eval(kw.value)
+    return parsed
 
 
 def parse_local_db_sql_action(action: str) -> dict[str, Any] | None:
@@ -19,10 +78,13 @@ def parse_local_db_sql_action(action: str) -> dict[str, Any] | None:
     if not action or not action.strip():
         return None
 
+    text = action.strip()
     try:
-        node = ast.parse(action.strip(), mode="eval").body
+        node = ast.parse(text, mode="eval").body
     except SyntaxError:
-        return None
+        # Compatibility: ALFWorld-like actions use placeholder syntax such as
+        # "go to _(recep='...')" which is not valid Python call syntax.
+        return _parse_placeholder_action(text)
 
     if not isinstance(node, ast.Call):
         return None

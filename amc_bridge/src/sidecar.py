@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime, timezone
 from itertools import count
 from pathlib import Path
@@ -42,6 +43,134 @@ def _message_stop_reason(message: Any) -> str:
             or ""
         ).strip().lower()
     return ""
+
+
+def _extract_text_from_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if str(block.get("type") or "") != "text":
+                continue
+            text = block.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+        return "\n".join(parts).strip()
+    return ""
+
+
+def _strip_query_timestamp_prefix(query: str) -> str:
+    # Example: "[Wed 2026-04-01 17:40 GMT+8] Count the number ..."
+    text = (query or "").strip()
+    return re.sub(r"^\[[^\]]+\]\s*", "", text).strip()
+
+
+def _extract_query(records: list[dict[str, Any]]) -> str:
+    for rec in records:
+        msg = rec.get("message")
+        if not isinstance(msg, dict):
+            continue
+        if _message_role(msg) != "user":
+            continue
+        query = _extract_text_from_content(msg.get("content"))
+        if query:
+            return _strip_query_timestamp_prefix(query)
+    return ""
+
+
+def _format_tool_call_action(block: dict[str, Any]) -> str:
+    name = str(block.get("name") or "").strip()
+    args = block.get("arguments")
+    if not name:
+        return ""
+    if not isinstance(args, dict) or not args:
+        return f"{name}()"
+
+    arg_parts: list[str] = []
+    for k, v in args.items():
+        if isinstance(v, str):
+            value = json.dumps(v, ensure_ascii=False)
+        else:
+            value = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
+        arg_parts.append(f"{k}={value}")
+    return f"{name}({', '.join(arg_parts)})"
+
+
+def _find_prev_thinking(blocks: list[dict[str, Any]], from_index: int) -> str:
+    i = from_index - 1
+    while i >= 0:
+        b = blocks[i]
+        if str(b.get("type") or "") == "thinking":
+            thinking = b.get("thinking")
+            if isinstance(thinking, str):
+                return thinking
+            return str(thinking or "")
+        # Stop when we crossed into another finished action/result section.
+        if str(b.get("type") or "") == "toolCall":
+            break
+        i -= 1
+    return ""
+
+
+def _collect_action_result_text(blocks: list[dict[str, Any]], from_index: int) -> str:
+    parts: list[str] = []
+    i = from_index
+    while i < len(blocks):
+        b = blocks[i]
+        btype = str(b.get("type") or "")
+        if btype == "toolCall":
+            break
+        if btype == "text":
+            text = b.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+                # Keep the first concrete text as the action result block.
+                break
+        i += 1
+    return "\n".join(parts).strip()
+
+
+def _build_sample_like_trajectory(flattened_contents: list[Any]) -> list[dict[str, Any]]:
+    blocks = [b for b in flattened_contents if isinstance(b, dict)]
+    steps: list[dict[str, Any]] = []
+    step_no = 1
+
+    for idx, block in enumerate(blocks):
+        if str(block.get("type") or "") != "toolCall":
+            continue
+
+        thinking = _find_prev_thinking(blocks, idx)
+        action = _format_tool_call_action(block)
+        action_result = _collect_action_result_text(blocks, idx + 1)
+
+        steps.append(
+            {
+                "Step": step_no,
+                "Thinking": thinking,
+                "Action": action,
+                "Action_result": "",
+                "Response": "",
+                "meta": {"role": "AIMessage"},
+            }
+        )
+        step_no += 1
+
+        steps.append(
+            {
+                "Step": step_no,
+                "Thinking": "",
+                "Action": "",
+                "Action_result": action_result,
+                "Response": "",
+                "meta": {"role": "ToolMessage"},
+            }
+        )
+        step_no += 1
+
+    return steps
 
 
 def _write_trajectory_snapshot(
@@ -79,17 +208,19 @@ def _write_trajectory_snapshot(
         return
 
     payload: dict[str, Any] = {
-        "session_id": session_id,
-        "account_id": account_id,
-        "agent_id": agent_id,
-        "source": "trajectory_merged",
-        "received_at": datetime.now(timezone.utc).isoformat(),
-        "trajectory_started_at": records[0].get("received_at"),
-        "trajectory_ended_at": records[-1].get("received_at"),
-        "finished_reason": finished_reason,
-        "message_count": len(records),
-        # Keep merged trajectory compact with single-level content blocks.
-        "messages": flattened_contents,
+        "query": _extract_query(records),
+        "trajectory": _build_sample_like_trajectory(flattened_contents),
+        "meta": {
+            "session_id": session_id,
+            "account_id": account_id,
+            "agent_id": agent_id,
+            "source": "trajectory_merged",
+            "received_at": datetime.now(timezone.utc).isoformat(),
+            "trajectory_started_at": records[0].get("received_at"),
+            "trajectory_ended_at": records[-1].get("received_at"),
+            "finished_reason": finished_reason,
+            "message_count": len(records),
+        },
     }
     (out_dir / f"{ts}_{seq:06d}.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
