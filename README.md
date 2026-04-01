@@ -205,7 +205,7 @@ python scripts/test_promote_api.py \
 python scripts/test_commit_api.py \
   --account-id acc-demo \
   --agent-id agent-a \
-  --trajectory-file sample_traj/traj_funnel_diagnosis_strategy_v1.json \
+  --trajectory-file sample_traj/traj1.json \
   --task-id task-funnel-v1 \
   --pretty
 

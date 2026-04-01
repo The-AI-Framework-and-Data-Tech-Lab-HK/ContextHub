@@ -23,9 +23,16 @@ def _load_trajectory(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         raise FileNotFoundError(f"trajectory file not found: {path}")
     data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, list):
-        raise ValueError("trajectory JSON must be a list of step objects")
-    return data
+    # Backward compatibility:
+    # - old format: top-level is a list of step objects
+    # - new format: top-level is an object with a "trajectory" list field
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        inner = data.get("trajectory")
+        if isinstance(inner, list):
+            return inner
+    raise ValueError("trajectory JSON must be a list of step objects or an object with a 'trajectory' list field")
 
 
 def run_commit(

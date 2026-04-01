@@ -19,9 +19,14 @@ def _load_json(path: Path) -> Any:
 
 
 def run(args: argparse.Namespace) -> int:
-    commit_steps = _load_json(Path(args.trajectory_file))
-    if not isinstance(commit_steps, list):
-        raise ValueError("trajectory file must be a JSON array")
+    raw = _load_json(Path(args.trajectory_file))
+    # Support both old format (top-level list) and new format ({ "query": ..., "trajectory": [...] }).
+    if isinstance(raw, list):
+        commit_steps = raw
+    elif isinstance(raw, dict) and isinstance(raw.get("trajectory"), list):
+        commit_steps = raw["trajectory"]
+    else:
+        raise ValueError("trajectory file must be a JSON array or an object with a 'trajectory' list field")
 
     base = args.base_url.rstrip("/")
     commit_url = f"{base}/commit"

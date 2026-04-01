@@ -45,7 +45,8 @@ def _settings_idempotency_disabled(tmp_path: Path) -> AppSettings:
 
 def _payload(sample_traj_dir: Path, name: str = "traj1.json") -> dict:
     # Preferred (non-deprecated) commit body shape with account/scope fields.
-    steps = json.loads((sample_traj_dir / name).read_text(encoding="utf-8"))
+    raw = json.loads((sample_traj_dir / name).read_text(encoding="utf-8"))
+    steps = raw.get("trajectory") if isinstance(raw, dict) else raw
     return {
         "account_id": "account-a",
         "session_id": "session-1",
@@ -59,7 +60,8 @@ def _payload(sample_traj_dir: Path, name: str = "traj1.json") -> dict:
 
 
 def _payload_header_mode(sample_traj_dir: Path, name: str = "traj1.json") -> dict:
-    steps = json.loads((sample_traj_dir / name).read_text(encoding="utf-8"))
+    raw = json.loads((sample_traj_dir / name).read_text(encoding="utf-8"))
+    steps = raw.get("trajectory") if isinstance(raw, dict) else raw
     return {
         "session_id": "session-header",
         "task_id": f"task-header-{name}",
