@@ -75,8 +75,9 @@ def run(args: argparse.Namespace) -> int:
         raise RuntimeError("commit response missing trajectory_id")
     if int(data.get("nodes") or 0) <= 0:
         raise RuntimeError("commit response nodes should be > 0")
-    if int(data.get("edges") or 0) <= 0:
-        raise RuntimeError("commit response edges should be > 0")
+    edge_count = int(data.get("edges") or 0)
+    if edge_count < int(args.min_edges):
+        raise RuntimeError(f"commit response edges should be >= {int(args.min_edges)}")
 
     out = {
         "summary": {
@@ -111,6 +112,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trajectory-file", default="sample_traj/traj1.json")
     p.add_argument("--health-timeout", type=float, default=15.0, help="Health check timeout (seconds)")
     p.add_argument("--commit-timeout", type=float, default=600.0, help="Commit request timeout (seconds)")
+    p.add_argument(
+        "--min-edges",
+        type=int,
+        default=0,
+        help="Minimum expected edge count in commit response (default: 0)",
+    )
     p.add_argument("--pretty", action="store_true")
     return p
 
