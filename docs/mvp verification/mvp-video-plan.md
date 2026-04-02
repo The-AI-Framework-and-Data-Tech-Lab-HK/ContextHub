@@ -69,7 +69,10 @@ pnpm openclaw tui
 不可与新人专享券同时使用。活动时间 4 月 1 日至 15 日。
 ```
 
+
+
 观察 Terminal 3 sidecar 日志出现 `dispatch contexthub_store` 调用。
+
 
 **Step D2 — 晋升到团队共享空间**
 
@@ -165,7 +168,7 @@ pnpm openclaw tui
 在 TUI 中输入：
 
 ```
-请列出 ctx://team/engineering/shared_knowledge 下的内容
+请列出 ctx://team/engineering/memories/shared_knowledge 下的内容
 ```
 
 预期：列表中包含运营负责人在 Step D2 晋升的春季促销规则 —— 这
@@ -193,7 +196,7 @@ pnpm openclaw tui
 在 TUI 中输入：
 
 ```
-请列出 ctx://team/engineering/shared_knowledge 下的内容
+请列出 ctx://team/engineering/memories/shared_knowledge 下的内容
 ```
 
 预期：
@@ -215,7 +218,7 @@ pnpm openclaw tui
 在 TUI 中输入：
 
 ```
-请列出 ctx://team/engineering/shared_knowledge 下的内容
+请列出 ctx://team/engineering/memories/shared_knowledge 下的内容
 ```
 
 预期：

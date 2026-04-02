@@ -173,6 +173,23 @@ pnpm openclaw configure
 }
 ```
 
+### 注意：如果intergration翻车了，需要洗掉数据库里已存的上下文的话，可以这样执行：
+```bash
+# 删库
+dropdb contexthub
+# 重建库（指定 owner）
+psql postgres -c "CREATE DATABASE contexthub OWNER contexthub;"
+# 重建 extensions
+psql postgresql://contexthub:contexthub@localhost:5432/contexthub -c "
+  CREATE EXTENSION IF NOT EXISTS vector;
+  CREATE EXTENSION IF NOT EXISTS pgcrypto;
+"
+# 重建 schema + seed 数据
+cd /path/to/ContextHub
+source .venv/bin/activate
+alembic upgrade head
+```
+
 ---
 
 ## 日常启动流程
@@ -223,6 +240,15 @@ python bridge/src/sidecar.py \
   --contexthub-url http://localhost:8000 \
   --agent-id query-agent \
   --account-id acme
+```
+
+注：启动 sidecar 时可加上环境变量，关闭 auto-capture
+* 对 demo 来说，验证的是用户主动 store/promote 的链路，auto-capture 产生的噪音记忆反而干扰验证。
+* 对生产场景来说：auto-capture 的初衷是让 agent 在对话中自动积累知识，但目前的实现比较粗糙（_looks_reusable 启发式规则会把 tool call ID、URI 等误判为"可复用事实"），关掉也没什么损失。等启发式规则完善了再默认开启更合理。
+
+```bash
+CONTEXTHUB_AUTO_CAPTURE=off python bridge/src/sidecar.py --port 9100 \
+  --contexthub-url http://localhost:8000 --agent-id query-agent --account-id acme
 ```
 
 **保持此终端打开。** 验证：

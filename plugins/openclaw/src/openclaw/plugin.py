@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import re
 from typing import Any
 
@@ -158,7 +159,12 @@ class ContextHubContextEngine:
         messages: list[dict[str, Any]],
         prePromptMessageCount: int,
     ) -> None:
-        """Auto-capture conservative reusable facts from the latest turn."""
+        """Auto-capture conservative reusable facts from the latest turn.
+
+        Disabled when CONTEXTHUB_AUTO_CAPTURE=off (case-insensitive).
+        """
+        if os.getenv("CONTEXTHUB_AUTO_CAPTURE", "on").lower() in ("off", "false", "0", "no"):
+            return
         snippet = self._extract_capturable(messages, prePromptMessageCount)
         if not snippet:
             return

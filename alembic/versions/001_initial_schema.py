@@ -256,10 +256,11 @@ def upgrade() -> None:
       ('00000000-0000-0000-0000-000000000005', 'data/analytics', '00000000-0000-0000-0000-000000000004', '数据分析组', 'acme')
     """)
     op.execute("""
-    INSERT INTO team_memberships (agent_id, team_id, role, is_primary) VALUES
-      ('query-agent', '00000000-0000-0000-0000-000000000003', 'member', TRUE),
-      ('analysis-agent', '00000000-0000-0000-0000-000000000005', 'member', TRUE),
-      ('analysis-agent', '00000000-0000-0000-0000-000000000002', 'member', FALSE)
+    INSERT INTO team_memberships (agent_id, team_id, role, access, is_primary) VALUES
+      ('query-agent', '00000000-0000-0000-0000-000000000003', 'member', 'read_write', TRUE),
+      ('query-agent', '00000000-0000-0000-0000-000000000002', 'member', 'read_write', FALSE),
+      ('analysis-agent', '00000000-0000-0000-0000-000000000005', 'member', 'read_write', TRUE),
+      ('analysis-agent', '00000000-0000-0000-0000-000000000002', 'member', 'read_write', FALSE)
     """)
 
 

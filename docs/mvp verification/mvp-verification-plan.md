@@ -375,7 +375,7 @@ GROUP BY DATE_TRUNC('month', order_date)。
 在 TUI 中输入：
 
 ```
-请列出 ctx://team/engineering/shared_knowledge 下的内容
+请列出 ctx://team/engineering/memories/shared_knowledge 下的内容
 ```
 
 预期：agent 调用 `ls`，返回的列表中包含刚晋升的记忆。
@@ -615,7 +615,7 @@ pnpm openclaw tui
 在 TUI 中输入：
 
 ```
-请列出 ctx://team/engineering/shared_knowledge 下的内容
+请列出 ctx://team/engineering/memories/shared_knowledge 下的内容
 ```
 
 预期：列表中包含运营负责人在 Step D2 晋升的春季促销规则 —— 这
@@ -643,7 +643,7 @@ pnpm openclaw tui
 在 TUI 中输入：
 
 ```
-请列出 ctx://team/engineering/shared_knowledge 下的内容
+请列出 ctx://team/engineering/memories/shared_knowledge 下的内容
 ```
 
 预期：
@@ -667,7 +667,7 @@ pnpm openclaw tui
 在 TUI 中输入：
 
 ```
-请列出 ctx://team/engineering/shared_knowledge 下的内容
+请列出 ctx://team/engineering/memories/shared_knowledge 下的内容
 ```
 
 预期：

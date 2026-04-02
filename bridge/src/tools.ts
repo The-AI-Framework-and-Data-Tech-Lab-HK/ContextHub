@@ -24,9 +24,12 @@ function makeTool(
     name,
     description,
     parameters,
-    execute: async (input: Record<string, unknown>) => {
+    execute: async (
+      _toolCallId: string,
+      params: Record<string, unknown>,
+    ) => {
       try {
-        const result = await bridge.dispatchTool(name, input);
+        const result = await bridge.dispatchTool(name, params ?? {});
         return textResult(result);
       } catch (err) {
         return textResult({ error: String(err) });

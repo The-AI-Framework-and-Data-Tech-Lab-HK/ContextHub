@@ -23,6 +23,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ContextHub Sidecar")
@@ -30,6 +31,14 @@ app = FastAPI(title="ContextHub Sidecar")
 _engines: dict[str, Any] = {}
 _default_agent_id: str = "sidecar-agent"
 _server_args: dict[str, str] = {}
+
+_STRING_FALLBACK_KEY: dict[str, str] = {
+    "contexthub_store": "content",
+    "ls": "path",
+    "read": "uri",
+    "stat": "uri",
+    "grep": "query",
+}
 
 
 def _bootstrap_repo_paths() -> list[str]:
@@ -93,6 +102,24 @@ async def dispatch_tool(request: Request):
     body = await request.json()
     name = body.get("name", "")
     args = body.get("args", {})
+    if isinstance(args, str):
+        raw = args
+        logger.info("dispatch %s: raw args string=%r", name, raw[:300])
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                args = parsed
+            else:
+                raise ValueError("parsed to non-dict")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            fallback_key = _STRING_FALLBACK_KEY.get(name)
+            if fallback_key:
+                logger.info("dispatch %s: wrapping raw string as {%s: ...}", name, fallback_key)
+                args = {fallback_key: raw}
+            else:
+                logger.warning("dispatch %s: cannot map raw string to params", name)
+                args = {}
+    logger.info("dispatch %s args=%s", name, json.dumps(args, ensure_ascii=False)[:200])
     engine = _get_engine(request)
     result = await engine.dispatch_tool(name, args)
     return JSONResponse(content=json.loads(result))
@@ -157,8 +184,10 @@ async def compact(request: Request):
 
 @app.post("/dispose")
 async def dispose(request: Request):
-    engine = _get_engine(request)
-    await engine.dispose()
+    agent_id = request.headers.get("x-agent-id", _default_agent_id)
+    engine = _engines.pop(agent_id, None)
+    if engine is not None:
+        await engine.dispose()
     return {"ok": True}
 
 
