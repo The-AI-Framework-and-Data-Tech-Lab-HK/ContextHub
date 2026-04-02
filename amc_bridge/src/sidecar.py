@@ -286,7 +286,7 @@ def _commit_trajectory_to_amc(snapshot: dict[str, Any]) -> tuple[bool, str]:
     return False, msg
 
 
-def _retrieve_top1_abstract_from_amc(*, account_id: str, agent_id: str, query: str) -> tuple[str, str]:
+def _retrieve_top1_memory_from_amc(*, account_id: str, agent_id: str, query: str) -> tuple[str, str, str]:
     req_body: dict[str, Any] = {
         "query": {
             "task_description": query,
@@ -314,29 +314,33 @@ def _retrieve_top1_abstract_from_amc(*, account_id: str, agent_id: str, query: s
             body_text = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         err = e.read().decode("utf-8", errors="replace")
-        return "", f"http_error:{e.code}:{err[:300]}"
+        return "", "", f"http_error:{e.code}:{err[:300]}"
     except Exception as e:
-        return "", f"request_failed:{type(e).__name__}:{e}"
+        return "", "", f"request_failed:{type(e).__name__}:{e}"
 
     if status >= 400:
-        return "", f"http_error:{status}:{body_text[:300]}"
+        return "", "", f"http_error:{status}:{body_text[:300]}"
 
     try:
         data = json.loads(body_text)
     except Exception:
-        return "", "invalid_json_response"
+        return "", "", "invalid_json_response"
     if not isinstance(data, dict):
-        return "", "invalid_response_type"
+        return "", "", "invalid_response_type"
     items = data.get("items")
     if not isinstance(items, list) or not items:
-        return "", "ok:no_hits"
+        return "", "", "ok:no_hits"
     top = items[0]
     if not isinstance(top, dict):
-        return "", "ok:invalid_top_item"
+        return "", "", "ok:invalid_top_item"
+
     abstract = top.get("abstract")
-    if not isinstance(abstract, str) or not abstract.strip():
-        return "", "ok:no_abstract"
-    return abstract.strip(), "ok"
+    overview = top.get("overview")
+    abstract_text = abstract.strip() if isinstance(abstract, str) and abstract.strip() else ""
+    overview_text = overview.strip() if isinstance(overview, str) and overview.strip() else ""
+    if not abstract_text and not overview_text:
+        return "", "", "ok:no_abstract_or_overview"
+    return abstract_text, overview_text, "ok"
 
 
 def _write_assemble_log(payload: dict[str, Any]) -> None:
@@ -531,11 +535,64 @@ async def ingest(request: Request, background_tasks: BackgroundTasks) -> dict[st
 
 @app.post("/assemble")
 async def assemble(request: Request) -> dict[str, Any]:
-    _ = await request.json()
-    return {
-        "messages": [],
+    body = await request.json()
+    account_id = str(request.headers.get("x-account-id") or _default_account_id).strip()
+    agent_id = str(request.headers.get("x-agent-id") or _default_agent_id).strip()
+    query = _latest_user_query_from_messages(body.get("messages"))
+
+    abstract, overview, retrieve_status = _retrieve_top1_memory_from_amc(
+        account_id=account_id,
+        agent_id=agent_id,
+        query=query,
+    )
+    out_messages: list[dict[str, Any]] = []
+    memory_sections: list[str] = []
+    if abstract:
+        memory_sections.append(f"[Retrieved Abstract]\n{abstract}")
+    if overview:
+        memory_sections.append(f"[Retrieved Overview]\n{overview}")
+
+    if memory_sections:
+        memory_text = "\n\n".join(memory_sections)
+        out_messages.append(
+            {
+                "role": "system",
+                "content": [{"type": "text", "text": memory_text}],
+            }
+        )
+
+    response_payload: dict[str, Any] = {
+        "messages": out_messages,
         "estimatedTokens": 0,
     }
+    _write_assemble_log(
+        {
+            "received_at": datetime.now(timezone.utc).isoformat(),
+            "source": "assemble",
+            "account_id": account_id,
+            "agent_id": agent_id,
+            "session_id": body.get("sessionId"),
+            "query": query,
+            "retrieve_status": retrieve_status,
+            "request_meta": {
+                "sessionKey": body.get("sessionKey"),
+                "model": body.get("model"),
+                "tokenBudget": body.get("tokenBudget"),
+                "prompt": body.get("prompt"),
+                "message_count": (
+                    len(body.get("messages")) if isinstance(body.get("messages"), list) else 0
+                ),
+            },
+            "response": {
+                "estimatedTokens": response_payload.get("estimatedTokens", 0),
+                "returned_message_count": len(out_messages),
+                "returned_memory": (
+                    out_messages[0]["content"][0]["text"] if out_messages else ""
+                ),
+            },
+        }
+    )
+    return response_payload
 
 
 def main(argv: list[str] | None = None) -> None:
