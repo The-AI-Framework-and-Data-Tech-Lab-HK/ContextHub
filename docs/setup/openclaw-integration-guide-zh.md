@@ -190,6 +190,13 @@ source .venv/bin/activate
 alembic upgrade head
 ```
 
+另外需要清掉OpenClaw 的会话历史（不然OpenClaw又会基于会话历史自由发挥了）
+在 ~/.openclaw/agents/main/sessions/ 下面
+```bash
+# 先 Ctrl+C 停掉 TUI 和 Gateway，然后：
+rm -rf ~/.openclaw/agents/main/sessions/*
+```
+
 ---
 
 ## 日常启动流程
