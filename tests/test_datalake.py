@@ -4,6 +4,7 @@ import importlib
 import importlib.util
 import sys
 import types
+import uuid
 from pathlib import Path
 
 import pytest
@@ -11,9 +12,16 @@ import pytest_asyncio
 
 from contexthub.connectors.mock_connector import MockCatalogConnector
 from contexthub.connectors.base import CatalogChange
-from contexthub.api.routers.datalake import SqlContextRequest, search_sql_context
+from contexthub.api.routers.datalake import (
+    SqlContextRequest,
+    get_table_detail,
+    search_sql_context,
+)
 from contexthub.generation.table_schema import TableSchemaGenerator
+from contexthub.models.request import RequestContext
 from contexthub.models.search import SearchResponse, SearchResult
+from contexthub.services.access_decision import AccessDecision
+from contexthub.services.masking_service import MaskingService
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +98,237 @@ def test_table_schema_generator_l0():
     assert len(result.l0) <= 80
     assert "| 字段 |" in result.l1
     assert "BIGINT" in result.l1
+
+
+# ---------------------------------------------------------------------------
+# Regression: search_sql_context must drop rows when post-fetch ACL denies
+# ---------------------------------------------------------------------------
+
+
+class _FakeRecord(dict):
+    """Dict subclass that also supports attribute-style access for asyncpg compat."""
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key)
+
+
+@pytest.mark.asyncio
+async def test_search_sql_context_drops_denied_rows_on_post_fetch_acl():
+    """P1 regression: if the second check_read_access() denies a URI that
+    the initial retrieval.search() allowed, the row MUST be dropped — not
+    returned with empty masks (fail-open)."""
+
+    allowed_id = str(uuid.uuid4())
+    denied_id = str(uuid.uuid4())
+    allowed_uri = "ctx://datalake/mock/prod/users"
+    denied_uri = "ctx://datalake/mock/prod/orders"
+
+    class _StubRetrieval:
+        async def search(self, db, request, ctx):
+            return SearchResponse(
+                results=[
+                    SearchResult(
+                        uri=allowed_uri, context_type="table_schema",
+                        scope="datalake", score=0.95,
+                        status="active", version=1,
+                    ),
+                    SearchResult(
+                        uri=denied_uri, context_type="table_schema",
+                        scope="datalake", score=0.90,
+                        status="active", version=1,
+                    ),
+                ],
+                total=2,
+            )
+
+    class _PostFetchDenyACL:
+        """Allow one URI, deny the other on the second ACL evaluation."""
+        async def check_read_access(self, db, uri, ctx):
+            if uri == allowed_uri:
+                return AccessDecision(allowed=True, field_masks=None, reason="ok")
+            return AccessDecision(allowed=False, field_masks=None, reason="policy changed")
+
+    _fetchrow_map = {
+        allowed_uri: _FakeRecord(id=allowed_id),
+        denied_uri: _FakeRecord(id=denied_id),
+    }
+
+    _fetch_rows = [
+        _FakeRecord(
+            id=allowed_id, uri=allowed_uri,
+            l0_content="users table", l1_content="users detail",
+            ddl="CREATE TABLE users ...", partition_info=None,
+            sample_data=None, joins=None, top_templates=None,
+        ),
+        _FakeRecord(
+            id=denied_id, uri=denied_uri,
+            l0_content="orders table", l1_content="orders detail",
+            ddl="CREATE TABLE orders ...", partition_info=None,
+            sample_data=None, joins=None, top_templates=None,
+        ),
+    ]
+
+    class _FakeDB:
+        async def fetchrow(self, sql, *args):
+            uri = args[0]
+            return _fetchrow_map.get(uri)
+
+        async def fetch(self, sql, *args):
+            return _fetch_rows
+
+    resp = await search_sql_context(
+        SqlContextRequest(query="user orders", catalog="mock", top_k=5),
+        ctx=RequestContext(account_id="acme", agent_id="query-agent"),
+        db=_FakeDB(),
+        retrieval=_StubRetrieval(),
+        acl=_PostFetchDenyACL(),
+        masking=MaskingService(),
+    )
+
+    returned_uris = [t.uri for t in resp.tables]
+    assert allowed_uri in returned_uris, "allowed URI must be present"
+    assert denied_uri not in returned_uris, (
+        "denied URI must be DROPPED, not returned with empty masks (fail-open)"
+    )
+    assert resp.total_tables_found == 1
+
+
+@pytest.mark.asyncio
+async def test_search_sql_context_masks_fields_when_acl_returns_field_masks():
+    """Post-fetch ACL returns allow + field_masks → l0, l1, ddl, sample_data
+    must have the keyword replaced; structural fields left untouched."""
+
+    ctx_id = str(uuid.uuid4())
+    uri = "ctx://datalake/mock/prod/users"
+
+    class _StubRetrieval:
+        async def search(self, db, request, ctx):
+            return SearchResponse(
+                results=[
+                    SearchResult(
+                        uri=uri, context_type="table_schema",
+                        scope="datalake", score=0.95,
+                        status="active", version=1,
+                    ),
+                ],
+                total=1,
+            )
+
+    class _MaskingACL:
+        async def check_read_access(self, db, uri, ctx):
+            return AccessDecision(
+                allowed=True,
+                field_masks=["salary"],
+                reason="mask salary",
+            )
+
+    class _FakeDB:
+        async def fetchrow(self, sql, *args):
+            return _FakeRecord(id=ctx_id)
+
+        async def fetch(self, sql, *args):
+            return [
+                _FakeRecord(
+                    id=ctx_id, uri=uri,
+                    l0_content="users table with salary column",
+                    l1_content="| salary | DECIMAL | 薪资 |",
+                    ddl="CREATE TABLE users (id BIGINT, salary DECIMAL)",
+                    partition_info=None,
+                    sample_data=[
+                        {"id": 1, "name": "Alice", "salary": 80000},
+                        {"id": 2, "name": "Bob", "salary": 95000},
+                    ],
+                    joins=None,
+                    top_templates=None,
+                ),
+            ]
+
+    resp = await search_sql_context(
+        SqlContextRequest(
+            query="user salary", catalog="mock", top_k=5,
+            include_sample_data=True,
+        ),
+        ctx=RequestContext(account_id="acme", agent_id="query-agent"),
+        db=_FakeDB(),
+        retrieval=_StubRetrieval(),
+        acl=_MaskingACL(),
+        masking=MaskingService(),
+    )
+
+    assert len(resp.tables) == 1
+    t = resp.tables[0]
+
+    assert "salary" not in t.l0_content.lower()
+    assert "[MASKED]" in t.l0_content
+
+    assert "salary" not in t.l1_content.lower()
+    assert "[MASKED]" in t.l1_content
+
+    assert "salary" not in t.ddl.lower()
+    assert "[MASKED]" in t.ddl
+
+    assert t.sample_data is not None
+    for row in t.sample_data:
+        assert row["salary"] == "[MASKED]", "sample_data value for masked key must be replaced"
+        assert row["name"] != "[MASKED]", "non-masked keys must be untouched"
+
+
+@pytest.mark.asyncio
+async def test_get_table_detail_masks_text_and_sample_data():
+    """get_table_detail() must mask l0/l1/l2/ddl via text regex AND
+    sample_data via exact key matching when field_masks is non-empty."""
+
+    class _MaskingACL:
+        async def check_read_access(self, db, uri, ctx):
+            return AccessDecision(
+                allowed=True,
+                field_masks=["salary"],
+                reason="mask salary",
+            )
+
+    _detail = {
+        "l0_content": "users — contains salary info",
+        "l1_content": "| salary | DECIMAL | 薪资 |",
+        "l2_content": "The salary column stores gross annual pay.",
+        "ddl": "CREATE TABLE users (id BIGINT, salary DECIMAL, monthly_salary DECIMAL)",
+        "sample_data": [
+            {"id": 1, "name": "Alice", "salary": 80000, "monthly_salary": 6666},
+        ],
+    }
+
+    class _StubSvc:
+        async def get_table_detail(self, db, catalog, database, table):
+            return dict(_detail)
+
+    resp = await get_table_detail(
+        catalog="mock", database="prod", table="users",
+        ctx=RequestContext(account_id="acme", agent_id="query-agent"),
+        db=None,
+        svc=_StubSvc(),
+        acl=_MaskingACL(),
+        masking=MaskingService(),
+    )
+
+    assert "salary" not in resp["l0_content"]
+    assert "[MASKED]" in resp["l0_content"]
+
+    assert "[MASKED]" in resp["l1_content"]
+
+    assert "[MASKED]" in resp["l2_content"]
+
+    assert "[MASKED]" in resp["ddl"]
+    assert "monthly_[MASKED]" in resp["ddl"], (
+        "text-level regex is substring-based: 'salary' inside 'monthly_salary' is replaced"
+    )
+
+    sd = resp["sample_data"]
+    assert sd[0]["salary"] == "[MASKED]", "exact key match must mask"
+    assert sd[0]["monthly_salary"] == 6666, (
+        "JSON key masking is exact-match: 'salary' must NOT match 'monthly_salary' key"
+    )
+    assert sd[0]["name"] == "Alice", "non-masked keys untouched"
 
 
 # ---------------------------------------------------------------------------

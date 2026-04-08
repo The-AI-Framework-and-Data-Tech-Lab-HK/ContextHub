@@ -279,6 +279,7 @@ class CatalogSyncService:
         rows = await db.fetch(
             """
             SELECT c.uri, c.l0_content, c.status, c.version,
+                   c.scope, c.owner_space,
                    tm.table_name, tm.ddl, tm.stats, tm.stats_updated_at
             FROM contexts c
             JOIN table_metadata tm ON tm.context_id = c.id

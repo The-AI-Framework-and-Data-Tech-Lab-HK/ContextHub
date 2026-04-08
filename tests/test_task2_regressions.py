@@ -9,8 +9,10 @@ from contexthub.models.context import (
     UpdateContextRequest,
 )
 from contexthub.models.request import RequestContext
+from contexthub.services.access_decision import AccessDecision
 from contexthub.services.acl_service import ACLService
 from contexthub.services.context_service import ContextService
+from contexthub.services.masking_service import MaskingService
 from contexthub.store.context_store import ContextStore
 
 
@@ -24,7 +26,7 @@ class FakeRecord:
 
 class LsDB:
     async def fetch(self, sql: str, *args):
-        if "SELECT DISTINCT path FROM visible_teams" in sql:
+        if "visible_teams" in sql:
             return [
                 FakeRecord(path="engineering/backend"),
                 FakeRecord(path="engineering"),
@@ -45,6 +47,13 @@ class LsDB:
                     status="active",
                 ),
             ]
+        if "access_policies" in sql:
+            return []
+        if "team_memberships" in sql:
+            return [
+                FakeRecord(path="engineering/backend"),
+                FakeRecord(path="engineering"),
+            ]
         raise AssertionError(sql)
 
 
@@ -57,6 +66,9 @@ class DenyReadACL:
     async def check_read(self, db, uri: str, ctx: RequestContext) -> bool:
         return False
 
+    async def check_read_access(self, db, uri, ctx):
+        return AccessDecision(allowed=False, field_masks=None, reason="test deny")
+
 
 class DenyWriteACL:
     async def check_write(self, db, uri: str, ctx: RequestContext) -> bool:
@@ -65,7 +77,7 @@ class DenyWriteACL:
 
 @pytest.mark.asyncio
 async def test_ls_accepts_record_like_rows_and_filters_visible_children():
-    store = ContextStore(ACLService())
+    store = ContextStore(ACLService(), MaskingService())
 
     children = await store.ls(
         LsDB(),
@@ -78,7 +90,7 @@ async def test_ls_accepts_record_like_rows_and_filters_visible_children():
 
 @pytest.mark.asyncio
 async def test_store_read_returns_not_found_when_acl_denies_missing_context():
-    store = ContextStore(DenyReadACL())
+    store = ContextStore(DenyReadACL(), MaskingService())
 
     with pytest.raises(NotFoundError, match="ctx://datalake/prod/orders"):
         await store.read(
@@ -91,7 +103,7 @@ async def test_store_read_returns_not_found_when_acl_denies_missing_context():
 
 @pytest.mark.asyncio
 async def test_store_write_returns_not_found_when_acl_denies_missing_context():
-    store = ContextStore(DenyWriteACL())
+    store = ContextStore(DenyWriteACL(), MaskingService())
 
     with pytest.raises(NotFoundError, match="ctx://team/engineering/doc"):
         await store.write(
@@ -106,7 +118,7 @@ async def test_store_write_returns_not_found_when_acl_denies_missing_context():
 @pytest.mark.asyncio
 async def test_service_update_returns_not_found_when_acl_denies_missing_context():
     acl = DenyWriteACL()
-    service = ContextService(ContextStore(ACLService()), acl)
+    service = ContextService(ContextStore(ACLService(), MaskingService()), acl)
 
     with pytest.raises(NotFoundError, match="ctx://team/engineering/doc"):
         await service.update(

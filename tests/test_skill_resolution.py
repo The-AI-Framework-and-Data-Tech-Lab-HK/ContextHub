@@ -12,7 +12,9 @@ from contexthub.generation.base import ContentGenerator
 from contexthub.llm.base import NoOpEmbeddingClient
 from contexthub.models.request import RequestContext
 from contexthub.models.skill import SkillContent, SkillVersionStatus
+from contexthub.services.access_decision import AccessDecision
 from contexthub.services.indexer_service import IndexerService
+from contexthub.services.masking_service import MaskingService
 from contexthub.services.skill_service import SkillService
 
 
@@ -34,7 +36,7 @@ def _make_service():
     indexer = IndexerService(generator, embedding)
     from contexthub.services.acl_service import ACLService
     acl = ACLService()
-    return SkillService(indexer, acl)
+    return SkillService(indexer, acl, MaskingService())
 
 
 # --- Fake DB for publish ---
@@ -99,6 +101,10 @@ class GetVersionsDB:
             return [FakeRecord(path="engineering"), FakeRecord(path="engineering/backend"), FakeRecord(path="")]
         if "skill_versions" in sql:
             return self._versions
+        if "access_policies" in sql:
+            return []
+        if "team_memberships" in sql:
+            return [FakeRecord(path="engineering"), FakeRecord(path="engineering/backend")]
         raise AssertionError(sql)
 
 
@@ -131,6 +137,10 @@ class SubscribeDB:
     async def fetch(self, sql, *args):
         if "visible_teams" in sql:
             return [FakeRecord(path="engineering"), FakeRecord(path="engineering/backend"), FakeRecord(path="")]
+        if "access_policies" in sql:
+            return []
+        if "team_memberships" in sql:
+            return [FakeRecord(path="engineering"), FakeRecord(path="engineering/backend")]
         raise AssertionError(sql)
 
 
@@ -165,6 +175,9 @@ class ReadResolvedDB:
 class AllowReadACL:
     async def check_read(self, db, uri, ctx):
         return True
+
+    async def check_read_access(self, db, uri, ctx):
+        return AccessDecision(allowed=True, field_masks=None, reason="test allow")
 
 
 class AllowWriteACL:
@@ -445,6 +458,7 @@ async def test_skill_read_route_updates_last_accessed_at():
         store=None,
         acl=AllowReadACL(),
         skill_svc=StubSkillService(),
+        masking=MaskingService(),
     )
 
     assert result["version"] == 2
@@ -463,6 +477,7 @@ async def test_skill_read_route_rejects_user_scope_before_db_access():
             store=None,
             acl=AllowReadACL(),
             skill_svc=StubSkillService(),
+            masking=MaskingService(),
         )
 
 

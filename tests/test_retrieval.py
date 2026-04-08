@@ -14,6 +14,7 @@ from contexthub.retrieval.rerank import KeywordRerankStrategy
 from contexthub.retrieval.router import RetrievalRouter
 from contexthub.services.acl_service import ACLService
 from contexthub.services.indexer_service import IndexerService
+from contexthub.services.masking_service import MaskingService
 from contexthub.services.retrieval_service import RetrievalService
 
 
@@ -74,6 +75,13 @@ class SearchFlowDB:
             return self._l2_rows
         if "cosine_similarity" in sql or "LIKE" in sql.upper():
             return self._rows
+        if "access_policies" in sql:
+            return []
+        if "team_memberships" in sql:
+            return [
+                FakeRecord(path="engineering/backend"),
+                FakeRecord(path="engineering"),
+            ]
         raise AssertionError(f"Unexpected fetch: {sql}")
 
     async def execute(self, sql, *args):
@@ -127,7 +135,12 @@ def _make_retrieval_service(embedding_client=None):
     router = RetrievalRouter.default()
     client = embedding_client or NoOpEmbeddingClient()
     acl = ACLService()
-    return RetrievalService(router, client, acl, over_retrieve_factor=3)
+    masking = MaskingService()
+    return RetrievalService(
+        router, client, acl,
+        masking_service=masking,
+        over_retrieve_factor=3,
+    )
 
 
 @pytest.mark.asyncio

@@ -17,6 +17,7 @@ from contexthub.errors import (
 from contexthub.models.context import ContextLevel
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
+from contexthub.services.masking_service import MaskingService
 
 LEVEL_COLUMNS = {
     ContextLevel.L0: "l0_content",
@@ -44,8 +45,9 @@ class ContextStat:
 
 
 class ContextStore:
-    def __init__(self, acl: ACLService):
+    def __init__(self, acl: ACLService, masking: MaskingService):
         self._acl = acl
+        self._masking = masking
 
     async def read(
         self, db: ScopedRepo, uri: str, level: ContextLevel, ctx: RequestContext
@@ -53,7 +55,8 @@ class ContextStore:
         if uri.startswith("ctx://user/"):
             raise BadRequestError("scope=user is not supported in Task 2 public API")
 
-        if not await self._acl.check_read(db, uri, ctx):
+        decision = await self._acl.check_read_access(db, uri, ctx)
+        if not decision.allowed:
             await self._raise_for_missing_or_forbidden(db, uri)
 
         col = LEVEL_COLUMNS[level]
@@ -67,7 +70,11 @@ class ContextStore:
         await db.execute(
             "UPDATE contexts SET last_accessed_at = NOW() WHERE uri = $1", uri
         )
-        return row[col] or ""
+
+        content = row[col] or ""
+        if decision.field_masks:
+            content = self._masking.apply_masks(content, decision.field_masks)
+        return content
 
     async def write(
         self,
@@ -128,11 +135,11 @@ class ContextStore:
             """,
             prefix + "%",
         )
-        visible = await self._acl.filter_visible(db, rows, ctx)
+        visible_with_masks = await self._acl.filter_visible_with_acl(db, rows, ctx)
 
         children: set[str] = set()
         prefix_len = len(prefix)
-        for r in visible:
+        for r, _masks in visible_with_masks:
             uri = self._get_value(r, "uri")
             remainder = uri[prefix_len:]
             child = remainder.split("/", 1)[0]
@@ -146,7 +153,8 @@ class ContextStore:
         if uri.startswith("ctx://user/"):
             raise BadRequestError("scope=user is not supported in Task 2 public API")
 
-        if not await self._acl.check_read(db, uri, ctx):
+        decision = await self._acl.check_read_access(db, uri, ctx)
+        if not decision.allowed:
             await self._raise_for_missing_or_forbidden(db, uri)
 
         row = await db.fetchrow(

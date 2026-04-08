@@ -28,6 +28,7 @@ from contexthub.services.propagation_engine import PropagationEngine
 from contexthub.connectors.mock_connector import MockCatalogConnector
 from contexthub.generation.table_schema import TableSchemaGenerator
 from contexthub.services.catalog_sync_service import CatalogSyncService
+from contexthub.services.masking_service import MaskingService
 from contexthub.services.reconciler_service import ReconcilerService
 from contexthub.api.routers.datalake import router as datalake_router
 
@@ -44,7 +45,8 @@ async def lifespan(app: FastAPI):
         repo = PgRepository(pool)
 
         acl_service = ACLService()
-        context_store = ContextStore(acl_service)
+        masking_service = MaskingService()
+        context_store = ContextStore(acl_service, masking_service)
 
         # Task 3 services
         embedding_client = create_embedding_client(settings)
@@ -57,13 +59,14 @@ async def lifespan(app: FastAPI):
 
         # Inject indexer into ContextService for embedding consistency
         context_service = ContextService(context_store, acl_service, indexer_service)
-        memory_service = MemoryService(indexer_service, acl_service)
-        skill_service = SkillService(indexer_service, acl_service)
+        memory_service = MemoryService(indexer_service, acl_service, masking_service)
+        skill_service = SkillService(indexer_service, acl_service, masking_service)
 
         # Task 4: retrieval
         retrieval_router = RetrievalRouter.default()
         retrieval_service = RetrievalService(
             retrieval_router, embedding_client, acl_service,
+            masking_service=masking_service,
             over_retrieve_factor=settings.search_over_retrieve_factor,
         )
 
@@ -76,6 +79,7 @@ async def lifespan(app: FastAPI):
         app.state.skill_service = skill_service
         app.state.indexer_service = indexer_service
         app.state.retrieval_service = retrieval_service
+        app.state.masking_service = masking_service
         app.state.embedding_client = embedding_client
 
         # Task 7: Carrier-specific services

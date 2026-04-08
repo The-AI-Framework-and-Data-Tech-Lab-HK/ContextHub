@@ -12,6 +12,7 @@ from contexthub.retrieval.keyword_strategy import keyword_search
 from contexthub.retrieval.router import RetrievalRouter
 from contexthub.retrieval.vector_strategy import vector_search
 from contexthub.services.acl_service import ACLService
+from contexthub.services.masking_service import MaskingService
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +25,14 @@ class RetrievalService:
         retrieval_router: RetrievalRouter,
         embedding_client: EmbeddingClient,
         acl_service: ACLService,
+        *,
+        masking_service: MaskingService,
         over_retrieve_factor: int = 3,
     ):
         self._router = retrieval_router
         self._embedding = embedding_client
         self._acl = acl_service
+        self._masking = masking_service
         self._over_retrieve_factor = over_retrieve_factor
 
     async def search(
@@ -71,11 +75,14 @@ class RetrievalService:
         score_key = "_rerank_score" if candidates and "_rerank_score" in candidates[0] else "cosine_similarity"
         candidates.sort(key=lambda x: x.get(score_key, 0), reverse=True)
 
-        # 5. ACL filter
-        candidates = await self._acl.filter_visible(db, candidates, ctx)
+        # 5. ACL filter (Phase 2: ACL-aware with field masks)
+        acl_results = await self._acl.filter_visible_with_acl(db, candidates, ctx)
+        candidates = [c for c, _ in acl_results]
+        candidate_masks = [masks for _, masks in acl_results]
 
         # 6. Truncate to top_k
         candidates = candidates[: request.top_k]
+        candidate_masks = candidate_masks[: request.top_k]
 
         # 7. L2 on demand
         if request.level.value == "L2" and candidates:
@@ -97,19 +104,29 @@ class RetrievalService:
                 ids,
             )
 
-        # 9. Build response
+        # 9. Build response (with masking)
         results = []
-        for c in candidates:
+        for c, masks in zip(candidates, candidate_masks):
             final_score = c.get("_rerank_score", c.get("cosine_similarity", 0))
+
+            l0 = c.get("l0_content")
+            l1 = c.get("l1_content")
+            l2 = c.get("l2_content")
+
+            if masks:
+                l0 = self._masking.apply_masks(l0, masks)
+                l1 = self._masking.apply_masks(l1, masks)
+                l2 = self._masking.apply_masks(l2, masks)
+
             results.append(SearchResult(
                 uri=c["uri"],
                 context_type=c["context_type"],
                 scope=c["scope"],
                 owner_space=c.get("owner_space"),
                 score=final_score,
-                l0_content=c.get("l0_content"),
-                l1_content=c.get("l1_content"),
-                l2_content=c.get("l2_content"),
+                l0_content=l0,
+                l1_content=l1,
+                l2_content=l2,
                 status=c["status"],
                 version=c["version"],
                 tags=c.get("tags", []),
