@@ -22,7 +22,8 @@ def upgrade() -> None:
         resource_uri_pattern TEXT NOT NULL,
         principal           TEXT NOT NULL,
         effect              TEXT NOT NULL CHECK (effect IN ('allow', 'deny')),
-        actions             TEXT[] NOT NULL,
+        actions             TEXT[] NOT NULL CHECK (actions <@ ARRAY['read','write','admin']::text[])
+                                         CHECK (cardinality(actions) > 0),
         conditions          JSONB,
         field_masks         TEXT[],
         priority            INT NOT NULL DEFAULT 0,
@@ -48,7 +49,7 @@ def upgrade() -> None:
         id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         timestamp       TIMESTAMPTZ DEFAULT NOW(),
         actor           TEXT NOT NULL,
-        action          TEXT NOT NULL,
+        action          TEXT NOT NULL CHECK (action IN ('read','write','create','update','delete','search','ls','stat','promote','publish','access_denied','policy_change')),
         resource_uri    TEXT,
         context_used    TEXT[],
         result          TEXT NOT NULL CHECK (result IN ('success', 'denied', 'error')),
