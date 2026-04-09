@@ -117,17 +117,26 @@ npm run build
 
 编译成功后 `bridge/dist/` 下会生成 `index.js`、`bridge.js`、`tools.js` 等文件。
 
-### 第 6 步：编译 OpenClaw
+### 第 6 步：克隆并编译 OpenClaw
 
 ```bash
+git clone https://github.com/openclaw/openclaw.git /path/to/public/openclaw
 cd /path/to/public/openclaw
 
 # 如果 pnpm install 报 SSH / host key 错误，先执行：
 git config url."https://github.com/".insteadOf "git@github.com:"
 
 pnpm install
+pnpm ui:build
 pnpm build
 ```
+
+> **注意**：`/path/to/public/openclaw` 是 **OpenClaw 主仓库**（一个 Node.js 项目，
+> 包含 `package.json`）。请勿与 `ContextHub/plugins/openclaw/` 混淆——后者是一个
+> Python 插件包。
+>
+> **注意**：`pnpm ui:build` 仅在 OpenClaw **≥ v2026.4.x** 时需要。如果使用旧版本
+>（如 v2026.3.14），可以跳过此步——直接 `pnpm install && pnpm build` 即可。
 
 ### 第 7 步：将 ContextHub 插件安装到 OpenClaw
 
