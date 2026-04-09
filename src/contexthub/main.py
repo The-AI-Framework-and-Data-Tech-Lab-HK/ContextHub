@@ -17,6 +17,7 @@ from contexthub.generation.base import ContentGenerator
 from contexthub.llm.factory import create_embedding_client
 from contexthub.retrieval.router import RetrievalRouter
 from contexthub.services.acl_service import ACLService
+from contexthub.services.audit_service import AuditService
 from contexthub.services.context_service import ContextService
 from contexthub.services.indexer_service import IndexerService
 from contexthub.services.memory_service import MemoryService
@@ -46,7 +47,8 @@ async def lifespan(app: FastAPI):
 
         acl_service = ACLService()
         masking_service = MaskingService()
-        context_store = ContextStore(acl_service, masking_service)
+        audit_service = AuditService(pool=pool)
+        context_store = ContextStore(acl_service, masking_service, audit=audit_service)
 
         # Task 3 services
         embedding_client = create_embedding_client(settings)
@@ -58,15 +60,16 @@ async def lifespan(app: FastAPI):
         )
 
         # Inject indexer into ContextService for embedding consistency
-        context_service = ContextService(context_store, acl_service, indexer_service)
-        memory_service = MemoryService(indexer_service, acl_service, masking_service)
-        skill_service = SkillService(indexer_service, acl_service, masking_service)
+        context_service = ContextService(context_store, acl_service, indexer_service, audit=audit_service)
+        memory_service = MemoryService(indexer_service, acl_service, masking_service, audit=audit_service)
+        skill_service = SkillService(indexer_service, acl_service, masking_service, audit=audit_service)
 
         # Task 4: retrieval
         retrieval_router = RetrievalRouter.default()
         retrieval_service = RetrievalService(
             retrieval_router, embedding_client, acl_service,
             masking_service=masking_service,
+            audit_service=audit_service,
             over_retrieve_factor=settings.search_over_retrieve_factor,
         )
 
@@ -81,6 +84,7 @@ async def lifespan(app: FastAPI):
         app.state.retrieval_service = retrieval_service
         app.state.masking_service = masking_service
         app.state.embedding_client = embedding_client
+        app.state.audit_service = audit_service
 
         # Task 7: Carrier-specific services
         catalog_connector = MockCatalogConnector()

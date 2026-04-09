@@ -20,15 +20,21 @@ from contexthub.models.context import (
 )
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
+from contexthub.services.audit_service import AuditService
 from contexthub.services.indexer_service import IndexerService
 from contexthub.store.context_store import ContextStore
 
 
 class ContextService:
-    def __init__(self, store: ContextStore, acl: ACLService, indexer: IndexerService | None = None):
+    def __init__(
+        self, store: ContextStore, acl: ACLService,
+        indexer: IndexerService | None = None,
+        audit: AuditService | None = None,
+    ):
         self._store = store
         self._acl = acl
         self._indexer = indexer
+        self._audit = audit
 
     # ---- create ----
 
@@ -78,7 +84,14 @@ class ContextService:
         if self._indexer and body.l0_content:
             await self._indexer.update_embedding(db, row["id"], body.l0_content)
 
-        return self._row_to_context(row)
+        result = self._row_to_context(row)
+
+        if self._audit:
+            await self._audit.log_strict(
+                db, ctx.agent_id, "create", body.uri, "success",
+                metadata={"context_type": body.context_type.value, "scope": body.scope.value},
+            )
+        return result
 
     async def update(
         self, db: ScopedRepo, uri: str, body: UpdateContextRequest, ctx: RequestContext
@@ -170,7 +183,16 @@ class ContextService:
                 if content_changed or (body.status == ContextStatus.ACTIVE):
                     await self._indexer.update_embedding(db, row["id"], row["l0_content"])
 
-        return self._row_to_context(row)
+        result = self._row_to_context(row)
+
+        if self._audit:
+            changed = [f for f in ("l0_content", "l1_content", "l2_content", "file_path", "tags", "status")
+                        if getattr(body, f, None) is not None]
+            await self._audit.log_strict(
+                db, ctx.agent_id, "update", uri, "success",
+                metadata={"changed_fields": changed},
+            )
+        return result
 
     # ---- delete ----
 
@@ -210,6 +232,12 @@ class ContextService:
             ctx.agent_id,
         )
 
+        if self._audit:
+            await self._audit.log_strict(
+                db, ctx.agent_id, "delete", uri, "success",
+                metadata={"previous_version": ctx.expected_version},
+            )
+
     # ---- get_dependencies ----
 
     async def get_dependencies(
@@ -217,7 +245,17 @@ class ContextService:
     ) -> list[dict]:
         decision = await self._acl.check_read_access(db, uri, ctx)
         if not decision.allowed:
-            await self._raise_for_missing_or_forbidden(db, uri)
+            exists = await db.fetchval(
+                "SELECT 1 FROM contexts WHERE uri = $1 AND status != 'deleted'", uri,
+            )
+            if exists is None:
+                raise NotFoundError(f"Context {uri} not found")
+            if self._audit and decision.reason in ("explicit deny", "parent team deny"):
+                await self._audit.log_access_denied(
+                    ctx.account_id, ctx.agent_id, uri,
+                    metadata={"action": "read", "reason": decision.reason},
+                )
+            raise ForbiddenError()
 
         context_id = await db.fetchval(
             "SELECT id FROM contexts WHERE uri = $1 AND status != 'deleted'", uri
@@ -236,7 +274,14 @@ class ContextService:
             """,
             context_id,
         )
-        return [dict(r) for r in rows]
+        result = [dict(r) for r in rows]
+
+        if self._audit:
+            await self._audit.log_best_effort(
+                db, ctx.agent_id, "read", uri, "success",
+                metadata={"sub_action": "get_dependencies", "result_count": len(result)},
+            )
+        return result
 
     # ---- helpers ----
 

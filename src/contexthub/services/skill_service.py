@@ -15,15 +15,20 @@ from contexthub.models.skill import (
     SkillVersionStatus,
 )
 from contexthub.services.acl_service import ACLService
+from contexthub.services.audit_service import AuditService
 from contexthub.services.indexer_service import IndexerService
 from contexthub.services.masking_service import MaskingService
 
 
 class SkillService:
-    def __init__(self, indexer: IndexerService, acl: ACLService, masking: MaskingService):
+    def __init__(
+        self, indexer: IndexerService, acl: ACLService,
+        masking: MaskingService, audit: AuditService | None = None,
+    ):
         self._indexer = indexer
         self._acl = acl
         self._masking = masking
+        self._audit = audit
 
     async def publish_version(
         self, db: ScopedRepo, skill_uri: str, content: str,
@@ -97,6 +102,12 @@ class SkillService:
         if generated.l0:
             await self._indexer.update_embedding(db, skill_id, generated.l0)
 
+        if self._audit:
+            await self._audit.log_strict(
+                db, ctx.agent_id, "publish", skill_uri, "success",
+                metadata={"version": new_version, "is_breaking": is_breaking},
+            )
+
         return SkillVersion(
             skill_id=skill_id,
             version=new_version,
@@ -121,6 +132,11 @@ class SkillService:
 
         decision = await self._acl.check_read_access(db, skill_uri, ctx)
         if not decision.allowed:
+            if self._audit and decision.reason in ("explicit deny", "parent team deny"):
+                await self._audit.log_access_denied(
+                    ctx.account_id, ctx.agent_id, skill_uri,
+                    metadata={"action": "read", "reason": decision.reason},
+                )
             raise ForbiddenError()
 
         rows = await db.fetch(
@@ -152,6 +168,11 @@ class SkillService:
             for v in versions:
                 v.content = self._masking.apply_masks(v.content, decision.field_masks)
 
+        if self._audit:
+            await self._audit.log_best_effort(
+                db, ctx.agent_id, "read", skill_uri, "success",
+                metadata={"sub_action": "get_versions", "result_count": len(versions)},
+            )
         return versions
 
     async def subscribe(

@@ -9,6 +9,7 @@ from fastapi import Depends, Header, Request
 from contexthub.db.repository import ScopedRepo
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
+from contexthub.services.audit_service import AuditService
 from contexthub.services.context_service import ContextService
 from contexthub.services.indexer_service import IndexerService
 from contexthub.services.memory_service import MemoryService
@@ -73,3 +74,7 @@ def get_masking_service(request: Request) -> MaskingService:
 
 def get_catalog_sync_service(request: Request) -> CatalogSyncService:
     return request.app.state.catalog_sync_service
+
+
+def get_audit_service(request: Request) -> AuditService:
+    return request.app.state.audit_service
