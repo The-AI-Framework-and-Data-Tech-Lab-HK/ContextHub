@@ -17,6 +17,7 @@ from contexthub.errors import (
 from contexthub.models.context import ContextLevel
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
+from contexthub.services.audit_service import AuditService
 from contexthub.services.masking_service import MaskingService
 
 LEVEL_COLUMNS = {
@@ -45,9 +46,10 @@ class ContextStat:
 
 
 class ContextStore:
-    def __init__(self, acl: ACLService, masking: MaskingService):
+    def __init__(self, acl: ACLService, masking: MaskingService, audit: AuditService | None = None):
         self._acl = acl
         self._masking = masking
+        self._audit = audit
 
     async def read(
         self, db: ScopedRepo, uri: str, level: ContextLevel, ctx: RequestContext
@@ -57,7 +59,17 @@ class ContextStore:
 
         decision = await self._acl.check_read_access(db, uri, ctx)
         if not decision.allowed:
-            await self._raise_for_missing_or_forbidden(db, uri)
+            exists = await db.fetchval(
+                "SELECT 1 FROM contexts WHERE uri = $1 AND status != 'deleted'", uri,
+            )
+            if exists is None:
+                raise NotFoundError(f"Context {uri} not found")
+            if self._audit and decision.reason in ("explicit deny", "parent team deny"):
+                await self._audit.log_access_denied(
+                    ctx.account_id, ctx.agent_id, uri,
+                    metadata={"action": "read", "reason": decision.reason},
+                )
+            raise ForbiddenError()
 
         col = LEVEL_COLUMNS[level]
         row = await db.fetchrow(
@@ -74,6 +86,12 @@ class ContextStore:
         content = row[col] or ""
         if decision.field_masks:
             content = self._masking.apply_masks(content, decision.field_masks)
+
+        if self._audit:
+            await self._audit.log_best_effort(
+                db, ctx.agent_id, "read", uri, "success",
+                metadata={"level": level.value},
+            )
         return content
 
     async def write(
@@ -119,6 +137,12 @@ class ContextStore:
             row["id"],
             ctx.agent_id,
         )
+
+        if self._audit:
+            await self._audit.log_strict(
+                db, ctx.agent_id, "write", uri, "success",
+                metadata={"level": level.value, "new_version": row["version"]},
+            )
         return row["version"]
 
     async def ls(
@@ -145,7 +169,15 @@ class ContextStore:
             child = remainder.split("/", 1)[0]
             if child:
                 children.add(child)
-        return sorted(children)
+
+        result = sorted(children)
+
+        if self._audit:
+            await self._audit.log_best_effort(
+                db, ctx.agent_id, "ls", path, "success",
+                metadata={"result_count": len(result)},
+            )
+        return result
 
     async def stat(
         self, db: ScopedRepo, uri: str, ctx: RequestContext
@@ -155,7 +187,17 @@ class ContextStore:
 
         decision = await self._acl.check_read_access(db, uri, ctx)
         if not decision.allowed:
-            await self._raise_for_missing_or_forbidden(db, uri)
+            exists = await db.fetchval(
+                "SELECT 1 FROM contexts WHERE uri = $1 AND status != 'deleted'", uri,
+            )
+            if exists is None:
+                raise NotFoundError(f"Context {uri} not found")
+            if self._audit and decision.reason in ("explicit deny", "parent team deny"):
+                await self._audit.log_access_denied(
+                    ctx.account_id, ctx.agent_id, uri,
+                    metadata={"action": "stat", "reason": decision.reason},
+                )
+            raise ForbiddenError()
 
         row = await db.fetchrow(
             """
@@ -169,7 +211,7 @@ class ContextStore:
         if row is None:
             raise NotFoundError(f"Context {uri} not found")
 
-        return ContextStat(
+        stat_result = ContextStat(
             id=row["id"],
             uri=row["uri"],
             context_type=row["context_type"],
@@ -185,6 +227,12 @@ class ContextStore:
             updated_at=row["updated_at"],
             last_accessed_at=row["last_accessed_at"],
         )
+
+        if self._audit:
+            await self._audit.log_best_effort(
+                db, ctx.agent_id, "stat", uri, "success",
+            )
+        return stat_result
 
     @staticmethod
     async def _raise_for_missing_or_forbidden(db: ScopedRepo, uri: str) -> None:

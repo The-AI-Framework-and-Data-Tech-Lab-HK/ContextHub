@@ -10,15 +10,20 @@ from contexthub.models.context import Context, Scope
 from contexthub.models.memory import AddMemoryRequest, PromoteRequest
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
+from contexthub.services.audit_service import AuditService
 from contexthub.services.indexer_service import IndexerService
 from contexthub.services.masking_service import MaskingService
 
 
 class MemoryService:
-    def __init__(self, indexer: IndexerService, acl: ACLService, masking: MaskingService):
+    def __init__(
+        self, indexer: IndexerService, acl: ACLService,
+        masking: MaskingService, audit: AuditService | None = None,
+    ):
         self._indexer = indexer
         self._acl = acl
         self._masking = masking
+        self._audit = audit
 
     async def add_memory(
         self, db: ScopedRepo, body: AddMemoryRequest, ctx: RequestContext
@@ -63,7 +68,14 @@ class MemoryService:
         if generated.l0:
             await self._indexer.update_embedding(db, row["id"], generated.l0)
 
-        return _row_to_context(row)
+        result = _row_to_context(row)
+
+        if self._audit:
+            await self._audit.log_strict(
+                db, ctx.agent_id, "create", uri, "success",
+                metadata={"context_type": "memory", "scope": "agent"},
+            )
+        return result
 
     async def list_memories(
         self, db: ScopedRepo, ctx: RequestContext
@@ -80,7 +92,7 @@ class MemoryService:
             """,
         )
         visible_with_masks = await self._acl.filter_visible_with_acl(db, rows, ctx)
-        return [
+        result = [
             {
                 "uri": r["uri"],
                 "l0_content": self._masking.apply_masks(r["l0_content"], masks) if masks else r["l0_content"],
@@ -92,6 +104,13 @@ class MemoryService:
             }
             for r, masks in visible_with_masks
         ]
+
+        if self._audit:
+            await self._audit.log_best_effort(
+                db, ctx.agent_id, "read", None, "success",
+                metadata={"sub_action": "list_memories", "result_count": len(result)},
+            )
+        return result
 
     async def promote(
         self, db: ScopedRepo, body: PromoteRequest, ctx: RequestContext
@@ -175,7 +194,14 @@ class MemoryService:
         if generated.l0:
             await self._indexer.update_embedding(db, promoted["id"], generated.l0)
 
-        return _row_to_context(promoted)
+        result = _row_to_context(promoted)
+
+        if self._audit:
+            await self._audit.log_strict(
+                db, ctx.agent_id, "promote", target_uri, "success",
+                metadata={"source_uri": body.uri, "target_team": body.target_team},
+            )
+        return result
 
 
 def _row_to_context(row) -> Context:

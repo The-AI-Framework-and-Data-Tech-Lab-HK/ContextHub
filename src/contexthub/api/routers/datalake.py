@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from contexthub.api.deps import (
     get_acl_service,
+    get_audit_service,
     get_db,
     get_masking_service,
     get_request_context,
@@ -18,6 +19,7 @@ from contexthub.models.context import ContextType, Scope
 from contexthub.models.request import RequestContext
 from contexthub.models.search import SearchRequest
 from contexthub.services.acl_service import ACLService
+from contexthub.services.audit_service import AuditService
 from contexthub.services.catalog_sync_service import CatalogSyncService
 from contexthub.services.masking_service import MaskingService
 from contexthub.services.retrieval_service import RetrievalService
@@ -108,6 +110,7 @@ async def list_tables(
     svc: CatalogSyncService = Depends(_get_catalog_sync_service),
     acl: ACLService = Depends(get_acl_service),
     masking: MaskingService = Depends(get_masking_service),
+    audit: AuditService = Depends(get_audit_service),
 ):
     tables = await svc.list_synced_tables(db, catalog, database)
     visible_with_masks = await acl.filter_visible_with_acl(db, tables, ctx)
@@ -121,6 +124,11 @@ async def list_tables(
                     entry[field] = masking.apply_masks(entry[field], masks)
         result.append(entry)
 
+    if isinstance(audit, AuditService):
+        await audit.log_best_effort(
+            db, ctx.agent_id, "ls", f"ctx://datalake/{catalog}/{database}", "success",
+            metadata={"result_count": len(result)},
+        )
     return {"tables": result}
 
 
@@ -134,8 +142,11 @@ async def get_table_detail(
     svc: CatalogSyncService = Depends(_get_catalog_sync_service),
     acl: ACLService = Depends(get_acl_service),
     masking: MaskingService = Depends(get_masking_service),
+    audit: AuditService = Depends(get_audit_service),
 ):
     uri = f"ctx://datalake/{catalog}/{database}/{table}"
+    _audit = audit if isinstance(audit, AuditService) else None
+
     decision = await acl.check_read_access(db, uri, ctx)
     if not decision.allowed:
         exists = await db.fetchval(
@@ -149,6 +160,11 @@ async def get_table_detail(
             catalog, database, table,
         )
         if exists:
+            if _audit and decision.reason in ("explicit deny", "parent team deny"):
+                await _audit.log_access_denied(
+                    ctx.account_id, ctx.agent_id, uri,
+                    metadata={"action": "read", "reason": decision.reason},
+                )
             raise ForbiddenError(f"Access denied: {uri}")
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Table not found")
@@ -167,6 +183,11 @@ async def get_table_detail(
                 detail["sample_data"], decision.field_masks,
             )
 
+    if _audit:
+        await _audit.log_best_effort(
+            db, ctx.agent_id, "read", uri, "success",
+            metadata={"sub_action": "get_table_detail"},
+        )
     return detail
 
 
@@ -179,22 +200,41 @@ async def get_lineage(
     db: ScopedRepo = Depends(get_db),
     svc: CatalogSyncService = Depends(_get_catalog_sync_service),
     acl: ACLService = Depends(get_acl_service),
+    audit: AuditService = Depends(get_audit_service),
 ):
     uri = f"ctx://datalake/{catalog}/{database}/{table}"
+    _audit = audit if isinstance(audit, AuditService) else None
+
+    exists = await db.fetchval(
+        """
+        SELECT 1 FROM contexts c
+        JOIN table_metadata tm ON tm.context_id = c.id
+        WHERE tm.catalog = $1 AND tm.database_name = $2 AND tm.table_name = $3
+          AND c.status NOT IN ('archived', 'deleted')
+        """,
+        catalog, database, table,
+    )
+    if not exists:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Table not found")
+
     decision = await acl.check_read_access(db, uri, ctx)
     if not decision.allowed:
-        exists = await db.fetchval(
-            """
-            SELECT 1 FROM contexts c
-            JOIN table_metadata tm ON tm.context_id = c.id
-            WHERE tm.catalog = $1 AND tm.database_name = $2 AND tm.table_name = $3
-              AND c.status NOT IN ('archived', 'deleted')
-            """,
-            catalog, database, table,
+        if _audit and decision.reason in ("explicit deny", "parent team deny"):
+            await _audit.log_access_denied(
+                ctx.account_id, ctx.agent_id, uri,
+                metadata={"action": "read", "reason": decision.reason},
+            )
+        raise ForbiddenError(f"Access denied: {uri}")
+
+    result = await svc.get_lineage(db, catalog, database, table)
+
+    if _audit:
+        await _audit.log_best_effort(
+            db, ctx.agent_id, "read", uri, "success",
+            metadata={"sub_action": "get_lineage"},
         )
-        if exists:
-            raise ForbiddenError(f"Access denied: {uri}")
-    return await svc.get_lineage(db, catalog, database, table)
+    return result
 
 
 @router.post("/search/sql-context", response_model=SqlContextResponse)

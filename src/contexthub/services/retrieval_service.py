@@ -12,6 +12,7 @@ from contexthub.retrieval.keyword_strategy import keyword_search
 from contexthub.retrieval.router import RetrievalRouter
 from contexthub.retrieval.vector_strategy import vector_search
 from contexthub.services.acl_service import ACLService
+from contexthub.services.audit_service import AuditService
 from contexthub.services.masking_service import MaskingService
 
 logger = logging.getLogger(__name__)
@@ -27,12 +28,14 @@ class RetrievalService:
         acl_service: ACLService,
         *,
         masking_service: MaskingService,
+        audit_service: AuditService | None = None,
         over_retrieve_factor: int = 3,
     ):
         self._router = retrieval_router
         self._embedding = embedding_client
         self._acl = acl_service
         self._masking = masking_service
+        self._audit = audit_service
         self._over_retrieve_factor = over_retrieve_factor
 
     async def search(
@@ -132,4 +135,11 @@ class RetrievalService:
                 tags=c.get("tags", []),
             ))
 
-        return SearchResponse(results=results, total=len(results))
+        response = SearchResponse(results=results, total=len(results))
+
+        if self._audit:
+            await self._audit.log_best_effort(
+                db, ctx.agent_id, "search", None, "success",
+                metadata={"query": request.query, "result_count": len(results)},
+            )
+        return response
