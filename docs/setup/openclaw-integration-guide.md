@@ -105,17 +105,27 @@ npm install
 npm run build
 ```
 
-### 6. Build OpenClaw from source (one-time)
+### 6. Clone and build OpenClaw from source (one-time)
 
 ```bash
+git clone https://github.com/openclaw/openclaw.git /path/to/public/openclaw
 cd /path/to/public/openclaw
 
 # If git SSH fails for some dependencies:
 git config url."https://github.com/".insteadOf "git@github.com:"
 
 pnpm install
+pnpm ui:build
 pnpm build
 ```
+
+> **Note**: `/path/to/public/openclaw` is the **OpenClaw main repo** (a Node.js
+> project with `package.json`). Do **not** confuse it with `ContextHub/plugins/openclaw/`,
+> which is a Python plugin package.
+>
+> **Note**: `pnpm ui:build` is required for OpenClaw **≥ v2026.4.x**. If you are
+> on an older version (e.g. v2026.3.14), you can skip it — `pnpm install && pnpm build`
+> is sufficient.
 
 ### 7. Install the ContextHub plugin into OpenClaw (one-time)
 
