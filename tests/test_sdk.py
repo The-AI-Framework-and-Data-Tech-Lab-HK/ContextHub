@@ -13,6 +13,10 @@ import pytest
 import respx
 
 from contexthub_sdk import (
+    AccessPolicyRecord,
+    AuditAction,
+    AuditEntryRecord,
+    AuditResult,
     AuthenticationError,
     BadRequestError,
     ConflictError,
@@ -27,6 +31,8 @@ from contexthub_sdk import (
     ForbiddenError,
     MemoryRecord,
     NotFoundError,
+    PolicyAction,
+    PolicyEffect,
     PreconditionRequiredError,
     ResolvedSkillReadResult,
     Scope,
@@ -560,3 +566,177 @@ async def test_async_with_closes_client():
     ) as sdk_client:
         await sdk_client.search("q")
     assert sdk_client._http.is_closed
+
+
+# ── Phase 2: Admin/Share SDK behavior tests ─────────────────────────────
+
+POLICY_RECORD = {
+    "id": str(uuid4()),
+    "resource_uri_pattern": "ctx://datalake/prod/*",
+    "principal": "query-agent",
+    "effect": "deny",
+    "actions": ["read"],
+    "conditions": None,
+    "field_masks": None,
+    "priority": 0,
+    "account_id": ACCOUNT,
+    "created_at": TS,
+    "updated_at": TS,
+    "created_by": AGENT,
+}
+
+AUDIT_ENTRY = {
+    "id": str(uuid4()),
+    "timestamp": TS,
+    "actor": AGENT,
+    "action": "policy_change",
+    "resource_uri": "ctx://datalake/prod/*",
+    "context_used": None,
+    "result": "success",
+    "metadata": {"operation": "create_policy"},
+    "account_id": ACCOUNT,
+    "ip_address": None,
+    "request_id": None,
+}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_admin_create_policy(client: ContextHubClient):
+    """POST /api/v1/admin/policies with correct body, returns AccessPolicyRecord."""
+    route = respx.post(f"{BASE}/api/v1/admin/policies").mock(
+        return_value=httpx.Response(201, json=POLICY_RECORD)
+    )
+    rec = await client.admin.create_policy(
+        resource_uri_pattern="ctx://datalake/prod/*",
+        principal="query-agent",
+        effect=PolicyEffect.DENY,
+        actions=[PolicyAction.READ],
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert body["resource_uri_pattern"] == "ctx://datalake/prod/*"
+    assert body["principal"] == "query-agent"
+    assert body["effect"] == "deny"
+    assert body["actions"] == ["read"]
+    assert isinstance(rec, AccessPolicyRecord)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_admin_list_policies_with_filters(client: ContextHubClient):
+    """GET /api/v1/admin/policies with filter params serialized correctly."""
+    route = respx.get(f"{BASE}/api/v1/admin/policies").mock(
+        return_value=httpx.Response(200, json=[POLICY_RECORD])
+    )
+    policies = await client.admin.list_policies(
+        principal="query-agent",
+        resource_uri_pattern="ctx://datalake/prod/*",
+        effect=PolicyEffect.DENY,
+    )
+    req = route.calls.last.request
+    assert req.url.params["principal"] == "query-agent"
+    assert req.url.params["resource_uri_pattern"] == "ctx://datalake/prod/*"
+    assert req.url.params["effect"] == "deny"
+    assert len(policies) == 1
+    assert isinstance(policies[0], AccessPolicyRecord)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_admin_get_policy(client: ContextHubClient):
+    """GET /api/v1/admin/policies/{id}, returns AccessPolicyRecord."""
+    pid = POLICY_RECORD["id"]
+    respx.get(f"{BASE}/api/v1/admin/policies/{pid}").mock(
+        return_value=httpx.Response(200, json=POLICY_RECORD)
+    )
+    rec = await client.admin.get_policy(pid)
+    assert isinstance(rec, AccessPolicyRecord)
+    assert str(rec.id) == pid
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_admin_update_policy_no_if_match(client: ContextHubClient):
+    """PATCH /api/v1/admin/policies/{id} without If-Match header."""
+    pid = POLICY_RECORD["id"]
+    route = respx.patch(f"{BASE}/api/v1/admin/policies/{pid}").mock(
+        return_value=httpx.Response(200, json={**POLICY_RECORD, "priority": 10})
+    )
+    rec = await client.admin.update_policy(pid, priority=10)
+    req = route.calls.last.request
+    assert "if-match" not in req.headers
+    body = json.loads(req.content)
+    assert body["priority"] == 10
+    assert isinstance(rec, AccessPolicyRecord)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_admin_delete_policy_no_if_match(client: ContextHubClient):
+    """DELETE /api/v1/admin/policies/{id} without If-Match header."""
+    pid = POLICY_RECORD["id"]
+    route = respx.delete(f"{BASE}/api/v1/admin/policies/{pid}").mock(
+        return_value=httpx.Response(204)
+    )
+    await client.admin.delete_policy(pid)
+    req = route.calls.last.request
+    assert "if-match" not in req.headers
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_admin_query_audit_enum_params(client: ContextHubClient):
+    """GET /api/v1/admin/audit with enum params serialized as strings."""
+    route = respx.get(f"{BASE}/api/v1/admin/audit").mock(
+        return_value=httpx.Response(200, json=[AUDIT_ENTRY])
+    )
+    entries = await client.admin.query_audit(
+        actor="query-agent",
+        action=AuditAction.POLICY_CHANGE,
+        result=AuditResult.SUCCESS,
+        limit=10,
+    )
+    req = route.calls.last.request
+    assert req.url.params["action"] == "policy_change"
+    assert req.url.params["result"] == "success"
+    assert req.url.params["actor"] == "query-agent"
+    assert req.url.params["limit"] == "10"
+    assert len(entries) == 1
+    assert isinstance(entries[0], AuditEntryRecord)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_share_grant_lifecycle(client: ContextHubClient):
+    """POST /api/v1/shares → GET /api/v1/shares → DELETE /api/v1/shares/{id}."""
+    grant_response = {**POLICY_RECORD, "effect": "allow", "conditions": {"kind": "share_grant"}}
+
+    # grant
+    grant_route = respx.post(f"{BASE}/api/v1/shares").mock(
+        return_value=httpx.Response(201, json=grant_response)
+    )
+    rec = await client.share.grant(
+        source_uri="ctx://team/eng/configs/db",
+        target_principal="data/analytics",
+    )
+    body = json.loads(grant_route.calls.last.request.content)
+    assert body["source_uri"] == "ctx://team/eng/configs/db"
+    assert body["target_principal"] == "data/analytics"
+    assert isinstance(rec, AccessPolicyRecord)
+
+    # list_grants
+    list_route = respx.get(f"{BASE}/api/v1/shares").mock(
+        return_value=httpx.Response(200, json=[grant_response])
+    )
+    grants = await client.share.list_grants("ctx://team/eng/configs/db")
+    req = list_route.calls.last.request
+    assert req.url.params["source_uri"] == "ctx://team/eng/configs/db"
+    assert len(grants) == 1
+
+    # revoke
+    pid = grant_response["id"]
+    revoke_route = respx.delete(f"{BASE}/api/v1/shares/{pid}").mock(
+        return_value=httpx.Response(204)
+    )
+    await client.share.revoke(pid)
+    assert revoke_route.calls.last.request.method == "DELETE"

@@ -8,6 +8,10 @@ import httpx
 
 from .exceptions import ContextHubError, raise_for_status
 from .models import (
+    AccessPolicyRecord,
+    AuditAction,
+    AuditEntryRecord,
+    AuditResult,
     ContextLevel,
     ContextReadResult,
     ContextRecord,
@@ -16,6 +20,8 @@ from .models import (
     ContextType,
     DependencyRecord,
     MemoryRecord,
+    PolicyAction,
+    PolicyEffect,
     ResolvedSkillReadResult,
     Scope,
     SearchResponse,
@@ -208,6 +214,137 @@ class _SkillNamespace:
         return SkillSubscriptionRecord.model_validate(data)
 
 
+class _AdminNamespace:
+    """client.admin.* operations — ACL policy CRUD and audit queries."""
+
+    def __init__(self, client: ContextHubClient) -> None:
+        self._c = client
+
+    async def create_policy(
+        self,
+        *,
+        resource_uri_pattern: str,
+        principal: str,
+        effect: PolicyEffect,
+        actions: list[PolicyAction],
+        conditions: dict | None = None,
+        field_masks: list[str] | None = None,
+        priority: int = 0,
+    ) -> AccessPolicyRecord:
+        body: dict[str, Any] = {
+            "resource_uri_pattern": resource_uri_pattern,
+            "principal": principal,
+            "effect": effect.value,
+            "actions": [a.value for a in actions],
+            "priority": priority,
+        }
+        if conditions is not None:
+            body["conditions"] = conditions
+        if field_masks is not None:
+            body["field_masks"] = field_masks
+        data = await self._c._post("/api/v1/admin/policies", json=body, expected_status=201)
+        return AccessPolicyRecord.model_validate(data)
+
+    async def list_policies(
+        self,
+        *,
+        principal: str | None = None,
+        resource_uri_pattern: str | None = None,
+        effect: PolicyEffect | None = None,
+    ) -> list[AccessPolicyRecord]:
+        params: dict[str, Any] = {}
+        if principal is not None:
+            params["principal"] = principal
+        if resource_uri_pattern is not None:
+            params["resource_uri_pattern"] = resource_uri_pattern
+        if effect is not None:
+            params["effect"] = effect.value
+        data = await self._c._get("/api/v1/admin/policies", params=params)
+        return [AccessPolicyRecord.model_validate(d) for d in data]
+
+    async def get_policy(self, policy_id: str) -> AccessPolicyRecord:
+        data = await self._c._get(f"/api/v1/admin/policies/{policy_id}")
+        return AccessPolicyRecord.model_validate(data)
+
+    async def update_policy(self, policy_id: str, **kwargs: Any) -> AccessPolicyRecord:
+        body: dict[str, Any] = {}
+        for k, v in kwargs.items():
+            if v is None:
+                continue
+            if k == "effect" and hasattr(v, "value"):
+                body[k] = v.value
+            elif k == "actions" and isinstance(v, list):
+                body[k] = [a.value if hasattr(a, "value") else a for a in v]
+            else:
+                body[k] = v
+        data = await self._c._patch(
+            f"/api/v1/admin/policies/{policy_id}",
+            json=body,
+        )
+        return AccessPolicyRecord.model_validate(data)
+
+    async def delete_policy(self, policy_id: str) -> None:
+        await self._c._delete(f"/api/v1/admin/policies/{policy_id}")
+
+    async def query_audit(
+        self,
+        *,
+        actor: str | None = None,
+        action: AuditAction | None = None,
+        resource_uri: str | None = None,
+        result: AuditResult | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[AuditEntryRecord]:
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if actor is not None:
+            params["actor"] = actor
+        if action is not None:
+            params["action"] = action.value
+        if resource_uri is not None:
+            params["resource_uri"] = resource_uri
+        if result is not None:
+            params["result"] = result.value
+        if start_time is not None:
+            params["start_time"] = start_time
+        if end_time is not None:
+            params["end_time"] = end_time
+        data = await self._c._get("/api/v1/admin/audit", params=params)
+        return [AuditEntryRecord.model_validate(d) for d in data]
+
+
+class _ShareNamespace:
+    """client.share.* operations — cross-team share grants."""
+
+    def __init__(self, client: ContextHubClient) -> None:
+        self._c = client
+
+    async def grant(
+        self,
+        *,
+        source_uri: str,
+        target_principal: str,
+        field_masks: list[str] | None = None,
+    ) -> AccessPolicyRecord:
+        body: dict[str, Any] = {
+            "source_uri": source_uri,
+            "target_principal": target_principal,
+        }
+        if field_masks is not None:
+            body["field_masks"] = field_masks
+        data = await self._c._post("/api/v1/shares", json=body, expected_status=201)
+        return AccessPolicyRecord.model_validate(data)
+
+    async def revoke(self, policy_id: str) -> None:
+        await self._c._delete(f"/api/v1/shares/{policy_id}")
+
+    async def list_grants(self, source_uri: str) -> list[AccessPolicyRecord]:
+        data = await self._c._get("/api/v1/shares", params={"source_uri": source_uri})
+        return [AccessPolicyRecord.model_validate(d) for d in data]
+
+
 class ContextHubClient:
     """Typed async client for the ContextHub server API.
 
@@ -239,6 +376,8 @@ class ContextHubClient:
         self.context = _ContextNamespace(self)
         self.memory = _MemoryNamespace(self)
         self.skill = _SkillNamespace(self)
+        self.admin = _AdminNamespace(self)
+        self.share = _ShareNamespace(self)
 
     # ── async context manager ───────────────────────────────────────────
 
@@ -281,13 +420,12 @@ class ContextHubClient:
         path: str,
         *,
         json: dict[str, Any],
-        expected_version: int,
+        expected_version: int | None = None,
     ) -> Any:
-        resp = await self._http.patch(
-            path,
-            json=json,
-            headers={"If-Match": str(expected_version)},
-        )
+        headers = {}
+        if expected_version is not None:
+            headers["If-Match"] = str(expected_version)
+        resp = await self._http.patch(path, json=json, headers=headers)
         raise_for_status(resp.status_code, _extract_detail(resp))
         return resp.json()
 
@@ -295,12 +433,12 @@ class ContextHubClient:
         self,
         path: str,
         *,
-        expected_version: int,
+        expected_version: int | None = None,
     ) -> None:
-        resp = await self._http.delete(
-            path,
-            headers={"If-Match": str(expected_version)},
-        )
+        headers = {}
+        if expected_version is not None:
+            headers["If-Match"] = str(expected_version)
+        resp = await self._http.delete(path, headers=headers)
         raise_for_status(resp.status_code, _extract_detail(resp))
 
     # ── top-level convenience methods ───────────────────────────────────
