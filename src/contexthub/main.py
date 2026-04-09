@@ -31,6 +31,7 @@ from contexthub.generation.table_schema import TableSchemaGenerator
 from contexthub.services.catalog_sync_service import CatalogSyncService
 from contexthub.services.masking_service import MaskingService
 from contexthub.services.reconciler_service import ReconcilerService
+from contexthub.services.share_service import ShareService
 from contexthub.api.routers.datalake import router as datalake_router
 
 
@@ -48,6 +49,7 @@ async def lifespan(app: FastAPI):
         acl_service = ACLService()
         masking_service = MaskingService()
         audit_service = AuditService(pool=pool)
+        share_service = ShareService(acl_service, audit=audit_service)
         context_store = ContextStore(acl_service, masking_service, audit=audit_service)
 
         # Task 3 services
@@ -85,6 +87,7 @@ async def lifespan(app: FastAPI):
         app.state.masking_service = masking_service
         app.state.embedding_client = embedding_client
         app.state.audit_service = audit_service
+        app.state.share_service = share_service
 
         # Task 7: Carrier-specific services
         catalog_connector = MockCatalogConnector()
