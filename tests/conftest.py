@@ -109,15 +109,21 @@ def services(repo):
     from contexthub.propagation.registry import PropagationRuleRegistry
     from contexthub.store.context_store import ContextStore
 
+    from contexthub.services.masking_service import MaskingService
+
     acl = ACLService()
-    context_store = ContextStore(acl)
+    masking = MaskingService()
+    context_store = ContextStore(acl, masking)
     embedding = NoOpEmbeddingClient()
     generator = ContentGenerator()
     indexer = IndexerService(generator, embedding)
-    memory = MemoryService(indexer, acl)
-    skill = SkillService(indexer, acl)
+    memory = MemoryService(indexer, acl, masking)
+    skill = SkillService(indexer, acl, masking)
     retrieval_router = RetrievalRouter.default()
-    retrieval = RetrievalService(retrieval_router, embedding, acl)
+    retrieval = RetrievalService(
+        retrieval_router, embedding, acl,
+        masking_service=masking,
+    )
     catalog_connector = MockCatalogConnector()
     table_gen = TableSchemaGenerator()
     catalog_sync = CatalogSyncService(catalog_connector, indexer, table_gen)
@@ -129,6 +135,7 @@ def services(repo):
 
     s = _Services()
     s.acl = acl
+    s.masking = masking
     s.context_store = context_store
     s.indexer = indexer
     s.memory = memory

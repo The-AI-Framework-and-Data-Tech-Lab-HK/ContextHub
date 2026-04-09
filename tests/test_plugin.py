@@ -203,16 +203,18 @@ class TestAssemble:
         result = await engine.assemble(
             sessionId="s1", messages=[{"role": "user", "content": "query"}]
         )
-        assert result["systemPromptAddition"] is None
+        assert "ContextHub Tools Guide" in result["systemPromptAddition"]
+        assert "Auto-Recall" not in result["systemPromptAddition"]
         assert result["messages"] == [{"role": "user", "content": "query"}]
         assert result["estimatedTokens"] > 0
 
     @pytest.mark.asyncio
-    async def test_no_user_message_returns_none_addition(self, engine, mock_client):
+    async def test_no_user_message_returns_guide_only(self, engine, mock_client):
         result = await engine.assemble(
             sessionId="s1", messages=[{"role": "system", "content": "sys"}]
         )
-        assert result["systemPromptAddition"] is None
+        assert "ContextHub Tools Guide" in result["systemPromptAddition"]
+        assert "Auto-Recall" not in result["systemPromptAddition"]
         assert result["estimatedTokens"] > 0
         mock_client.search.assert_not_awaited()
 
@@ -234,8 +236,9 @@ class TestAssemble:
             messages=[{"role": "user", "content": "query"}],
             tokenBudget=6,
         )
-        assert result["systemPromptAddition"] is None
-        assert result["estimatedTokens"] == 6
+        assert "ContextHub Tools Guide" in result["systemPromptAddition"]
+        assert "Auto-Recall" not in result["systemPromptAddition"]
+        assert result["estimatedTokens"] > 6
         mock_client.search.assert_not_awaited()
 
 

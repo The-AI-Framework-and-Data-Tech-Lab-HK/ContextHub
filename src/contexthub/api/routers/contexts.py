@@ -12,6 +12,7 @@ from contexthub.api.deps import (
     get_context_service,
     get_context_store,
     get_db,
+    get_masking_service,
     get_request_context,
     get_skill_service,
 )
@@ -21,6 +22,7 @@ from contexthub.models.context import ContextLevel, CreateContextRequest, Update
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
 from contexthub.services.context_service import ContextService
+from contexthub.services.masking_service import MaskingService
 from contexthub.services.skill_service import SkillService
 from contexthub.store.context_store import ContextStore
 
@@ -81,6 +83,7 @@ async def read_context(
     store: ContextStore = Depends(get_context_store),
     acl: ACLService = Depends(get_acl_service),
     skill_svc: SkillService = Depends(get_skill_service),
+    masking: MaskingService = Depends(get_masking_service),
 ):
     _ensure_supported_public_uri(uri)
 
@@ -93,17 +96,21 @@ async def read_context(
         raise NotFoundError(f"Context {uri} not found")
 
     if row["context_type"] == "skill":
-        if not await acl.check_read(db, uri, ctx):
+        decision = await acl.check_read_access(db, uri, ctx)
+        if not decision.allowed:
             raise ForbiddenError()
         result = await skill_svc.read_resolved(db, row["id"], ctx.agent_id, version)
         await db.execute(
             "UPDATE contexts SET last_accessed_at = NOW() WHERE uri = $1",
             uri,
         )
+        content = result.content
+        if decision.field_masks:
+            content = masking.apply_masks(content, decision.field_masks)
         return {
             "uri": uri,
             "version": result.version,
-            "content": result.content,
+            "content": content,
             "status": result.status,
             "advisory": result.advisory,
         }

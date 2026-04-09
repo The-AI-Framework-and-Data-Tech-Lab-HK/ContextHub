@@ -16,12 +16,14 @@ from contexthub.models.skill import (
 )
 from contexthub.services.acl_service import ACLService
 from contexthub.services.indexer_service import IndexerService
+from contexthub.services.masking_service import MaskingService
 
 
 class SkillService:
-    def __init__(self, indexer: IndexerService, acl: ACLService):
+    def __init__(self, indexer: IndexerService, acl: ACLService, masking: MaskingService):
         self._indexer = indexer
         self._acl = acl
+        self._masking = masking
 
     async def publish_version(
         self, db: ScopedRepo, skill_uri: str, content: str,
@@ -117,7 +119,8 @@ class SkillService:
         if skill["context_type"] != "skill":
             raise BadRequestError("Context is not a skill")
 
-        if not await self._acl.check_read(db, skill_uri, ctx):
+        decision = await self._acl.check_read_access(db, skill_uri, ctx)
+        if not decision.allowed:
             raise ForbiddenError()
 
         rows = await db.fetch(
@@ -130,7 +133,8 @@ class SkillService:
             """,
             skill["id"],
         )
-        return [
+
+        versions = [
             SkillVersion(
                 skill_id=r["skill_id"],
                 version=r["version"],
@@ -143,6 +147,12 @@ class SkillService:
             )
             for r in rows
         ]
+
+        if decision.field_masks:
+            for v in versions:
+                v.content = self._masking.apply_masks(v.content, decision.field_masks)
+
+        return versions
 
     async def subscribe(
         self, db: ScopedRepo, skill_uri: str, pinned_version: int | None,
@@ -157,7 +167,8 @@ class SkillService:
         if skill["context_type"] != "skill":
             raise BadRequestError("Context is not a skill")
 
-        if not await self._acl.check_read(db, skill_uri, ctx):
+        decision = await self._acl.check_read_access(db, skill_uri, ctx)
+        if not decision.allowed:
             raise ForbiddenError()
 
         skill_id = skill["id"]

@@ -13,6 +13,7 @@ from contexthub.models.memory import AddMemoryRequest, PromoteRequest
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
 from contexthub.services.indexer_service import IndexerService
+from contexthub.services.masking_service import MaskingService
 from contexthub.services.memory_service import MemoryService
 
 
@@ -94,7 +95,7 @@ class ListMemoriesDB:
     """Returns a set of memories for listing, plus visible team paths."""
 
     async def fetch(self, sql, *args):
-        if "SELECT DISTINCT path FROM visible_teams" in sql:
+        if "visible_teams" in sql:
             return [FakeRecord(path="engineering/backend"), FakeRecord(path="engineering"), FakeRecord(path="")]
         if "context_type = 'memory'" in sql:
             assert "scope IN ('agent', 'team')" in sql
@@ -133,6 +134,10 @@ class ListMemoriesDB:
                     owner_space="engineering/backend",
                 ),
             ]
+        if "access_policies" in sql:
+            return []
+        if "team_memberships" in sql:
+            return [FakeRecord(path="engineering/backend"), FakeRecord(path="engineering")]
         raise AssertionError(f"Unexpected fetch: {sql}")
 
 
@@ -191,7 +196,7 @@ def _make_service():
     embedding = NoOpEmbeddingClient()
     indexer = IndexerService(generator, embedding)
     acl = ACLService()
-    return MemoryService(indexer, acl)
+    return MemoryService(indexer, acl, MaskingService())
 
 
 # --- Tests ---

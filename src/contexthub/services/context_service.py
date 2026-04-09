@@ -215,7 +215,8 @@ class ContextService:
     async def get_dependencies(
         self, db: ScopedRepo, uri: str, ctx: RequestContext
     ) -> list[dict]:
-        if not await self._acl.check_read(db, uri, ctx):
+        decision = await self._acl.check_read_access(db, uri, ctx)
+        if not decision.allowed:
             await self._raise_for_missing_or_forbidden(db, uri)
 
         context_id = await db.fetchval(

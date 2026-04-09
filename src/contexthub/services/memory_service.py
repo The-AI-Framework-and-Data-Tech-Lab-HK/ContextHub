@@ -11,12 +11,14 @@ from contexthub.models.memory import AddMemoryRequest, PromoteRequest
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
 from contexthub.services.indexer_service import IndexerService
+from contexthub.services.masking_service import MaskingService
 
 
 class MemoryService:
-    def __init__(self, indexer: IndexerService, acl: ACLService):
+    def __init__(self, indexer: IndexerService, acl: ACLService, masking: MaskingService):
         self._indexer = indexer
         self._acl = acl
+        self._masking = masking
 
     async def add_memory(
         self, db: ScopedRepo, body: AddMemoryRequest, ctx: RequestContext
@@ -77,18 +79,18 @@ class MemoryService:
             ORDER BY updated_at DESC
             """,
         )
-        visible = await self._acl.filter_visible(db, rows, ctx)
+        visible_with_masks = await self._acl.filter_visible_with_acl(db, rows, ctx)
         return [
             {
                 "uri": r["uri"],
-                "l0_content": r["l0_content"],
+                "l0_content": self._masking.apply_masks(r["l0_content"], masks) if masks else r["l0_content"],
                 "status": r["status"],
                 "version": r["version"],
                 "tags": list(r["tags"] or []),
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
                 "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
             }
-            for r in visible
+            for r, masks in visible_with_masks
         ]
 
     async def promote(
