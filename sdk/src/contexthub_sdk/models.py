@@ -184,3 +184,74 @@ class SkillSubscriptionRecord(BaseModel):
     pinned_version: int | None = None
     account_id: str
     created_at: datetime | None = None
+
+
+# ── Policy / ACL models (Phase 2) ───────────────────────────────────────
+
+
+class PolicyEffect(str, enum.Enum):
+    ALLOW = "allow"
+    DENY = "deny"
+
+
+class PolicyAction(str, enum.Enum):
+    READ = "read"
+    WRITE = "write"
+    ADMIN = "admin"
+
+
+class AccessPolicyRecord(BaseModel):
+    """ACL policy as returned by Admin API."""
+
+    id: UUID
+    resource_uri_pattern: str
+    principal: str
+    effect: PolicyEffect
+    actions: list[PolicyAction]
+    conditions: dict | None = None
+    field_masks: list[str] | None = None
+    priority: int = 0
+    account_id: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    created_by: str | None = None
+
+
+# ── Audit models (Phase 2) ──────────────────────────────────────────────
+
+
+class AuditAction(str, enum.Enum):
+    WRITE = "write"
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+    PROMOTE = "promote"
+    PUBLISH = "publish"
+    ACCESS_DENIED = "access_denied"
+    POLICY_CHANGE = "policy_change"
+    READ = "read"
+    SEARCH = "search"
+    LS = "ls"
+    STAT = "stat"
+
+
+class AuditResult(str, enum.Enum):
+    SUCCESS = "success"
+    DENIED = "denied"
+    ERROR = "error"
+
+
+class AuditEntryRecord(BaseModel):
+    """Audit log entry as returned by Admin API."""
+
+    id: UUID
+    timestamp: datetime | None = None
+    actor: str
+    action: AuditAction
+    resource_uri: str | None = None
+    context_used: list[str] | None = None
+    result: AuditResult
+    metadata: dict | None = None
+    account_id: str
+    ip_address: str | None = None
+    request_id: UUID | None = None

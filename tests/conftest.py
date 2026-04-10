@@ -29,13 +29,15 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_marker)
         elif "datalake" in item.nodeid and _needs_db(item):
             item.add_marker(skip_marker)
+        elif "phase2" in item.nodeid and _needs_db(item):
+            item.add_marker(skip_marker)
 
 
 def _needs_db(item) -> bool:
     """Check if a test function uses DB fixtures (acme_session, services, etc.)."""
     # If the test uses fixtures that require DB, skip it
     if hasattr(item, "fixturenames"):
-        db_fixtures = {"acme_session", "services", "db_pool", "repo", "clean_db"}
+        db_fixtures = {"acme_session", "services", "db_pool", "repo", "clean_db", "phase2_services", "http_client"}
         return bool(db_fixtures & set(item.fixturenames))
     return False
 
@@ -44,9 +46,11 @@ def _needs_db(item) -> bool:
 async def db_pool():
     """Create asyncpg pool connected to test database."""
     import asyncpg
+    from contexthub.db.codecs import init_pg_connection
     pool = await asyncpg.create_pool(
         "postgresql://contexthub:contexthub@localhost:5432/contexthub",
         min_size=1, max_size=5,
+        init=init_pg_connection,
     )
     yield pool
     await pool.close()
@@ -66,8 +70,12 @@ async def clean_db(db_pool):
         await conn.execute("""
             TRUNCATE contexts, dependencies, change_events,
                      table_metadata, lineage, table_relationships,
-                     query_templates, skill_versions, skill_subscriptions
+                     query_templates, skill_versions, skill_subscriptions,
+                     access_policies, audit_log
             CASCADE
+        """)
+        await conn.execute("""
+            UPDATE team_memberships SET role = 'member' WHERE role != 'member'
         """)
     yield
 
@@ -145,5 +153,62 @@ def services(repo):
     s.catalog_connector = catalog_connector
     s.reconciler = reconciler
     s.rule_registry = rule_registry
+    s.repo = repo
+    return s
+
+
+@pytest_asyncio.fixture
+def phase2_services(repo, db_pool):
+    """All service instances wired together including Phase 2 services.
+
+    AuditService must receive db_pool (not None) so that
+    log_access_denied() can persist denied audit records via
+    an independent connection outside the main transaction.
+    """
+    from contexthub.generation.base import ContentGenerator
+    from contexthub.llm.base import NoOpEmbeddingClient
+    from contexthub.services.acl_service import ACLService
+    from contexthub.services.audit_service import AuditService
+    from contexthub.services.indexer_service import IndexerService
+    from contexthub.services.context_service import ContextService
+    from contexthub.services.memory_service import MemoryService
+    from contexthub.services.skill_service import SkillService
+    from contexthub.services.retrieval_service import RetrievalService
+    from contexthub.services.share_service import ShareService
+    from contexthub.services.masking_service import MaskingService
+    from contexthub.retrieval.router import RetrievalRouter
+    from contexthub.store.context_store import ContextStore
+
+    acl = ACLService()
+    masking = MaskingService()
+    audit = AuditService(pool=db_pool)
+    share = ShareService(acl, audit=audit)
+    context_store = ContextStore(acl, masking, audit=audit)
+    embedding = NoOpEmbeddingClient()
+    generator = ContentGenerator()
+    indexer = IndexerService(generator, embedding)
+    context_svc = ContextService(context_store, acl, indexer, audit=audit)
+    memory = MemoryService(indexer, acl, masking, audit=audit)
+    skill = SkillService(indexer, acl, masking, audit=audit)
+    retrieval_router = RetrievalRouter.default()
+    retrieval = RetrievalService(
+        retrieval_router, embedding, acl,
+        masking_service=masking, audit_service=audit,
+    )
+
+    class _Services:
+        pass
+
+    s = _Services()
+    s.acl = acl
+    s.masking = masking
+    s.audit = audit
+    s.share = share
+    s.context_store = context_store
+    s.context_svc = context_svc
+    s.indexer = indexer
+    s.memory = memory
+    s.skill = skill
+    s.retrieval = retrieval
     s.repo = repo
     return s

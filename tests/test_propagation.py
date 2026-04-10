@@ -881,7 +881,7 @@ async def test_lifespan_cleans_up_when_propagation_start_fails():
     fake_embedding.close = AsyncMock()
     app = FastAPI()
 
-    with patch.object(main_module, "create_pool", AsyncMock(return_value=fake_pool)), patch.object(
+    with patch.object(main_module.asyncpg, "create_pool", AsyncMock(return_value=fake_pool)), patch.object(
         main_module,
         "create_embedding_client",
         return_value=fake_embedding,

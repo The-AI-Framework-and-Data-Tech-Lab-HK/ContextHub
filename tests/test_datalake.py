@@ -516,11 +516,17 @@ async def test_sql_context_filters_catalog_and_preserves_rank(
                 total=3,
             )
 
+    class _AllowAllACL:
+        async def check_read_access(self, db, uri, ctx):
+            return AccessDecision(allowed=True, field_masks=None, reason="ok")
+
     resp = await search_sql_context(
         SqlContextRequest(query="orders by user", catalog="mock", top_k=2),
         ctx=query_agent_ctx,
         db=acme_session,
         retrieval=_StubRetrieval(),
+        acl=_AllowAllACL(),
+        masking=MaskingService(),
     )
 
     assert [table.uri for table in resp.tables] == [

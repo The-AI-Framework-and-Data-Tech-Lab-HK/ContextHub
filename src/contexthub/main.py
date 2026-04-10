@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 
+import asyncpg
 from fastapi import FastAPI
 
 from contexthub.api.middleware import AuthMiddleware
@@ -11,7 +12,7 @@ from contexthub.api.routers.search import router as search_router
 from contexthub.api.routers.skills import router as skills_router
 from contexthub.api.routers.tools import router as tools_router
 from contexthub.config import Settings
-from contexthub.db.pool import create_pool
+from contexthub.db.codecs import init_pg_connection
 from contexthub.db.repository import PgRepository
 from contexthub.generation.base import ContentGenerator
 from contexthub.llm.factory import create_embedding_client
@@ -33,12 +34,18 @@ from contexthub.services.masking_service import MaskingService
 from contexthub.services.reconciler_service import ReconcilerService
 from contexthub.services.share_service import ShareService
 from contexthub.api.routers.datalake import router as datalake_router
+from contexthub.api.routers.admin import router as admin_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = Settings()
-    pool = await create_pool(settings)
+    pool = await asyncpg.create_pool(
+        dsn=settings.asyncpg_database_url,
+        min_size=2,
+        max_size=10,
+        init=init_pg_connection,
+    )
     embedding_client = None
     propagation_engine = None
     propagation_started = False
@@ -137,6 +144,7 @@ app.include_router(skills_router)
 app.include_router(search_router)
 app.include_router(tools_router)
 app.include_router(datalake_router)
+app.include_router(admin_router)
 
 
 @app.get("/health")
