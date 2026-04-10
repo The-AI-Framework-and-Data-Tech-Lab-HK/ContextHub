@@ -240,7 +240,9 @@ print(f"  变更收敛时延: {convergence_ms:.0f}ms")
 
 ---
 
-## 第三层：OpenClaw 运行时合同验证（待做）
+## 第三层：OpenClaw 运行时合同验证（已通过 ✓）
+
+> **验证日期**：2026-04-10 | 4 个 curl 步骤全部通过
 
 目标：证明 **gateway → sidecar → plugin → SDK → server** 这条运行时
 链路真实成立。这层验的是集成合同，不是 LLM 聪不聪明。
@@ -268,13 +270,16 @@ OpenClaw 插件暴露 7 个工具：`ls`、`read`、`grep`、`stat`、
 - 存储、晋升、发布新版本 → sidecar dispatch 可以做
 - 创建 skill context、建立订阅 → 由第二层 `demo_e2e.py` 已完成，无需额外操作
 
-### 验证步骤（4 步，通过 curl 直接打 sidecar）
+### 验证步骤与结果（4 步，通过 curl 直接打 sidecar）
 
-#### Step 1：dispatch → `contexthub_store`
+> Sidecar 运行在 :9100，支持 `X-Agent-Id` header 切换身份。
+
+#### Step 1：dispatch → `contexthub_store` — PASS ✓
 
 ```bash
 curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
+  -H "X-Agent-Id: query-agent" \
   -d '{
     "name": "contexthub_store",
     "args": {
@@ -284,55 +289,57 @@ curl -X POST http://localhost:9100/dispatch \
   }'
 ```
 
-预期：返回新 memory 记录（含 URI）。
+结果：返回 memory URI `ctx://agent/query-agent/memories/mem-af48b007`。
 
-#### Step 2：dispatch → `contexthub_promote`
-
-用 Step 1 返回的 URI：
+#### Step 2：dispatch → `contexthub_promote` — PASS ✓
 
 ```bash
 curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
+  -H "X-Agent-Id: query-agent" \
   -d '{
     "name": "contexthub_promote",
     "args": {
-      "uri": "<STEP1_MEMORY_URI>",
+      "uri": "ctx://agent/query-agent/memories/mem-af48b007",
       "target_team": "engineering"
     }
   }'
 ```
 
-预期：返回 team URI。
+结果：返回 team URI `ctx://team/engineering/memories/shared_knowledge/mem-af48b007`。
 
-#### Step 3：assemble → 验证自动召回
+#### Step 3：assemble → 验证自动召回 — PASS ✓
 
 ```bash
 curl -X POST http://localhost:9100/assemble \
   -H "Content-Type: application/json" \
+  -H "X-Agent-Id: analysis-agent" \
   -d '{
-    "sessionId": "verify-001",
+    "sessionId": "verify-002",
     "messages": [
-      {"role": "user", "content": "月度销售额应该怎么查？"}
+      {"role": "user", "content": "月度销售额"}
     ],
     "tokenBudget": 1024
   }'
 ```
 
-预期：
-- `systemPromptAddition` 非空
-- 内容包含 promote 后的 SQL pattern
+结果：
+- `systemPromptAddition` 非空（含 Tools Guide + Auto-Recall）
+- Auto-Recall 内容：`[ctx://team/engineering/memories/shared_knowledge/mem-af48b007] 月度销售额查询要 JOIN orders 和 products 并按月份聚合`
 
-> **注意**：如果未配 `OPENAI_API_KEY`，检索走 keyword fallback。
-> 此时提问必须包含与存储记忆重合的关键词（如"月度""销售额"）。
-> 主要看 `systemPromptAddition` 字段，不要只看 TUI 里模型的自然语言回答。
+> **注意**：未配 `OPENAI_API_KEY` 时检索走 keyword fallback（ILIKE），
+> 查询内容须与存储记忆的关键词重合。完整自然语言问句（如"月度销售额应该怎么查？"）
+> 因 ILIKE 匹配整串而非分词，可能返回 0 结果。使用关键词片段（如"月度销售额"）即可命中。
+> 配置 embedding 后此限制消失。
 
-#### Step 4：dispatch → `contexthub_skill_publish` + `read`
+#### Step 4：dispatch → `contexthub_skill_publish` + `read` — PASS ✓
 
-发布 breaking v2（skill context 和 subscription 已由第二层预置）：
+query-agent 发布 breaking v3：
 
 ```bash
 curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
+  -H "X-Agent-Id: query-agent" \
   -d '{
     "name": "contexthub_skill_publish",
     "args": {
@@ -344,12 +351,14 @@ curl -X POST http://localhost:9100/dispatch \
   }'
 ```
 
-然后用 analysis-agent 读取（启动第二个 sidecar `--agent-id analysis-agent --port 9101`，
-或在请求中加 `X-Agent-Id` header）：
+结果：v3 发布成功（`version: 3, is_breaking: true`）。
+
+analysis-agent 读取（pinned v1 + advisory）：
 
 ```bash
-curl -X POST http://localhost:9101/dispatch \
+curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
+  -H "X-Agent-Id: analysis-agent" \
   -d '{
     "name": "read",
     "args": {
@@ -358,16 +367,16 @@ curl -X POST http://localhost:9101/dispatch \
   }'
 ```
 
-预期：返回 pinned 旧版本内容 + advisory 提示有新版本可用。
+结果：`version: 1, content: "v1: Basic SQL generator for orders queries", advisory: "v3 available, currently pinned to v1"`
 
 ### 验收标准
 
 以下 4 项全部通过：
 
-1. `dispatch(contexthub_store)` → 成功返回 memory
-2. `dispatch(contexthub_promote)` → 成功返回 team URI
-3. `assemble()` → `systemPromptAddition` 非空且包含相关内容
-4. `dispatch(contexthub_skill_publish)` + `dispatch(read)` → pinned + advisory
+1. ✅ `dispatch(contexthub_store)` → 成功返回 memory
+2. ✅ `dispatch(contexthub_promote)` → 成功返回 team URI
+3. ✅ `assemble()` → `systemPromptAddition` 非空且包含相关内容
+4. ✅ `dispatch(contexthub_skill_publish)` + `dispatch(read)` → pinned + advisory
 
 ### 可选加分项：TUI 录屏
 
