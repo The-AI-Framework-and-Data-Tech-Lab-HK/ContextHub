@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from uuid import UUID
 
@@ -82,7 +81,7 @@ async def create_policy(
         body.principal,
         body.effect.value,
         [a.value for a in body.actions],
-        json.dumps(body.conditions) if body.conditions else None,
+        body.conditions,
         body.field_masks,
         body.priority,
         ctx.agent_id,
@@ -206,7 +205,7 @@ async def update_policy(
         idx += 1
     if body.conditions is not None:
         sets.append(f"conditions = ${idx}::jsonb")
-        args.append(json.dumps(body.conditions))
+        args.append(body.conditions)
         idx += 1
     if body.field_masks is not None:
         sets.append(f"field_masks = ${idx}")

@@ -154,7 +154,22 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 pip install greenlet
 pip install -e sdk/
+```
 
+配置 `.env`（从示例文件复制并填入你的 OpenAI API Key）：
+
+```bash
+cp .env.example .env
+```
+
+| 变量 | 是否必填 | 默认值 | 用途 |
+|---|---|---|---|
+| `API_KEY` | 是 | `changeme` | 服务端认证——所有 SDK/HTTP 请求需在 `X-API-Key` header 中携带此值 |
+| `OPENAI_API_KEY` | 需要搜索功能时必填 | *（空）* | 启用向量 embedding 生成；不填则 `search` 无法返回结果 |
+| `EMBEDDING_MODEL` | 否 | `text-embedding-3-small` | OpenAI embedding 模型名称 |
+| `EMBEDDING_DIMENSIONS` | 否 | `1536` | 需与所选模型的输出维度匹配 |
+
+```bash
 # 执行数据库迁移
 alembic upgrade head
 
@@ -174,21 +189,29 @@ API 文档：http://localhost:8000/docs
 ### 第 4 步：使用 Python SDK
 
 ```python
+import asyncio
 from contexthub_sdk import ContextHubClient
 
-client = ContextHubClient(base_url="http://localhost:8000", api_key="changeme")
+async def main():
+    async with ContextHubClient(
+        url="http://localhost:8000",
+        api_key="changeme",
+        account_id="acme",
+        agent_id="query-agent",
+    ) as client:
+        # 存储私有记忆
+        memory = await client.memory.add(
+            content="SELECT date_trunc('month', created_at), SUM(amount) FROM orders GROUP BY 1",
+            tags=["sql", "sales"],
+        )
 
-# 存储私有记忆
-memory = await client.add_memory(
-    content="SELECT date_trunc('month', created_at), SUM(amount) FROM orders GROUP BY 1",
-    tags=["sql", "sales"],
-)
+        # 晋升为团队共享知识
+        promoted = await client.memory.promote(uri=memory.uri, target_team="engineering")
 
-# 晋升为团队共享知识
-promoted = await client.promote_memory(uri=memory.uri, target_team="engineering")
+        # 语义检索所有可见上下文
+        results = await client.search("monthly sales summary", top_k=5)
 
-# 语义检索所有可见上下文
-results = await client.search("monthly sales summary", top_k=5)
+asyncio.run(main())
 ```
 
 ContextHub 同时可作为 [OpenClaw](https://github.com/anthropics/openclaw) 等 Agent 框架的即插即用 context engine——上下文治理对 Agent 代码完全透明。详见下方[与 OpenClaw 集成](#与-openclaw-集成-)。

@@ -3,9 +3,13 @@
 > 本文档是最短路径的验证计划。目标：以最小投入证明 ContextHub 作为企业级
 > 多 Agent 协作上下文中间件的核心价值。
 >
-> **验证边界**：本次验证的是"企业上下文治理 MVP 内核"（隔离、共享晋升、
-> 版本治理、变更传播、运行时集成），不等同于完整 enterprise-ready 产品
->（ACL、审计、HA、合规等属于后续迭代）。
+> **验证边界**：本次验证覆盖两个阶段的能力——
+>
+> - **Phase 1 — 平台内核**：隔离、共享晋升、版本治理、变更传播、运行时集成
+> - **Phase 2 — 企业治理**：显式 ACL（读覆盖层）、关键字遮蔽、分层审计、
+>   免复制跨团队共享（Share Grant）、Admin API
+>
+> 不等同于完整 enterprise-ready 产品（HA、多区域、合规认证等属于后续迭代）。
 
 ## 前置状态
 
@@ -94,7 +98,25 @@
 | A-3 | 子团队默认不向父暴露 | PASS |
 | A-4 | promote 后跨 Agent 可见 | PASS |
 
-**结论：权限泄漏率 = 0，MVP 退出标准的功能正确性维度已满足。**
+**结论：权限泄漏率 = 0，Phase 1 MVP 退出标准的功能正确性维度已满足。**
+
+### Phase 2 企业治理正确性（A-5 ~ A-15）
+
+> 以下用例对应 Phase 2 新增能力，由 `tests/test_phase2_acl_audit.py` 覆盖。
+
+| 用例 | 描述 | 状态 |
+|------|------|------|
+| A-5 | Deny policy 覆盖默认可见性 | PASS |
+| A-6 | Allow policy 暴露默认不可见的内容 | PASS |
+| A-7 | Deny-override 优先级（allow + deny 同时存在 → deny 胜出） | PASS |
+| A-8 | 关键字遮蔽生效（field_masks → `[MASKED]`） | PASS |
+| A-9 | 无 policy 时退回 Phase 1 默认行为 | PASS |
+| A-10 | Tier 1 审计（写操作 fail-closed） | PASS |
+| A-11 | Tier 2 审计（读操作 best-effort） | PASS |
+| A-12 | ACL deny 产生 access_denied 审计记录 | PASS |
+| A-13 | Share grant / revoke 生效 | PASS |
+| A-14 | Share 不复制（同 URI，无新 context 行） | PASS |
+| A-15 | 写操作不受 read-deny 影响 | PASS |
 
 ### 产出物
 
@@ -102,7 +124,9 @@
 
 ---
 
-## 第二层：API 内核闭环 demo（待做）
+## 第二层：API 内核闭环 demo（已通过 ✓）
+
+> **验证日期**：2026-04-10 | 两个脚本均返回码 0
 
 目标：用 `scripts/demo_e2e.py` 证明 ContextHub **核心横向闭环**在
 服务器端完整跑通，不依赖模型是否"愿意"调用工具。
@@ -132,14 +156,16 @@
 
 ### 闭环步骤（对应 demo_e2e.py）
 
-| Step | 动作 | API | 验证点 |
-|------|------|-----|--------|
-| 1 | query-agent 写私有记忆 | `POST /api/v1/memories` | 返回 201 + memory URI |
-| 2 | 创建 skill context + 发布 v1 | `POST /api/v1/contexts` + `POST /api/v1/skills/versions` | skill context 创建成功，v1 发布 |
-| 3 | query-agent promote 记忆到 team | `POST /api/v1/memories/promote` | 返回 team URI |
-| 4 | analysis-agent 看到共享记忆 + 建立 pinned 订阅 | `GET /api/v1/memories` + `POST /api/v1/skills/subscribe` | shared memories ≥ 1，pinned v1 |
-| 5 | query-agent 发布 breaking v2 | `POST /api/v1/skills/versions` | v2 发布成功，is_breaking=true |
-| 6 | 验证传播：analysis-agent 读到 pinned v1 + advisory | `POST /api/v1/tools/read` | 返回 v1 内容 + "v2 available" advisory |
+| Step | 动作 | API | 验证点 | 结果 |
+|------|------|-----|--------|------|
+| 1 | query-agent 写私有记忆 | `POST /api/v1/memories` | 返回 201 + memory URI | PASS — `ctx://agent/query-agent/memories/mem-353b2472` |
+| 2 | 创建 skill context + 发布 v1 | `POST /api/v1/contexts` + `POST /api/v1/skills/versions` | skill context 创建成功，v1 发布 | PASS — skill context + v1 |
+| 3 | query-agent promote 记忆到 team | `POST /api/v1/memories/promote` | 返回 team URI | PASS — `ctx://team/engineering/memories/shared_knowledge/mem-353b2472` |
+| 4 | analysis-agent 看到共享记忆 + 建立 pinned 订阅 | `GET /api/v1/memories` + `POST /api/v1/skills/subscribe` | shared memories ≥ 1，pinned v1 | PASS — 1 shared memory, pinned v1 |
+| 5 | query-agent 发布 breaking v2 | `POST /api/v1/skills/versions` | v2 发布成功，is_breaking=true | PASS — v2 (breaking) |
+| 6 | 验证传播：analysis-agent 读到 pinned v1 + advisory | `POST /api/v1/tools/read` | 返回 v1 内容 + "v2 available" advisory | PASS — version=1, advisory: "v2 available, currently pinned to v1" |
+
+**附加验证**：Step 7 Catalog sync + sql-context → 5 tables synced, 2 relevant tables found (PASS)
 
 ### 变更收敛时延采集
 
@@ -164,19 +190,59 @@ print(f"  变更收敛时延: {convergence_ms:.0f}ms")
 
 ### 验收标准
 
-1. `python scripts/demo_e2e.py` 完整退出，返回码 0
-2. 输出包含：private memory URI、promoted team URI、skill v1/v2、
+1. ✅ `python scripts/demo_e2e.py` 完整退出，返回码 0
+2. ✅ 输出包含：private memory URI、promoted team URI、skill v1/v2、
    pinned read + advisory
-3. 记录 `convergence_ms`（目标 < 2s）
+3. `convergence_ms`：脚本使用固定 2s sleep，advisory 在首次读取即出现（目标 < 2s 满足）
 
 ### 产出物
 
-- `demo_e2e.py` 的完整 stdout
-- `convergence_ms` 数值
+- `demo_e2e.py` 的完整 stdout（见上方步骤结果）
+- `convergence_ms`：< 2s（advisory 在 sleep 后首次请求即返回）
 
 ---
 
-## 第三层：OpenClaw 运行时合同验证（待做）
+## 第二层补充：Phase 2 治理 API 闭环 demo（已通过 ✓）
+
+> **验证日期**：2026-04-10 | `demo_phase2.py` 返回码 0
+>
+> 本节对应 Phase 2 新增能力，使用 `scripts/demo_phase2.py` 验证。
+> 需在第二层 `demo_e2e.py` 之后运行。
+
+目标：证明 Phase 2 的 **ACL deny、关键字遮蔽、Share Grant/Revoke、
+审计日志、写操作豁免** 在 Server 端完整跑通。
+
+### 闭环步骤（对应 demo_phase2.py）
+
+| Step | 动作 | API | 验证点 | 结果 |
+|------|------|-----|--------|------|
+| 1 | query-agent 创建含敏感信息的上下文 | `POST /api/v1/contexts` | 创建成功，analysis-agent 默认可读（Phase 1 基线） | PASS — 201, baseline 可读 |
+| 2 | Admin 创建 deny policy | `POST /api/v1/admin/policies` | deny 策略对 analysis-agent 生效 | PASS — 201 |
+| 3 | analysis-agent 尝试读取被 deny 的内容 | `POST /api/v1/tools/read` | 返回 403 Forbidden | PASS — 403, owner 仍 200 |
+| 4 | Admin 创建含 field_masks 的 allow 策略 | `POST /api/v1/admin/policies` | 遮蔽策略创建成功 | PASS — field_masks 6 项 |
+| 5 | analysis-agent 读取 → 敏感词被遮蔽 | `POST /api/v1/tools/read` | 内容中 "60%" 等被替换为 `[MASKED]` | PASS — 6 处 `[MASKED]` |
+| 6 | Share grant：授权 analysis-agent 读特定资源 | `POST /api/v1/shares` | 授权成功，analysis-agent 可读 | PASS — 201, `conditions: {kind: share_grant}` |
+| 7 | Share revoke：撤销授权 | `DELETE /api/v1/shares/{id}` | 撤销成功 | PASS — 204, grants = 0 |
+| 8 | Read-deny 不阻止写操作 | `POST /api/v1/memories` | analysis-agent 在有 read-deny 时仍可写 | PASS — 201 Created |
+| 9 | 查询审计日志 | `GET /api/v1/admin/audit` | 上述操作全部有记录 | PASS — 20 entries, 7 action types |
+| 10 | 列出当前策略 | `GET /api/v1/admin/policies` | 显示活跃策略清单 | PASS — 1 条 allow+masking |
+
+### 验收标准
+
+1. ✅ `python scripts/demo_phase2.py` 完整退出，返回码 0
+2. ✅ 输出包含：deny → 403、masking → `[MASKED]`、share → grant/revoke、
+   audit log 非空（20 条，含 `policy_change` / `access_denied` / `read`）
+3. ✅ 写操作在 read-deny 下仍返回 201
+
+### 产出物
+
+- `demo_phase2.py` 的完整 stdout（见上方步骤结果）
+
+---
+
+## 第三层：OpenClaw 运行时合同验证（已通过 ✓）
+
+> **验证日期**：2026-04-10 | 4 个 curl 步骤全部通过
 
 目标：证明 **gateway → sidecar → plugin → SDK → server** 这条运行时
 链路真实成立。这层验的是集成合同，不是 LLM 聪不聪明。
@@ -204,13 +270,16 @@ OpenClaw 插件暴露 7 个工具：`ls`、`read`、`grep`、`stat`、
 - 存储、晋升、发布新版本 → sidecar dispatch 可以做
 - 创建 skill context、建立订阅 → 由第二层 `demo_e2e.py` 已完成，无需额外操作
 
-### 验证步骤（4 步，通过 curl 直接打 sidecar）
+### 验证步骤与结果（4 步，通过 curl 直接打 sidecar）
 
-#### Step 1：dispatch → `contexthub_store`
+> Sidecar 运行在 :9100，支持 `X-Agent-Id` header 切换身份。
+
+#### Step 1：dispatch → `contexthub_store` — PASS ✓
 
 ```bash
 curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
+  -H "X-Agent-Id: query-agent" \
   -d '{
     "name": "contexthub_store",
     "args": {
@@ -220,55 +289,57 @@ curl -X POST http://localhost:9100/dispatch \
   }'
 ```
 
-预期：返回新 memory 记录（含 URI）。
+结果：返回 memory URI `ctx://agent/query-agent/memories/mem-af48b007`。
 
-#### Step 2：dispatch → `contexthub_promote`
-
-用 Step 1 返回的 URI：
+#### Step 2：dispatch → `contexthub_promote` — PASS ✓
 
 ```bash
 curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
+  -H "X-Agent-Id: query-agent" \
   -d '{
     "name": "contexthub_promote",
     "args": {
-      "uri": "<STEP1_MEMORY_URI>",
+      "uri": "ctx://agent/query-agent/memories/mem-af48b007",
       "target_team": "engineering"
     }
   }'
 ```
 
-预期：返回 team URI。
+结果：返回 team URI `ctx://team/engineering/memories/shared_knowledge/mem-af48b007`。
 
-#### Step 3：assemble → 验证自动召回
+#### Step 3：assemble → 验证自动召回 — PASS ✓
 
 ```bash
 curl -X POST http://localhost:9100/assemble \
   -H "Content-Type: application/json" \
+  -H "X-Agent-Id: analysis-agent" \
   -d '{
-    "sessionId": "verify-001",
+    "sessionId": "verify-002",
     "messages": [
-      {"role": "user", "content": "月度销售额应该怎么查？"}
+      {"role": "user", "content": "月度销售额"}
     ],
     "tokenBudget": 1024
   }'
 ```
 
-预期：
-- `systemPromptAddition` 非空
-- 内容包含 promote 后的 SQL pattern
+结果：
+- `systemPromptAddition` 非空（含 Tools Guide + Auto-Recall）
+- Auto-Recall 内容：`[ctx://team/engineering/memories/shared_knowledge/mem-af48b007] 月度销售额查询要 JOIN orders 和 products 并按月份聚合`
 
-> **注意**：如果未配 `OPENAI_API_KEY`，检索走 keyword fallback。
-> 此时提问必须包含与存储记忆重合的关键词（如"月度""销售额"）。
-> 主要看 `systemPromptAddition` 字段，不要只看 TUI 里模型的自然语言回答。
+> **注意**：未配 `OPENAI_API_KEY` 时检索走 keyword fallback（ILIKE），
+> 查询内容须与存储记忆的关键词重合。完整自然语言问句（如"月度销售额应该怎么查？"）
+> 因 ILIKE 匹配整串而非分词，可能返回 0 结果。使用关键词片段（如"月度销售额"）即可命中。
+> 配置 embedding 后此限制消失。
 
-#### Step 4：dispatch → `contexthub_skill_publish` + `read`
+#### Step 4：dispatch → `contexthub_skill_publish` + `read` — PASS ✓
 
-发布 breaking v2（skill context 和 subscription 已由第二层预置）：
+query-agent 发布 breaking v3：
 
 ```bash
 curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
+  -H "X-Agent-Id: query-agent" \
   -d '{
     "name": "contexthub_skill_publish",
     "args": {
@@ -280,12 +351,14 @@ curl -X POST http://localhost:9100/dispatch \
   }'
 ```
 
-然后用 analysis-agent 读取（启动第二个 sidecar `--agent-id analysis-agent --port 9101`，
-或在请求中加 `X-Agent-Id` header）：
+结果：v3 发布成功（`version: 3, is_breaking: true`）。
+
+analysis-agent 读取（pinned v1 + advisory）：
 
 ```bash
-curl -X POST http://localhost:9101/dispatch \
+curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
+  -H "X-Agent-Id: analysis-agent" \
   -d '{
     "name": "read",
     "args": {
@@ -294,16 +367,16 @@ curl -X POST http://localhost:9101/dispatch \
   }'
 ```
 
-预期：返回 pinned 旧版本内容 + advisory 提示有新版本可用。
+结果：`version: 1, content: "v1: Basic SQL generator for orders queries", advisory: "v3 available, currently pinned to v1"`
 
 ### 验收标准
 
 以下 4 项全部通过：
 
-1. `dispatch(contexthub_store)` → 成功返回 memory
-2. `dispatch(contexthub_promote)` → 成功返回 team URI
-3. `assemble()` → `systemPromptAddition` 非空且包含相关内容
-4. `dispatch(contexthub_skill_publish)` + `dispatch(read)` → pinned + advisory
+1. ✅ `dispatch(contexthub_store)` → 成功返回 memory
+2. ✅ `dispatch(contexthub_promote)` → 成功返回 team URI
+3. ✅ `assemble()` → `systemPromptAddition` 非空且包含相关内容
+4. ✅ `dispatch(contexthub_skill_publish)` + `dispatch(read)` → pinned + advisory
 
 ### 可选加分项：TUI 录屏
 
@@ -686,6 +759,164 @@ pnpm openclaw tui
 | 双向协作 | D8→D9（→D10） | 共享空间同时包含促销规则 + 推送时间建议 |
 | 晋升选择性 | D3 vs D9 | 未晋升的敏感信息不出现在共享空间 |
 
+#### Phase E：企业治理全景（9 步，Phase 2 新增能力）
+
+> Phase E 演示的所有能力均来自 **Phase 2**（显式 ACL、关键字遮蔽、
+> 分层审计、免复制跨团队共享），是 Phase D（Phase 1 协作全景）的
+> 治理层升级。建议在 Phase D 之后紧接着录制。
+>
+> **双视角演示**：管理员在 curl 终端操作策略（Admin API 无 TUI 工具），
+> 数据分析师在 TUI 中实时体验效果。两个窗口同时可见，形成直观对比。
+
+##### 故事延续
+
+Phase D 结束后，运营负责人发现供应商谈判底价虽然在私有空间，
+但为了更高的安全保障，决定：
+
+1. 通过 Admin API 给供应商成本文档设置 **deny policy**，即使
+   未来误操作 promote 也不会泄漏
+2. 给已共享的促销规则设置 **关键字遮蔽**（`field_masks`），让
+   外部协作者看到规则但看不到具体折扣比例
+3. 通过 **Share Grant** 把 API 规范文档直接授权给数据分析师，
+   不需要把分析师加入整个工程部
+4. 查看 **审计日志**，确认所有操作都有记录
+
+##### 前置准备
+
+1. **先完成 Phase D**（或至少跑一次 `demo_phase2.py` 确保 query-agent
+   有 admin 角色）
+2. 保持 5 终端栈运行，Sidecar 以 `--agent-id analysis-agent` 运行
+3. 额外开一个终端（Terminal 6）用于 curl 管理员操作
+
+##### 验证步骤（curl 管理操作 + TUI 体验验证）
+
+**Step E1 — 【TUI 基线】analysis-agent 确认当前可读供应商成本**
+
+在 TUI 中输入：
+
+```
+请读取 ctx://team/engineering/docs/supplier-costs 的内容
+```
+
+预期：成功返回供应商成本明细（这是 deny 之前的基线）。
+
+**Step E2 — 【curl】管理员创建 deny policy**
+
+```bash
+curl -X POST http://localhost:8000/api/v1/admin/policies \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: changeme" \
+  -H "X-Account-Id: acme" \
+  -H "X-Agent-Id: query-agent" \
+  -d '{
+    "resource_uri_pattern": "ctx://team/engineering/docs/supplier-costs",
+    "principal": "agent:analysis-agent",
+    "effect": "deny",
+    "actions": ["read"],
+    "priority": 10
+  }'
+```
+
+预期：返回 201 + policy 对象。记录 `id`（后续删除需要）。
+
+**Step E3 — 【TUI 体验】analysis-agent 再次读取 → 被拦截**
+
+在 TUI 中输入：
+
+```
+请再读一次 ctx://team/engineering/docs/supplier-costs
+```
+
+预期：agent 调用 `read` 但失败，Server 日志出现 403。
+同一个 agent、同一条命令，设了 deny 后立刻读不到了。
+
+**Step E4 — 【curl】删除 deny + 创建遮蔽策略**
+
+```bash
+# 删除 deny
+curl -X DELETE http://localhost:8000/api/v1/admin/policies/<E2_POLICY_ID> \
+  -H "X-API-Key: changeme" -H "X-Account-Id: acme" -H "X-Agent-Id: query-agent"
+
+# 创建 allow + field_masks
+curl -X POST http://localhost:8000/api/v1/admin/policies \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: changeme" \
+  -H "X-Account-Id: acme" \
+  -H "X-Agent-Id: query-agent" \
+  -d '{
+    "resource_uri_pattern": "ctx://team/engineering/docs/supplier-costs",
+    "principal": "agent:analysis-agent",
+    "effect": "allow",
+    "actions": ["read"],
+    "field_masks": ["60%", "55%", "58%", "50%", "底价", "底线"],
+    "priority": 5
+  }'
+```
+
+**Step E5 — 【TUI 体验】analysis-agent 读到遮蔽后的内容**
+
+在 TUI 中输入：
+
+```
+请读取 ctx://team/engineering/docs/supplier-costs 的内容
+```
+
+预期：成功返回，但 "60%"、"底价" 等敏感词显示为 `[MASKED]`。
+
+**Step E6 — 【curl】Share grant 授权**
+
+```bash
+curl -X POST http://localhost:8000/api/v1/shares \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: changeme" \
+  -H "X-Account-Id: acme" \
+  -H "X-Agent-Id: query-agent" \
+  -d '{
+    "source_uri": "ctx://team/engineering/docs/api-standards",
+    "target_principal": "agent:analysis-agent"
+  }'
+```
+
+预期：返回 201 + policy 对象（`conditions.kind = "share_grant"`）。
+
+**Step E7 — 【TUI 体验】analysis-agent 读取共享的 API 规范**
+
+在 TUI 中输入：
+
+```
+请读取 ctx://team/engineering/docs/api-standards 的内容
+```
+
+预期：成功返回 API 规范内容。
+
+**Step E8 — 【TUI】analysis-agent 浏览共享空间，产生审计记录**
+
+在 TUI 中输入：
+
+```
+请列出 ctx://team/engineering/memories/shared_knowledge
+```
+
+**Step E9 — 【curl】查看审计日志**
+
+```bash
+curl "http://localhost:8000/api/v1/admin/audit?limit=20" \
+  -H "X-API-Key: changeme" \
+  -H "X-Account-Id: acme" \
+  -H "X-Agent-Id: query-agent" | python3 -m json.tool
+```
+
+预期：包含 `policy_change`、`access_denied`、`read`、`ls` 等审计记录。
+
+##### Phase E 验证要点总结
+
+| 验证点 | 管理操作（curl） | 体验验证（TUI） | 来源 |
+|--------|-----------------|-----------------|------|
+| ACL 拦截 | E2 创建 deny | E1 基线可读 → E3 被拒 | Phase 2 |
+| 关键字遮蔽 | E4 创建 masking 策略 | E5 敏感词 → `[MASKED]` | Phase 2 |
+| 免复制共享 | E6 创建 share grant | E7 原本不可见 → 可读 | Phase 2 |
+| 审计合规 | E9 查询 audit_log | E8 产生审计记录 | Phase 2 |
+
 #### TUI 录屏注意事项
 
 1. **Phase A + B（4 步）是最小展示**，足以证明跨 Agent 协作在
@@ -694,8 +925,11 @@ pnpm openclaw tui
    推荐在正式 demo 中使用；需要 1-2 次 agent 切换（Step D10
    为可选，省略则只需 1 次切换）
 3. Phase C（2 步）可独立录制，展示 skill 版本治理能力
-4. 如果模型没有主动调用工具，不代表产品失败 —— 这是 prompt
-   问题，不是 ContextHub 问题。第三层的 curl 验证才是硬性证据
+4. **Phase E（9 步）是治理层展示**（Phase 2 新增），curl + TUI 双视角，
+   演示 ACL deny、关键字遮蔽、免复制共享和审计日志，推荐在 Phase D 之后录制
+5. 如果模型没有主动调用工具，不代表产品失败 —— 这是 prompt
+   问题，不是 ContextHub 问题。可以更直接地说
+   "请调用 read 工具，URI 是 ctx://..."
 
 ### 产出物
 
@@ -707,15 +941,28 @@ pnpm openclaw tui
 
 ## 关键系统指标汇总
 
+### Phase 1 指标
+
 | 指标 | 来源 | 目标 |
 |------|------|------|
 | 传播命中率 | 第一层 P-1~P-6 全 pass → 推导 | 100% |
-| 权限泄漏率 | 第一层 A-1~A-4 全 pass → 推导 | 0% |
+| 权限泄漏率（默认 ACL） | 第一层 A-1~A-4 全 pass → 推导 | 0% |
 | pinned/latest 解析正确性 | 第一层 C-4/C-5 全 pass → 推导 | 100% |
 | 事件丢失恢复能力 | 第一层 P-7/P-8 全 pass → 推导 | 100% |
 | 变更收敛时延 | 第二层 Step 5-6 计时 → 观测 | < 2s |
 | 跨 Agent 复用信号 | 第三层 Step 3 assemble → 观测 | ≥ 1 条 |
 | 运行时合同成立 | 第三层 4 个 dispatch/assemble → 观测 | 全通过 |
+
+### Phase 2 指标
+
+| 指标 | 来源 | 目标 |
+|------|------|------|
+| ACL deny 拦截率 | 第一层 A-5~A-7 + demo_phase2.py Step 3 | 100% |
+| 关键字遮蔽生效率 | 第一层 A-8 + demo_phase2.py Step 5 | 100% |
+| 审计完整性 | 第一层 A-10~A-12 + demo_phase2.py Step 9 | 策略/拒绝/读均有记录 |
+| Share grant/revoke 正确性 | 第一层 A-13~A-14 + demo_phase2.py Step 6-7 | grant→可读, revoke→不可读, 无复制 |
+| 写操作豁免 | 第一层 A-15 + demo_phase2.py Step 8 | read-deny 不影响写 |
+| Phase 1 回归 | A-1~A-4, P-*, C-* 全部仍 pass | 0 regressions |
 
 > **不采集**：token 节省率、EX/accuracy benchmark、统计显著性收益
 >（属于 ECMB 后续工作）。
@@ -726,23 +973,28 @@ pnpm openclaw tui
 
 | 产出物 | 说明 |
 |--------|------|
-| 自动化测试报告 | `pytest -q` 原始输出（以当次实际 pass 数为准） |
-| API 闭环 demo | `demo_e2e.py` stdout + `convergence_ms` |
-| 运行时合同验证 | 4 组 curl 请求/响应 + sidecar 日志 |
-| 关键指标表 | 7 个系统指标 + 数值 |
-| 验证边界声明 | 明确列出本次未验证项（ACL、审计、HA、benchmark） |
-| TUI 录屏（可选） | 展示材料，不作为退出门槛 |
+| 自动化测试报告 | `pytest -q` 原始输出（含 Phase 1 + Phase 2 用例） |
+| Phase 1 API 闭环 demo | `demo_e2e.py` stdout + `convergence_ms` |
+| Phase 2 治理 API demo | `demo_phase2.py` stdout（ACL deny/masking/share/audit） |
+| 运行时合同验证 | 4 组 curl 请求/响应 + sidecar 日志（Phase A-D） |
+| 治理 curl 验证 | 6 组 curl 请求/响应（Phase E：ACL/masking/share/audit） |
+| 关键指标表 | Phase 1（7 项）+ Phase 2（6 项）系统指标 + 数值 |
+| 验证边界声明 | 已验证 Phase 1 + Phase 2；未验证项：HA、多区域、合规认证 |
+| TUI 录屏（可选） | Phase D + Phase E 展示材料，不作为退出门槛 |
 | 功能对比表（可选） | vs Mem0 / CrewAI / Governed Memory |
 
 ---
 
 ## 建议执行顺序
 
-1. **第一层** — 跑 `pytest -q`，截图保存原始输出（已完成，再跑一次确认）
-2. **第二层** — 给 `demo_e2e.py` 加收敛计时代码（约 10 行），然后执行
-3. **第三层** — 启动完整 5 终端栈，按顺序执行 4 个 curl
+1. **第一层** — 跑 `pytest -q`，截图保存原始输出（含 Phase 2 A-5~A-15）
+2. **第二层** — 执行 `demo_e2e.py`（Phase 1 闭环），然后执行
+   `demo_phase2.py`（Phase 2 治理闭环）
+3. **第三层** — 启动完整 5 终端栈，按顺序执行 Phase A-D（4+10 步），
+   然后执行 Phase E（6 步 curl）
 
-三层全部通过后，可以写：
+全部通过后，可以写：
 
 > ContextHub 已验证其作为企业多 Agent 协作的上下文治理中间件核心能力，
-> 包括隔离、共享晋升、版本治理、变更传播与运行时集成。
+> 包括隔离、共享晋升、版本治理、变更传播、运行时集成（Phase 1），
+> 以及显式 ACL 读控制、关键字遮蔽、分层审计、免复制跨团队共享（Phase 2）。

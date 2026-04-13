@@ -154,7 +154,22 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 pip install greenlet
 pip install -e sdk/
+```
 
+Configure `.env` (copy from the example and fill in your OpenAI API key):
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `API_KEY` | Yes | `changeme` | Server auth — all SDK/HTTP requests must send this as `X-API-Key` header |
+| `OPENAI_API_KEY` | For search | *(empty)* | Enables vector embedding generation; without it, `search` returns no results |
+| `EMBEDDING_MODEL` | No | `text-embedding-3-small` | OpenAI embedding model name |
+| `EMBEDDING_DIMENSIONS` | No | `1536` | Must match the chosen model's output dimensions |
+
+```bash
 # Run database migrations
 alembic upgrade head
 
@@ -174,21 +189,29 @@ API docs available at http://localhost:8000/docs.
 ### Step 4: Try the Python SDK
 
 ```python
+import asyncio
 from contexthub_sdk import ContextHubClient
 
-client = ContextHubClient(base_url="http://localhost:8000", api_key="changeme")
+async def main():
+    async with ContextHubClient(
+        url="http://localhost:8000",
+        api_key="changeme",
+        account_id="acme",
+        agent_id="query-agent",
+    ) as client:
+        # Store a private memory
+        memory = await client.memory.add(
+            content="SELECT date_trunc('month', created_at), SUM(amount) FROM orders GROUP BY 1",
+            tags=["sql", "sales"],
+        )
 
-# Store a private memory
-memory = await client.add_memory(
-    content="SELECT date_trunc('month', created_at), SUM(amount) FROM orders GROUP BY 1",
-    tags=["sql", "sales"],
-)
+        # Promote to team-shared knowledge
+        promoted = await client.memory.promote(uri=memory.uri, target_team="engineering")
 
-# Promote to team-shared knowledge
-promoted = await client.promote_memory(uri=memory.uri, target_team="engineering")
+        # Semantic search across all visible contexts
+        results = await client.search("monthly sales summary", top_k=5)
 
-# Semantic search across all visible contexts
-results = await client.search("monthly sales summary", top_k=5)
+asyncio.run(main())
 ```
 
 ContextHub also integrates directly with agent frameworks like [OpenClaw](https://github.com/anthropics/openclaw) as a drop-in context engine — making context governance transparent to agent code. See [Integration with OpenClaw](#integration-with-openclaw-) below.
