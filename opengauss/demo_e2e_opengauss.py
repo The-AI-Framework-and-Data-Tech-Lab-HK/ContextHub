@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """ContextHub MVP End-to-End Demo
 
 Prerequisites:
@@ -7,7 +6,7 @@ Prerequisites:
   uvicorn contexthub.main:app --port 8000
 
 Usage:
-  python scripts/demo_e2e.py
+  python demo_e2e.py
 """
 
 from __future__ import annotations
