@@ -21,12 +21,21 @@ def _is_opengauss() -> bool:
 
 def upgrade() -> None:
     opengauss = _is_opengauss()
-    uuid_default = "uuid_generate_v4()" if opengauss else "gen_random_uuid()"
+    uuid_default = "uuid_generate_opengauss()" if opengauss else "gen_random_uuid()"
+    root_team_path = "/" if opengauss else ""
 
     # Extensions
     if opengauss:
-        # openGauss 7.0+ has DataVec built-in; use uuid-ossp instead of pgcrypto
-        op.execute("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
+        # openGauss 7.0+ has DataVec built-in; avoid pgcrypto and uuid-ossp with
+        # customized random uuid generation function
+        op.execute("""
+           CREATE OR REPLACE FUNCTION uuid_generate_opengauss()
+           RETURNS uuid
+           LANGUAGE sql
+           AS $$
+           SELECT md5(random()::text || clock_timestamp()::text)::uuid;
+           $$;
+        """)
     else:
         op.execute("CREATE EXTENSION IF NOT EXISTS vector")
         op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
@@ -259,9 +268,9 @@ def upgrade() -> None:
     op.execute("CREATE INDEX idx_qt_context ON query_templates (context_id)")
 
     # --- Seed data ---
-    op.execute("""
+    op.execute(f"""
     INSERT INTO teams (id, path, parent_id, display_name, account_id) VALUES
-      ('00000000-0000-0000-0000-000000000001', '', NULL, '全组织', 'acme'),
+      ('00000000-0000-0000-0000-000000000001', '{root_team_path}', NULL, '全组织', 'acme'),
       ('00000000-0000-0000-0000-000000000002', 'engineering', '00000000-0000-0000-0000-000000000001', '工程部', 'acme'),
       ('00000000-0000-0000-0000-000000000003', 'engineering/backend', '00000000-0000-0000-0000-000000000002', '后端组', 'acme'),
       ('00000000-0000-0000-0000-000000000004', 'data', '00000000-0000-0000-0000-000000000001', '数据部', 'acme'),

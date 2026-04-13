@@ -1,6 +1,7 @@
 """Propagation engine tests: P-1 through P-8 + event-time correctness + single-instance concurrency."""
 
 import asyncio
+import asyncpg
 import json
 import uuid
 from contextlib import asynccontextmanager
@@ -870,6 +871,33 @@ async def test_start_failure_closes_listener_connection():
     assert engine._drain_task is None
     assert engine._ticker_task is None
     assert engine._running is False
+
+
+@pytest.mark.asyncio
+async def test_start_degrades_gracefully_when_listen_not_supported():
+    """Unsupported LISTEN should fall back to polling instead of aborting startup."""
+    engine = _make_engine()
+    listen_conn = MagicMock()
+    listen_conn.add_listener = AsyncMock(
+        side_effect=asyncpg.exceptions.FeatureNotSupportedError(
+            "LISTEN statement is not yet supported."
+        )
+    )
+    listen_conn.close = AsyncMock()
+
+    with patch(
+        "contexthub.services.propagation_engine.asyncpg.connect",
+        AsyncMock(return_value=listen_conn),
+    ):
+        await engine.start()
+
+    listen_conn.close.assert_awaited_once()
+    assert engine._listen_conn is None
+    assert engine._drain_task is not None
+    assert engine._ticker_task is not None
+    assert engine._running is True
+
+    await engine.stop()
 
 
 @pytest.mark.asyncio

@@ -61,7 +61,15 @@ class PropagationEngine:
         try:
             # 1. 建立独立 LISTEN 连接
             listen_conn = await asyncpg.connect(self._dsn)
-            await listen_conn.add_listener("context_changed", self._on_notify)
+            try:
+                await listen_conn.add_listener("context_changed", self._on_notify)
+            except asyncpg.exceptions.FeatureNotSupportedError:
+                logger.warning(
+                    "LISTEN/NOTIFY is not supported by the current database; "
+                    "falling back to periodic propagation polling only."
+                )
+                await listen_conn.close()
+                listen_conn = None
 
             # 2. 启动单条 drain loop + 周期唤醒 task
             drain_task = asyncio.create_task(self._drain_loop())
