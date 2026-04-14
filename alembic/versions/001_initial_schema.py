@@ -22,7 +22,6 @@ def _is_opengauss() -> bool:
 def upgrade() -> None:
     opengauss = _is_opengauss()
     uuid_default = "uuid_generate_opengauss()" if opengauss else "gen_random_uuid()"
-    root_team_path = "/" if opengauss else ""
 
     # Extensions
     if opengauss:
@@ -270,7 +269,7 @@ def upgrade() -> None:
     # --- Seed data ---
     op.execute(f"""
     INSERT INTO teams (id, path, parent_id, display_name, account_id) VALUES
-      ('00000000-0000-0000-0000-000000000001', '{root_team_path}', NULL, '全组织', 'acme'),
+      ('00000000-0000-0000-0000-000000000001', '', NULL, '全组织', 'acme'),
       ('00000000-0000-0000-0000-000000000002', 'engineering', '00000000-0000-0000-0000-000000000001', '工程部', 'acme'),
       ('00000000-0000-0000-0000-000000000003', 'engineering/backend', '00000000-0000-0000-0000-000000000002', '后端组', 'acme'),
       ('00000000-0000-0000-0000-000000000004', 'data', '00000000-0000-0000-0000-000000000001', '数据部', 'acme'),

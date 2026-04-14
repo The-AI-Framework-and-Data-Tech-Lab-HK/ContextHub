@@ -6,23 +6,6 @@ from contexthub.db.repository import ScopedRepo
 from contexthub.models.context import Scope
 from contexthub.models.request import RequestContext
 
-
-def _is_opengauss() -> bool:
-    return os.environ.get("DB_BACKEND", "postgres").lower() == "opengauss"
-
-
-def _normalize_team_path_from_db(path: str) -> str:
-    if _is_opengauss() and path == "/":
-        return ""
-    return path
-
-
-def _normalize_team_path_for_db(path: str | None) -> str | None:
-    if _is_opengauss() and path == "":
-        return "/"
-    return path
-
-
 class ACLService:
     """MVP 默认可见性 / 默认写权限。"""
 
@@ -68,7 +51,7 @@ class ACLService:
             """,
             agent_id,
         )
-        return [_normalize_team_path_from_db(r["path"]) for r in rows]
+        return [r["path"] for r in rows]
 
     async def filter_visible(
         self, db: ScopedRepo, contexts: list, ctx: RequestContext
@@ -120,7 +103,6 @@ class ACLService:
             visible = await self.get_visible_team_paths(db, ctx.agent_id)
             if owner_space not in visible:
                 return False
-            db_owner_space = _normalize_team_path_for_db(owner_space)
             # check read_write access on the direct team
             has_rw = await db.fetchval(
                 """
@@ -129,7 +111,7 @@ class ACLService:
                 WHERE tm.agent_id = $1 AND t.path = $2 AND tm.access = 'read_write'
                 """,
                 ctx.agent_id,
-                db_owner_space,
+                owner_space,
             )
             return has_rw is not None
         return False

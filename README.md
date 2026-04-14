@@ -1,4 +1,40 @@
 
+## 为ContextHub新增openGauss后端
+
+### 一、openGauss server配置
+
+*   参考`docs/setup/opengauss-setup-guide-zh.md`新增server后端
+*   CREATE DATABASE时需要设定DBCOMPATIBILITY = 'PG'模式, 避免空字符串被interpret成NULL。
+
+### 二、Extension替换
+
+*   原ContextHub项目依赖pgvector+pgcrypto两个插件，这两个库在opengauss都不支持
+*   解决方案：opengauss 7.0.0原生支持DataVec，可以替换pgvector；opengauss不支持pgcrypto，替代方案uuid-ossp在官方镜像中也缺失无法安装，最终手动自定义实现`gen_random_uuid`函数，规避pgcrypto extension
+
+### 三、Python Driver兼容
+
+*   原ContextHub使用asyncpg库与db后端交互，但是asyncpg不支持opengauss的vector数据格式
+    *   报错信息为`message: unhandled standard data type 'vector' (OID 8305)`, 复现脚本为`opengauss/vector_asyncpg.py`
+    *   gaussdb有一个自己维护的`async_gaussdb`库，但是一样不支持vector格式, 验证脚本为`opengauss/vector_async_gaussdb.py`
+*   解决方案：新增db兼容层，PG后端仍然使用asyncpg，OpenGauss后端切换到psycopg3连接
+    *   psycopg3 的位置参数语法与asyncpg完全不同，一个是%s一个是$n，用正则匹配转换
+    *   兼容层处理语法转换，对外封装暴露统一的fetch/fetchrow/fetchall/execute接口
+    *   相关实现在`src/contexthub/db/repository.py`
+
+### 四、SQL Dialect转写
+
+*   原ContextHub使用postgres方言的SQL，多种语言特性与opengauss不兼容
+*   例如，openGauss不支持PG的INSERT ON CONFLICT (需要重写为ON DUPLICATE KEY UPDATE), 且不能与RETURNING语句, ROW POLICY同时使用
+*   全项目约20+条需要重写, 详细情况可见于报告`opengauss-compatibility-report.md`
+
+### 整体完成度
+
+*   步骤一、二、三进度100%，目前demo `opengauss/demo_e2e_opengauss.py` 可以成功执行前3个steps
+*   步骤四进度50%, 正在处理demo的第四个step的SQL转写，具体可见`ContextHub/src/contexthub/services/skill_service.py`的FIXME
+
+
+---
+
 <div align="center">
 
 <img src="figures/logo2.jpeg" width="200">

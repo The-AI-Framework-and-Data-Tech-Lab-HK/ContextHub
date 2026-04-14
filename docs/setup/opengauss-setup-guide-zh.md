@@ -33,24 +33,22 @@ gsql -d postgres -p 5432
 
 ```sql
 CREATE USER contexthub WITH PASSWORD 'ContextHub@123' SYSADMIN;
-CREATE DATABASE contexthub OWNER contexthub;
-\c contexthub
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-\q
+CREATE DATABASE contexthub OWNER contexthub DBCOMPATIBILITY = 'PG';
 ```
 
 > **注意：**
 > - openGauss 7.0+ 内置 DataVec，无需创建 vector 扩展
-> - 使用 `uuid-ossp` 扩展提供 `uuid_generate_v4()`，替代 PostgreSQL 的 `pgcrypto` + `gen_random_uuid()`
+> - 使用自定义`uuid_generate_v4()` (`alembic/versions/001_initial_schema.py`)，替代 PostgreSQL 的 `pgcrypto` + `gen_random_uuid()`
 > - openGauss 密码有强度约束，须包含大小写字母、数字和特殊字符
 > - 使用 `SYSADMIN` 而非 `SUPERUSER` 关键字
+> - 使用DBCOMPATIBILITY = 'PG'模式，保证空字符串/NULL值处理等与postgres统一。
 
 ## 3. 配置 ContextHub
 
 编辑 `.env` 文件：
 
 ```env
-DATABASE_URL=postgresql://contexthub:ContextHub@123@<host>:15432/contexthub
+DATABASE_URL=postgresql://contexthub:ContextHub%40123@<host>:15432/contexthub
 DB_BACKEND=opengauss
 ```
 
@@ -63,7 +61,7 @@ DB_BACKEND=opengauss alembic upgrade head
 ```
 
 > 迁移脚本会根据 `DB_BACKEND` 环境变量自动选择：
-> - `opengauss`: 创建 `uuid-ossp` 扩展，使用 `uuid_generate_v4()` 作为 UUID 默认值
+> - `opengauss`: 使用 `uuid_generate_v4()` 作为 UUID 默认值
 > - `postgres` (默认): 创建 `vector` + `pgcrypto` 扩展，使用 `gen_random_uuid()`
 
 ## 5. 启动服务
@@ -89,11 +87,11 @@ pip install ".[postgres]"
 | 特性 | PostgreSQL 16 | openGauss 7.0+ |
 |------|--------------|----------------|
 | 向量扩展 | pgvector (需安装) | DataVec (内置) |
-| UUID 函数 | `gen_random_uuid()` (pgcrypto) | `uuid_generate_v4()` (uuid-ossp) |
+| UUID 函数 | `gen_random_uuid()` (pgcrypto) | `uuid_generate_v4()` (自定义) |
 | 向量类型 `vector(N)` | 兼容 | 兼容 |
 | 向量距离 `<=>` | 兼容 | 兼容 |
 | HNSW 索引 | 兼容 | 兼容 |
 | RLS | 兼容 | 兼容 |
-| `pg_notify`/`LISTEN` | 兼容 | 兼容 |
-| asyncpg 驱动 | 兼容 | 兼容 |
+| `pg_notify`/`LISTEN` | 兼容 | 不兼容 |
+| asyncpg 驱动 | 兼容 | 部分兼容 |
 | 连接 URL 格式 | `postgresql://` | `postgresql://` |

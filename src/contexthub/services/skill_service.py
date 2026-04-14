@@ -174,17 +174,34 @@ class SkillService:
                 raise BadRequestError(f"Version {pinned_version} does not exist")
             if ver["status"] != "published":
                 raise BadRequestError(f"Version {pinned_version} is not published")
-
-        row = await db.fetchrow(
+        #row = await db.fetchrow(
+        #    """
+        #    INSERT INTO skill_subscriptions (agent_id, skill_id, pinned_version, account_id)
+        #    VALUES ($1, $2, $3, current_setting('app.account_id'))
+        #    ON CONFLICT (agent_id, skill_id)
+        #    DO UPDATE SET pinned_version = EXCLUDED.pinned_version
+        #    RETURNING *
+        #    """,
+        #    ctx.agent_id, skill_id, pinned_version,
+        #)
+        _ = await db.execute(
             """
             INSERT INTO skill_subscriptions (agent_id, skill_id, pinned_version, account_id)
             VALUES ($1, $2, $3, current_setting('app.account_id'))
-            ON CONFLICT (agent_id, skill_id)
-            DO UPDATE SET pinned_version = EXCLUDED.pinned_version
-            RETURNING *
+            ON DUPLICATE KEY UPDATE pinned_version = EXCLUDED.pinned_version
             """,
             ctx.agent_id, skill_id, pinned_version,
         )
+        row = await db.fetchrow(
+            """
+            SELECT * FROM skill_subscriptions
+            WHERE agent_id = $1 AND skill_id = $2;
+            """,
+            ctx.agent_id, skill_id,
+        )
+        # FIXME: ON DUPLICATE KEY UPDATE is incompatible with ROW level security policy in opengauss
+        # psycopg.errors.FeatureNotSupported: Row level security policy is not supported by INSERT ON DUPLICATE KEY UPDATE.
+        raise NotImplementedError
         return SkillSubscription(
             id=row["id"],
             agent_id=row["agent_id"],
