@@ -31,6 +31,8 @@ call `contexthub_promote` with the memory URI and target team name.
 - To **search** for relevant context, call `grep` with a keyword or question."""
 _CODE_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
 _SEGMENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+_QUESTION_SENTENCE_RE = re.compile(r"[^.!?\n]{10,}\?")
+_LONG_MESSAGE_THRESHOLD = 200
 _REUSABLE_HINTS = (
     "always",
     "endpoint",
@@ -91,6 +93,14 @@ class ContextHubContextEngine:
         tokenBudget: int | None = None,
     ) -> dict[str, Any]:
         """Inject tool guide + auto-recall results via systemPromptAddition."""
+        last_user = self._flatten_content(
+            next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
+        ).strip()
+        logger.info(
+            "assemble_start session=%s messageCount=%d tokenBudget=%s lastUser=%r",
+            sessionId, len(messages), tokenBudget, last_user[:120] if last_user else None,
+        )
+
         message_tokens = self._estimate_message_tokens(messages)
         guide_tokens = self._estimate_text_tokens(_TOOL_GUIDE)
 
@@ -106,6 +116,12 @@ class ContextHubContextEngine:
             addition_parts.append(recall_text)
         system_addition = "\n\n".join(addition_parts)
 
+        logger.info(
+            "assemble_done session=%s hasRecall=%s recallTokens=%d totalTokens=%d",
+            sessionId, recall_text is not None, recall_tokens,
+            message_tokens + guide_tokens + recall_tokens,
+        )
+
         return {
             "messages": messages,
             "estimatedTokens": message_tokens + guide_tokens + recall_tokens,
@@ -117,22 +133,45 @@ class ContextHubContextEngine:
     ) -> str | None:
         query = self._extract_recall_query(messages)
         if not query:
+            logger.debug("auto_recall: no user query found, skipping")
             return None
         if max_tokens is not None and max_tokens <= 0:
+            logger.debug("auto_recall: no token budget remaining, skipping")
             return None
 
+        logger.info("auto_recall_search query=%r max_tokens=%s", query[:120], max_tokens)
+
         try:
-            resp = await self._client.search(query, top_k=3)
+            resp = await self._client.search(query, top_k=5)
+            logger.info(
+                "auto_recall_hits hits=%d query=%r",
+                len(resp.results), query[:80],
+            )
+
             parts = []
-            for result in resp.results:
+            for i, result in enumerate(resp.results):
                 content = self._normalize_whitespace(result.l1_content or result.l0_content or "")
-                if content:
-                    parts.append(f"[{result.uri}] {content}")
+                if not content or self._looks_like_uri_only(content):
+                    logger.debug(
+                        "auto_recall_skip idx=%d uri=%s reason=%s",
+                        i, result.uri, "empty" if not content else "uri_only",
+                    )
+                    continue
+                parts.append(f"- **Source**: `{result.uri}` (score: {result.score:.2f})\n  {content}")
+                logger.debug(
+                    "auto_recall_hit idx=%d uri=%s score=%.3f preview=%r",
+                    i, result.uri, result.score, content[:100],
+                )
 
             if not parts:
+                logger.info("auto_recall: hits found but no usable content extracted")
                 return None
 
-            recall_text = f"{_RECALL_HEADER}\n\n" + "\n\n".join(parts)
+            recall_text = (
+                f"{_RECALL_HEADER}\n"
+                "The following relevant context was retrieved from memory:\n\n"
+                + "\n\n".join(parts)
+            )
             if max_tokens is None:
                 return recall_text
             return self._truncate_to_token_budget(recall_text, max_tokens)
@@ -141,15 +180,66 @@ class ContextHubContextEngine:
             return None
 
     @staticmethod
+    def _looks_like_uri_only(text: str) -> bool:
+        """Return True if the text is just a URI with no real factual content."""
+        stripped = text.strip()
+        return bool(
+            stripped.startswith(("ctx://", "mem://", "skill://", "http://", "https://"))
+            and " " not in stripped
+        )
+
+    @staticmethod
     def _extract_recall_query(messages: list[dict[str, Any]]) -> str | None:
-        """Conservative heuristic: use the last user message as the query."""
+        """Extract the actual user question from the last user message.
+
+        For short messages the full text is used.  For long messages
+        (typical of evaluation harnesses that wrap the real question
+        inside instruction boilerplate) we try to isolate the actual
+        question by scanning from the *end* of the text.
+        """
         for message in reversed(messages):
             if message.get("role") != "user":
                 continue
             content = ContextHubContextEngine._flatten_content(message.get("content", ""))
             content = content.strip()
-            if content:
-                return content[:200]
+            if not content:
+                continue
+
+            if len(content) <= _LONG_MESSAGE_THRESHOLD:
+                return content
+
+            extracted = ContextHubContextEngine._extract_question_from_long_text(content)
+            query = extracted or content[-_LONG_MESSAGE_THRESHOLD:]
+            logger.debug("extract_recall_query: long message (%d chars) → query=%r", len(content), query[:120])
+            return query[:_LONG_MESSAGE_THRESHOLD]
+        return None
+
+    @staticmethod
+    def _extract_question_from_long_text(text: str) -> str | None:
+        """Best-effort extraction of the real question from instruction-wrapped text.
+
+        Tries, in order:
+        1. Last line that ends with '?' (most reliable for QA evaluation)
+        2. Last regex-matched question sentence anywhere in the text
+        3. Last non-trivial line (likely the actual question placed at the end)
+        """
+        lines = text.strip().splitlines()
+        for line in reversed(lines):
+            stripped = line.strip()
+            if stripped.endswith("?") and len(stripped) > 10:
+                return stripped
+
+        matches = _QUESTION_SENTENCE_RE.findall(text)
+        if matches:
+            last_q = matches[-1].strip()
+            if len(last_q) > 10:
+                return last_q
+
+        for line in reversed(lines):
+            stripped = line.strip()
+            if len(stripped) > 10:
+                return stripped
+
         return None
 
     async def afterTurn(
