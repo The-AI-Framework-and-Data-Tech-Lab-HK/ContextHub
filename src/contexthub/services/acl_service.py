@@ -1,9 +1,10 @@
 """MVP ACL: default visibility and write permission checks."""
 
+import os
+
 from contexthub.db.repository import ScopedRepo
 from contexthub.models.context import Scope
 from contexthub.models.request import RequestContext
-
 
 class ACLService:
     """MVP 默认可见性 / 默认写权限。"""

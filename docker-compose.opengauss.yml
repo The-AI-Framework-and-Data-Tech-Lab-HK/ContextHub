@@ -1,0 +1,13 @@
+services:
+  opengauss:
+    image: opengauss/opengauss-server:latest
+    privileged: true
+    ports:
+      - "15432:5432"
+    environment:
+      GS_PASSWORD: "Huawei@123"
+    volumes:
+      - ogdata:/var/lib/opengauss/data
+
+volumes:
+  ogdata:

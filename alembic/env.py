@@ -7,6 +7,12 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import os
+if os.environ['DB_BACKEND'] == 'opengauss':
+    # Force SQLAlchemy to treat openGauss as PostgreSQL 9.2 to bypass the version string error
+    from sqlalchemy.dialects.postgresql.base import PGDialect
+    PGDialect._get_server_version_info = lambda *args, **kwargs: (9, 2, 0)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
