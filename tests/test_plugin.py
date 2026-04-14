@@ -193,7 +193,9 @@ class TestAssemble:
             sessionId="s1", messages=[{"role": "user", "content": "query"}]
         )
         assert "systemPromptAddition" in result
-        assert "detailed recall" in result["systemPromptAddition"]
+        spa = result["systemPromptAddition"]
+        assert "detailed recall" in spa
+        assert "Auto-Recall" in spa
         assert result["estimatedTokens"] > 0
         assert "messages" in result
 
@@ -240,6 +242,157 @@ class TestAssemble:
         assert "Auto-Recall" not in result["systemPromptAddition"]
         assert result["estimatedTokens"] > 6
         mock_client.search.assert_not_awaited()
+
+
+# ── Query extraction from instruction-wrapped messages ──────────────────
+
+
+class TestExtractRecallQuery:
+
+    def test_short_message_returns_full_text(self):
+        msgs = [{"role": "user", "content": "What is the capital of France?"}]
+        result = ContextHubContextEngine._extract_recall_query(msgs)
+        assert result == "What is the capital of France?"
+
+    def test_instruction_wrapped_extracts_question(self):
+        instruction = (
+            "You are answering a LoCoMo long-context memory evaluation question. "
+            "Based on the seeded memory, please use the context to answer the "
+            "following question accurately. Do not guess. If you do not have "
+            "enough information, say 'insufficient information'.\n\n"
+            "When did Caroline go to the LGBTQ support group?"
+        )
+        msgs = [{"role": "user", "content": instruction}]
+        result = ContextHubContextEngine._extract_recall_query(msgs)
+        assert result == "When did Caroline go to the LGBTQ support group?"
+
+    def test_multiline_instruction_extracts_last_question(self):
+        instruction = (
+            "You are answering a LoCoMo long-context memory evaluation question. "
+            "Based on the seeded memory, please use the context to answer the "
+            "following question accurately. Do not guess or hallucinate.\n\n"
+            "What was the date of the team meeting?"
+        )
+        assert len(instruction) > 200
+        msgs = [{"role": "user", "content": instruction}]
+        result = ContextHubContextEngine._extract_recall_query(msgs)
+        assert result == "What was the date of the team meeting?"
+
+    def test_no_question_mark_uses_last_line(self):
+        instruction = (
+            "You are an evaluation agent participating in a memory benchmark. "
+            "Follow these instructions carefully and do not deviate from the "
+            "provided context under any circumstances.\n\n"
+            "Tell me about Caroline's schedule on March 15"
+        )
+        assert len(instruction) > 200
+        msgs = [{"role": "user", "content": instruction}]
+        result = ContextHubContextEngine._extract_recall_query(msgs)
+        assert result == "Tell me about Caroline's schedule on March 15"
+
+    def test_empty_messages_returns_none(self):
+        result = ContextHubContextEngine._extract_recall_query([])
+        assert result is None
+
+    def test_no_user_message_returns_none(self):
+        msgs = [{"role": "system", "content": "system prompt"}]
+        result = ContextHubContextEngine._extract_recall_query(msgs)
+        assert result is None
+
+    def test_selects_last_user_message(self):
+        msgs = [
+            {"role": "user", "content": "first question"},
+            {"role": "assistant", "content": "answer"},
+            {"role": "user", "content": "second question?"},
+        ]
+        result = ContextHubContextEngine._extract_recall_query(msgs)
+        assert result == "second question?"
+
+
+class TestExtractQuestionFromLongText:
+
+    def test_finds_question_line(self):
+        text = "Line one.\nLine two.\nWhat is the answer to this?"
+        result = ContextHubContextEngine._extract_question_from_long_text(text)
+        assert result == "What is the answer to this?"
+
+    def test_finds_last_question_among_multiple(self):
+        text = "Is this one? No.\nWhat about this second question?"
+        result = ContextHubContextEngine._extract_question_from_long_text(text)
+        assert result == "What about this second question?"
+
+    def test_no_question_returns_last_line(self):
+        text = "First line.\nSecond line.\nDescribe the event in detail"
+        result = ContextHubContextEngine._extract_question_from_long_text(text)
+        assert result == "Describe the event in detail"
+
+    def test_empty_returns_none(self):
+        result = ContextHubContextEngine._extract_question_from_long_text("")
+        assert result is None
+
+
+class TestLooksLikeUriOnly:
+
+    def test_plain_uri(self):
+        assert ContextHubContextEngine._looks_like_uri_only("ctx://agent/a/memories/m1") is True
+
+    def test_uri_with_content(self):
+        assert ContextHubContextEngine._looks_like_uri_only("ctx://a/m1 some text") is False
+
+    def test_plain_text(self):
+        assert ContextHubContextEngine._looks_like_uri_only("Caroline went to the group") is False
+
+
+class TestAssembleRecallFormat:
+
+    @pytest.mark.asyncio
+    async def test_recall_includes_structured_source(self, engine, mock_client):
+        mock_client.search.return_value = SearchResponse(
+            results=[
+                SearchResult(
+                    uri="ctx://agent/a/memories/m1",
+                    context_type=ContextType.MEMORY,
+                    scope=Scope.AGENT,
+                    score=0.92,
+                    l0_content="short",
+                    l1_content="Caroline attended the LGBTQ support group on March 15",
+                    status=ContextStatus.ACTIVE,
+                    version=1,
+                )
+            ],
+            total=1,
+        )
+        result = await engine.assemble(
+            sessionId="s1",
+            messages=[{"role": "user", "content": "When did Caroline go to the LGBTQ support group?"}],
+        )
+        spa = result["systemPromptAddition"]
+        assert "Caroline attended the LGBTQ support group on March 15" in spa
+        assert "**Source**:" in spa
+        assert "score:" in spa
+
+    @pytest.mark.asyncio
+    async def test_recall_skips_uri_only_content(self, engine, mock_client):
+        mock_client.search.return_value = SearchResponse(
+            results=[
+                SearchResult(
+                    uri="ctx://agent/a/memories/m1",
+                    context_type=ContextType.MEMORY,
+                    scope=Scope.AGENT,
+                    score=0.9,
+                    l0_content="ctx://agent/a/memories/m1",
+                    l1_content=None,
+                    status=ContextStatus.ACTIVE,
+                    version=1,
+                )
+            ],
+            total=1,
+        )
+        result = await engine.assemble(
+            sessionId="s1",
+            messages=[{"role": "user", "content": "query"}],
+        )
+        assert "Auto-Recall" not in result["systemPromptAddition"]
 
 
 # ── §8.7-8: afterTurn ──────────────────────────────────────────────────

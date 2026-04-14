@@ -150,12 +150,25 @@ async def ingest_batch(request: Request):
 @app.post("/assemble")
 async def assemble(request: Request):
     body = await request.json()
-    engine = _get_engine(request)
-    return await engine.assemble(
-        sessionId=body.get("sessionId", ""),
-        messages=body.get("messages", []),
-        tokenBudget=body.get("tokenBudget"),
+    messages = body.get("messages", [])
+    session_id = body.get("sessionId", "")
+    token_budget = body.get("tokenBudget")
+    logger.info(
+        "assemble_request session=%s rawMessageCount=%d tokenBudget=%s",
+        session_id, len(messages), token_budget,
     )
+    engine = _get_engine(request)
+    result = await engine.assemble(
+        sessionId=session_id,
+        messages=messages,
+        tokenBudget=token_budget,
+    )
+    spa = result.get("systemPromptAddition", "")
+    logger.info(
+        "assemble_response session=%s topKeys=%s spaLength=%d estimatedTokens=%s",
+        session_id, list(result.keys()), len(spa), result.get("estimatedTokens"),
+    )
+    return result
 
 
 @app.post("/after-turn")
