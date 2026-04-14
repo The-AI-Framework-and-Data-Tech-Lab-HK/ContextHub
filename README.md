@@ -274,7 +274,8 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
 
 - [x] **Phase 1 — MVP Core** ✅
   Context store (`ctx://` URI routing), memory / skill / retrieval / propagation services, ACL with RLS + team hierarchy, Python SDK, OpenClaw context-engine plugin, data lake carrier, Tier 3 integration tests (P-1~P-8, C-1~C-5, A-1~A-4)
-- [ ] **Phase 2 — Explicit ACL & Audit** — ACL allow/deny/field mask overlay, audit logging, cross-team sharing
+- [x] **Phase 2 — Explicit ACL & Audit** ✅
+  ACL allow/deny/field mask overlay, tiered audit logging, cross-team share grants, Admin API + audit query, SDK extensions, Tier 3 integration tests (A-5~A-15)
 - [ ] **Phase 3 — Feedback & Lifecycle** — Quality signals, automatic lifecycle transitions, long doc retrieval
 - [ ] **Phase 4 — Quantitative Evaluation (ECMB)** — SQL accuracy benchmarks, L0/L1/L2 vs. flat RAG A/B experiments
 - [ ] **Phase 5 — Production Hardening** — Multi-instance (`SKIP LOCKED`), MCP Server, real catalog connectors

@@ -274,7 +274,8 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 
 - [x] **Phase 1 — MVP 核心** ✅
   Context store（`ctx://` URI 路由）、记忆 / 技能 / 检索 / 传播服务、ACL + RLS + 团队层级、Python SDK、OpenClaw 插件、数据湖载体、Tier 3 集成测试（P-1~P-8、C-1~C-5、A-1~A-4）
-- [ ] **Phase 2 — 显式 ACL 与审计** — ACL allow/deny/field mask 叠加层、审计日志、跨团队共享
+- [x] **Phase 2 — 显式 ACL 与审计** ✅
+  ACL allow/deny/field mask 叠加层、分层审计日志、跨团队 share grant、Admin API + 审计查询、SDK 扩展、Tier 3 集成测试（A-5~A-15）
 - [ ] **Phase 3 — 反馈与生命周期** — 质量信号、自动生命周期转换、长文档检索
 - [ ] **Phase 4 — 量化评估（ECMB）** — SQL 准确率基准测试、L0/L1/L2 vs 平坦 RAG A/B 实验
 - [ ] **Phase 5 — 生产加固** — 多实例（`SKIP LOCKED`）、MCP Server、真实 Catalog 连接器
