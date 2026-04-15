@@ -9,6 +9,7 @@ from contexthub.api.deps import (
     get_audit_service,
     get_context_store,
     get_db,
+    get_lifecycle_service,
     get_masking_service,
     get_request_context,
     get_retrieval_service,
@@ -26,6 +27,7 @@ from contexthub.models.search import (
 )
 from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
+from contexthub.services.lifecycle_service import LifecycleService
 from contexthub.services.masking_service import MaskingService
 from contexthub.services.retrieval_service import RetrievalService
 from contexthub.services.skill_service import SkillService
@@ -54,15 +56,21 @@ async def tool_read(
     skill_svc: SkillService = Depends(get_skill_service),
     masking: MaskingService = Depends(get_masking_service),
     audit: AuditService = Depends(get_audit_service),
+    lifecycle: LifecycleService | None = Depends(get_lifecycle_service),
 ):
     row = await db.fetchrow(
-        "SELECT id, context_type FROM contexts WHERE uri = $1 AND status != 'deleted'",
+        """
+        SELECT id, context_type, status
+        FROM contexts
+        WHERE uri = $1 AND status != 'deleted'
+        """,
         body.uri,
     )
     if row is None:
         raise NotFoundError(f"Context {body.uri} not found")
 
     _audit = audit if isinstance(audit, AuditService) else None
+    _lifecycle = lifecycle if isinstance(lifecycle, LifecycleService) else None
 
     if row["context_type"] == "skill":
         decision = await acl.check_read_access(db, body.uri, ctx)
@@ -73,11 +81,14 @@ async def tool_read(
                     metadata={"action": "read", "reason": decision.reason},
                 )
             raise ForbiddenError()
+        if row["status"] == "stale" and _lifecycle is not None:
+            await _lifecycle.recover_from_stale(db, row["id"], ctx)
         result = await skill_svc.read_resolved(db, row["id"], ctx.agent_id, body.version)
-        await db.execute(
-            "UPDATE contexts SET last_accessed_at = NOW() WHERE uri = $1",
-            body.uri,
-        )
+        if row["status"] != "stale" or _lifecycle is None:
+            await db.execute(
+                "UPDATE contexts SET last_accessed_at = NOW() WHERE uri = $1",
+                body.uri,
+            )
         content = result.content
         if decision.field_masks:
             content = masking.apply_masks(content, decision.field_masks)

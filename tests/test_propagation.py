@@ -11,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 
 import contexthub.main as main_module
+from contexthub.errors import NotFoundError
 from contexthub.generation.base import ContentGenerator, GeneratedContent
 from contexthub.llm.base import NoOpEmbeddingClient
 from contexthub.propagation.base import PropagationAction
@@ -19,7 +20,9 @@ from contexthub.propagation.registry import PropagationRuleRegistry
 from contexthub.propagation.skill_dep_rule import SkillVersionDepRule
 from contexthub.propagation.subscription_notify_rule import SkillSubscriptionNotifyRule
 from contexthub.propagation.table_schema_rule import TableSchemaRule
+from contexthub.services.audit_service import AuditService
 from contexthub.services.indexer_service import IndexerService
+from contexthub.services.lifecycle_service import LifecycleService
 from contexthub.services.propagation_engine import PropagationEngine
 
 
@@ -61,6 +64,8 @@ class FakeScopedRepo:
         for key, rows in self._rows.items():
             if key in sql:
                 return rows[0] if rows else None
+        if "SELECT id, uri, status" in sql and "FROM contexts" in sql:
+            return FakeRecord(id=args[0], uri=f"ctx://test/{args[0]}", status="active")
         return None
 
     async def fetchval(self, sql, *args):
@@ -122,16 +127,22 @@ def _make_event(
         "attempt_count": 1,
         "diff_summary": None,
     }
-def _make_engine(pool_conn=None, repo_scoped=None, indexer=None):
+def _make_engine(pool_conn=None, repo_scoped=None, indexer=None, lifecycle=None):
     pool = FakePool(pool_conn)
     repo = FakeRepo(repo_scoped)
     registry = PropagationRuleRegistry.default()
+    engine_indexer = indexer or _make_indexer()
+    engine_lifecycle = lifecycle or LifecycleService(
+        audit=AuditService(),
+        indexer=engine_indexer,
+    )
     return PropagationEngine(
         repo=repo,
         pool=pool,
         dsn="postgresql://fake",
         rule_registry=registry,
-        indexer=indexer or _make_indexer(),
+        lifecycle=engine_lifecycle,
+        indexer=engine_indexer,
         sweep_interval=30,
         lease_timeout=5,
     )
@@ -279,6 +290,12 @@ async def test_p1_breaking_skill_marks_dependent_stale():
         if "marked_stale" in sql and "INSERT INTO change_events" in sql
     ]
     assert len(stale_inserts) >= 1
+
+    lifecycle_audits = [
+        (sql, args) for sql, args in scoped.executed
+        if "INSERT INTO audit_log" in sql and args[1] == "lifecycle_transition"
+    ]
+    assert len(lifecycle_audits) >= 1
 
     # Should have finished event as processed
     finish_calls = [
@@ -848,6 +865,48 @@ async def test_partial_failure_retries_event():
         if "delivery_status = 'retry'" in sql
     ]
     assert len(retry_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_dependent_noops_and_processes_event():
+    """A missing/deleted dependent should not poison propagation retries."""
+
+    class MissingLifecycle:
+        async def mark_stale(self, db, context_id, reason, ctx):
+            raise NotFoundError(f"Context {context_id} not found")
+
+    dep_row = FakeRecord(
+        dependent_id=_ARTIFACT_ID,
+        dep_type="skill_version",
+        pinned_version=1,
+        created_at=_NOW - timedelta(hours=1),
+    )
+    pool_conn = FakeScopedRepo(rows_by_query={
+        "FROM dependencies": [dep_row],
+    })
+    engine = _make_engine(
+        pool_conn=pool_conn,
+        repo_scoped=FakeScopedRepo(),
+        lifecycle=MissingLifecycle(),
+    )
+
+    event = _make_event(
+        change_type="version_published",
+        new_version="2",
+        metadata={"is_breaking": True},
+    )
+    await engine._process_claimed_event(event)
+
+    retry_calls = [
+        sql for sql, _ in pool_conn.executed
+        if "delivery_status = 'retry'" in sql
+    ]
+    processed_calls = [
+        sql for sql, _ in pool_conn.executed
+        if "delivery_status = 'processed'" in sql
+    ]
+    assert retry_calls == []
+    assert len(processed_calls) == 1
 
 
 @pytest.mark.asyncio

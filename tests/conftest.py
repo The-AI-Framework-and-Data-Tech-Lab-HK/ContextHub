@@ -31,6 +31,8 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_marker)
         elif "phase2" in item.nodeid and _needs_db(item):
             item.add_marker(skip_marker)
+        elif "lifecycle_service" in item.nodeid and _needs_db(item):
+            item.add_marker(skip_marker)
 
 
 def _needs_db(item) -> bool:
@@ -71,6 +73,7 @@ async def clean_db(db_pool):
             TRUNCATE contexts, dependencies, change_events,
                      table_metadata, lineage, table_relationships,
                      query_templates, skill_versions, skill_subscriptions,
+                     lifecycle_policies,
                      access_policies, audit_log
             CASCADE
         """)
@@ -100,13 +103,15 @@ def analysis_agent_ctx():
 
 
 @pytest_asyncio.fixture
-def services(repo):
+def services(repo, db_pool):
     """All service instances wired together."""
     from contexthub.generation.base import ContentGenerator
     from contexthub.generation.table_schema import TableSchemaGenerator
     from contexthub.llm.base import NoOpEmbeddingClient
     from contexthub.services.acl_service import ACLService
+    from contexthub.services.audit_service import AuditService
     from contexthub.services.indexer_service import IndexerService
+    from contexthub.services.lifecycle_service import LifecycleService
     from contexthub.services.memory_service import MemoryService
     from contexthub.services.skill_service import SkillService
     from contexthub.services.retrieval_service import RetrievalService
@@ -121,16 +126,19 @@ def services(repo):
 
     acl = ACLService()
     masking = MaskingService()
-    context_store = ContextStore(acl, masking)
+    audit = AuditService(pool=db_pool)
     embedding = NoOpEmbeddingClient()
     generator = ContentGenerator()
     indexer = IndexerService(generator, embedding)
-    memory = MemoryService(indexer, acl, masking)
-    skill = SkillService(indexer, acl, masking)
+    lifecycle = LifecycleService(audit=audit, indexer=indexer)
+    context_store = ContextStore(acl, masking, audit=audit, lifecycle=lifecycle)
+    memory = MemoryService(indexer, acl, masking, audit=audit)
+    skill = SkillService(indexer, acl, masking, audit=audit)
     retrieval_router = RetrievalRouter.default()
     retrieval = RetrievalService(
         retrieval_router, embedding, acl,
         masking_service=masking,
+        audit_service=audit,
     )
     catalog_connector = MockCatalogConnector()
     table_gen = TableSchemaGenerator()
@@ -143,9 +151,11 @@ def services(repo):
 
     s = _Services()
     s.acl = acl
+    s.audit = audit
     s.masking = masking
     s.context_store = context_store
     s.indexer = indexer
+    s.lifecycle = lifecycle
     s.memory = memory
     s.skill = skill
     s.retrieval = retrieval
@@ -171,6 +181,7 @@ def phase2_services(repo, db_pool):
     from contexthub.services.audit_service import AuditService
     from contexthub.services.indexer_service import IndexerService
     from contexthub.services.context_service import ContextService
+    from contexthub.services.lifecycle_service import LifecycleService
     from contexthub.services.memory_service import MemoryService
     from contexthub.services.skill_service import SkillService
     from contexthub.services.retrieval_service import RetrievalService
@@ -183,10 +194,11 @@ def phase2_services(repo, db_pool):
     masking = MaskingService()
     audit = AuditService(pool=db_pool)
     share = ShareService(acl, audit=audit)
-    context_store = ContextStore(acl, masking, audit=audit)
     embedding = NoOpEmbeddingClient()
     generator = ContentGenerator()
     indexer = IndexerService(generator, embedding)
+    lifecycle = LifecycleService(audit=audit, indexer=indexer)
+    context_store = ContextStore(acl, masking, audit=audit, lifecycle=lifecycle)
     context_svc = ContextService(context_store, acl, indexer, audit=audit)
     memory = MemoryService(indexer, acl, masking, audit=audit)
     skill = SkillService(indexer, acl, masking, audit=audit)
@@ -207,6 +219,7 @@ def phase2_services(repo, db_pool):
     s.context_store = context_store
     s.context_svc = context_svc
     s.indexer = indexer
+    s.lifecycle = lifecycle
     s.memory = memory
     s.skill = skill
     s.retrieval = retrieval

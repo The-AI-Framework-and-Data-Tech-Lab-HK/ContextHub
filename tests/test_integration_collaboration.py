@@ -75,7 +75,7 @@ async def test_c3_source_change_propagation(db_pool, repo, acme_session, service
     engine = PropagationEngine(
         repo=repo, pool=db_pool,
         dsn="postgresql://contexthub:contexthub@localhost:5432/contexthub",
-        rule_registry=services.rule_registry, indexer=services.indexer,
+        rule_registry=services.rule_registry, lifecycle=services.lifecycle, indexer=services.indexer,
         sweep_interval=9999, lease_timeout=5,
     )
     engine._running = True

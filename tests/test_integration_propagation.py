@@ -23,6 +23,7 @@ async def _make_propagation_engine(db_pool, repo, services):
         pool=db_pool,
         dsn="postgresql://contexthub:contexthub@localhost:5432/contexthub",
         rule_registry=services.rule_registry,
+        lifecycle=services.lifecycle,
         indexer=services.indexer,
         sweep_interval=9999,
         lease_timeout=5,

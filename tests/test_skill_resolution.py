@@ -6,14 +6,17 @@ from datetime import datetime, timezone
 import pytest
 
 from contexthub.api.routers.contexts import read_context, update_context
+from contexthub.api.routers.tools import tool_read
 from contexthub.errors import BadRequestError, ForbiddenError, NotFoundError
 from contexthub.models.context import ContextLevel, UpdateContextRequest
 from contexthub.generation.base import ContentGenerator
 from contexthub.llm.base import NoOpEmbeddingClient
 from contexthub.models.request import RequestContext
+from contexthub.models.search import ToolReadRequest
 from contexthub.models.skill import SkillContent, SkillVersionStatus
 from contexthub.services.access_decision import AccessDecision
 from contexthub.services.indexer_service import IndexerService
+from contexthub.services.lifecycle_service import LifecycleService
 from contexthub.services.masking_service import MaskingService
 from contexthub.services.skill_service import SkillService
 
@@ -186,15 +189,27 @@ class AllowWriteACL:
 
 
 class RouteSkillReadDB:
-    def __init__(self):
+    def __init__(self, status="active"):
+        self.status = status
         self.last_accessed_updates = []
+        self.stale_recoveries = []
 
     async def fetchrow(self, sql, *args):
-        if "SELECT id, context_type FROM contexts WHERE uri" in sql:
-            return FakeRecord(id=_SKILL_ID, context_type="skill")
+        if "SELECT id, context_type, status" in sql and "WHERE uri" in sql:
+            return FakeRecord(id=_SKILL_ID, context_type="skill", status=self.status)
+        if "SELECT id, uri, status" in sql and "FROM contexts" in sql:
+            return FakeRecord(
+                id=_SKILL_ID,
+                uri="ctx://team/engineering/skills/sql-generator",
+                status=self.status,
+            )
         raise AssertionError(sql)
 
     async def execute(self, sql, *args):
+        if "status = 'active'" in sql and "stale_at = NULL" in sql:
+            self.stale_recoveries.append(args[0])
+            self.status = "active"
+            return "UPDATE 1"
         if "last_accessed_at" in sql:
             self.last_accessed_updates.append(args[0])
             return "UPDATE 1"
@@ -459,10 +474,62 @@ async def test_skill_read_route_updates_last_accessed_at():
         acl=AllowReadACL(),
         skill_svc=StubSkillService(),
         masking=MaskingService(),
+        audit=None,
+        lifecycle=None,
     )
 
     assert result["version"] == 2
     assert db.last_accessed_updates == ["ctx://team/engineering/skills/sql-generator"]
+    assert db.stale_recoveries == []
+
+
+@pytest.mark.asyncio
+async def test_skill_read_route_recovers_stale_status():
+    db = RouteSkillReadDB(status="stale")
+    ctx = RequestContext(account_id="acme", agent_id="query-agent")
+
+    result = await read_context(
+        uri="ctx://team/engineering/skills/sql-generator",
+        level=ContextLevel.L1,
+        version=None,
+        ctx=ctx,
+        db=db,
+        store=None,
+        acl=AllowReadACL(),
+        skill_svc=StubSkillService(),
+        masking=MaskingService(),
+        audit=None,
+        lifecycle=LifecycleService(),
+    )
+
+    assert result["version"] == 2
+    assert db.stale_recoveries == [_SKILL_ID]
+    assert db.last_accessed_updates == []
+
+
+@pytest.mark.asyncio
+async def test_skill_tool_read_recovers_stale_status():
+    db = RouteSkillReadDB(status="stale")
+    ctx = RequestContext(account_id="acme", agent_id="query-agent")
+
+    result = await tool_read(
+        body=ToolReadRequest(
+            uri="ctx://team/engineering/skills/sql-generator",
+            level=ContextLevel.L1,
+        ),
+        ctx=ctx,
+        db=db,
+        store=None,
+        acl=AllowReadACL(),
+        skill_svc=StubSkillService(),
+        masking=MaskingService(),
+        audit=None,
+        lifecycle=LifecycleService(),
+    )
+
+    assert result["version"] == 2
+    assert db.stale_recoveries == [_SKILL_ID]
+    assert db.last_accessed_updates == []
 
 
 @pytest.mark.asyncio
@@ -478,6 +545,8 @@ async def test_skill_read_route_rejects_user_scope_before_db_access():
             acl=AllowReadACL(),
             skill_svc=StubSkillService(),
             masking=MaskingService(),
+            audit=None,
+            lifecycle=None,
         )
 
 
