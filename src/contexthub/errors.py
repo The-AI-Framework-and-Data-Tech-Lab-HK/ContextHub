@@ -31,3 +31,8 @@ class BadRequestError(HTTPException):
 class UnsupportedScopeError(BadRequestError):
     def __init__(self):
         super().__init__(detail="scope=user is not supported in Task 2 public API")
+
+
+class ServiceUnavailableError(HTTPException):
+    def __init__(self, detail: str = "Service unavailable"):
+        super().__init__(status_code=503, detail=detail)

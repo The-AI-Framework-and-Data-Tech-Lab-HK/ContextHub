@@ -26,11 +26,15 @@ class SearchResult(BaseModel):
     status: str
     version: int
     tags: list[str] = Field(default_factory=list)
+    snippet: str | None = None
+    section_id: int | None = None
+    retrieval_strategy: str | None = None
 
 
 class SearchResponse(BaseModel):
     results: list[SearchResult]
     total: int
+    retrieval_id: str = ""
 
 
 class ToolLsRequest(BaseModel):

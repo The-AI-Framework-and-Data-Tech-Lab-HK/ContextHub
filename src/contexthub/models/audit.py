@@ -15,11 +15,13 @@ class AuditAction(StrEnum):
     PUBLISH = "publish"
     ACCESS_DENIED = "access_denied"
     POLICY_CHANGE = "policy_change"
+    LIFECYCLE_TRANSITION = "lifecycle_transition"
     # Tier 2: best-effort
     READ = "read"
     SEARCH = "search"
     LS = "ls"
     STAT = "stat"
+    FEEDBACK = "feedback"
 
 
 class AuditResult(StrEnum):
