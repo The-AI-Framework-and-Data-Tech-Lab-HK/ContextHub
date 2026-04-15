@@ -141,11 +141,15 @@ class SearchResult(BaseModel):
     status: ContextStatus
     version: int
     tags: list[str] = Field(default_factory=list)
+    snippet: str | None = None
+    section_id: int | None = None
+    retrieval_strategy: str | None = None
 
 
 class SearchResponse(BaseModel):
     results: list[SearchResult]
     total: int
+    retrieval_id: str = ""
 
 
 # ── Memory models ───────────────────────────────────────────────────────
@@ -229,10 +233,12 @@ class AuditAction(str, enum.Enum):
     PUBLISH = "publish"
     ACCESS_DENIED = "access_denied"
     POLICY_CHANGE = "policy_change"
+    LIFECYCLE_TRANSITION = "lifecycle_transition"
     READ = "read"
     SEARCH = "search"
     LS = "ls"
     STAT = "stat"
+    FEEDBACK = "feedback"
 
 
 class AuditResult(str, enum.Enum):
