@@ -10,9 +10,12 @@ from contexthub.llm.base import NoOpEmbeddingClient
 from contexthub.models.context import ContextLevel
 from contexthub.models.request import RequestContext
 from contexthub.models.search import SearchRequest
+from contexthub.retrieval.keyword_strategy import keyword_search
 from contexthub.retrieval.rerank import KeywordRerankStrategy
 from contexthub.retrieval.router import RetrievalRouter
+from contexthub.retrieval.vector_strategy import vector_search
 from contexthub.services.acl_service import ACLService
+from contexthub.services.feedback_service import QUALITY_MIN_SAMPLES
 from contexthub.services.indexer_service import IndexerService
 from contexthub.services.masking_service import MaskingService
 from contexthub.services.retrieval_service import RetrievalService
@@ -59,12 +62,15 @@ class WrongDimensionEmbeddingClient:
 class SearchFlowDB:
     """Simulates DB interactions for RetrievalService tests."""
 
-    def __init__(self, rows=None, l2_rows=None):
+    def __init__(self, rows=None, l2_rows=None, quality_rows=None):
         self._rows = rows or []
         self._l2_rows = l2_rows or []
+        self._quality_rows = quality_rows or []
         self.executed = []
+        self.fetches = []
 
     async def fetch(self, sql, *args):
+        self.fetches.append((sql, args))
         if "visible_teams" in sql:
             return [
                 FakeRecord(path="engineering/backend"),
@@ -73,6 +79,8 @@ class SearchFlowDB:
             ]
         if "SELECT id, l2_content FROM contexts WHERE id IN" in sql:
             return self._l2_rows
+        if "SELECT id, adopted_count, ignored_count" in sql:
+            return self._quality_rows
         if "cosine_similarity" in sql or "LIKE" in sql.upper():
             return self._rows
         if "access_policies" in sql:
@@ -355,3 +363,173 @@ def test_search_request_defaults():
     assert req.include_stale is True
     assert req.scope is None
     assert req.context_type is None
+
+
+@pytest.mark.asyncio
+async def test_search_quality_factor_promotes_high_quality_results():
+    low_quality_id = uuid.uuid4()
+    high_quality_id = uuid.uuid4()
+    rows = [
+        FakeRecord(
+            id=low_quality_id,
+            uri="ctx://team/engineering/resources/low-quality",
+            context_type="resource",
+            scope="team",
+            owner_space="engineering",
+            status="active",
+            version=1,
+            l0_content="database indexing tips",
+            l1_content="database indexing tips",
+            tags=[],
+            cosine_similarity=0.9,
+        ),
+        FakeRecord(
+            id=high_quality_id,
+            uri="ctx://team/engineering/resources/high-quality",
+            context_type="resource",
+            scope="team",
+            owner_space="engineering",
+            status="active",
+            version=1,
+            l0_content="database indexing tips",
+            l1_content="database indexing tips",
+            tags=[],
+            cosine_similarity=0.9,
+        ),
+    ]
+    quality_rows = [
+        FakeRecord(id=low_quality_id, adopted_count=0, ignored_count=8),
+        FakeRecord(id=high_quality_id, adopted_count=8, ignored_count=0),
+    ]
+    db = SearchFlowDB(rows=rows, quality_rows=quality_rows)
+    svc = _make_retrieval_service(NoOpEmbeddingClient())
+
+    response = await svc.search(
+        db,
+        SearchRequest(query="database indexing", top_k=2),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+
+    assert [result.uri for result in response.results] == [
+        "ctx://team/engineering/resources/high-quality",
+        "ctx://team/engineering/resources/low-quality",
+    ]
+    assert response.results[0].score > response.results[1].score
+
+
+@pytest.mark.asyncio
+async def test_search_quality_factor_preserves_low_sample_cold_start():
+    cold_start_id = uuid.uuid4()
+    peer_id = uuid.uuid4()
+    rows = [
+        FakeRecord(
+            id=cold_start_id,
+            uri="ctx://team/engineering/resources/cold-start",
+            context_type="resource",
+            scope="team",
+            owner_space="engineering",
+            status="active",
+            version=1,
+            l0_content="python deployment checklist",
+            l1_content="python deployment checklist",
+            tags=[],
+            cosine_similarity=0.9,
+        ),
+        FakeRecord(
+            id=peer_id,
+            uri="ctx://team/engineering/resources/peer",
+            context_type="resource",
+            scope="team",
+            owner_space="engineering",
+            status="active",
+            version=1,
+            l0_content="python deployment checklist",
+            l1_content="python deployment checklist",
+            tags=[],
+            cosine_similarity=0.9,
+        ),
+    ]
+    quality_rows = [
+        FakeRecord(
+            id=cold_start_id,
+            adopted_count=0,
+            ignored_count=QUALITY_MIN_SAMPLES - 1,
+        ),
+        FakeRecord(id=peer_id, adopted_count=0, ignored_count=0),
+    ]
+    db = SearchFlowDB(rows=rows, quality_rows=quality_rows)
+    svc = _make_retrieval_service(NoOpEmbeddingClient())
+
+    response = await svc.search(
+        db,
+        SearchRequest(query="python deployment", top_k=2),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+
+    assert [result.uri for result in response.results] == [
+        "ctx://team/engineering/resources/cold-start",
+        "ctx://team/engineering/resources/peer",
+    ]
+    assert response.results[0].score == pytest.approx(response.results[1].score)
+
+
+@pytest.mark.asyncio
+async def test_search_returns_non_empty_retrieval_id():
+    row_id = uuid.uuid4()
+    db = SearchFlowDB(
+        rows=[
+            FakeRecord(
+                id=row_id,
+                uri="ctx://team/engineering/resources/orders",
+                context_type="resource",
+                scope="team",
+                owner_space="engineering",
+                status="active",
+                version=1,
+                l0_content="orders runbook",
+                l1_content="orders runbook",
+                tags=[],
+                cosine_similarity=0.7,
+            ),
+        ],
+        quality_rows=[FakeRecord(id=row_id, adopted_count=0, ignored_count=0)],
+    )
+    svc = _make_retrieval_service(NoOpEmbeddingClient())
+
+    response = await svc.search(
+        db,
+        SearchRequest(query="orders"),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+
+    assert response.retrieval_id
+    assert uuid.UUID(response.retrieval_id)
+
+
+class QueryCaptureDB:
+    def __init__(self):
+        self.fetches = []
+
+    async def fetch(self, sql, *args):
+        self.fetches.append((sql, args))
+        return []
+
+
+@pytest.mark.asyncio
+async def test_vector_search_excludes_archived_and_deleted_statuses():
+    db = QueryCaptureDB()
+
+    await vector_search(db, [0.1, 0.2, 0.3], 5)
+
+    assert db.fetches
+    assert "status NOT IN ('archived', 'deleted')" in db.fetches[0][0]
+
+
+@pytest.mark.asyncio
+async def test_keyword_search_excludes_archived_and_deleted_statuses():
+    db = QueryCaptureDB()
+
+    await keyword_search(db, "orders table", 5)
+
+    assert db.fetches
+    assert "status NOT IN ('archived', 'deleted')" in db.fetches[0][0]

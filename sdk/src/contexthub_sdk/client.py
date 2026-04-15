@@ -500,6 +500,24 @@ class ContextHubClient:
         data = await self._post("/api/v1/tools/grep", json=body)
         return SearchResponse.model_validate(data)
 
+    async def report_feedback(
+        self,
+        *,
+        context_uri: str,
+        outcome: str,
+        retrieval_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "context_uri": context_uri,
+            "outcome": outcome,
+        }
+        if retrieval_id is not None:
+            body["retrieval_id"] = retrieval_id
+        if metadata is not None:
+            body["metadata"] = metadata
+        return await self._post("/api/v1/feedback", json=body)
+
     async def stat(self, uri: str) -> ContextStat:
         data = await self._post("/api/v1/tools/stat", json={"uri": uri})
         return ContextStat.model_validate(data)

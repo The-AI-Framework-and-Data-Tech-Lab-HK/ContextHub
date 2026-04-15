@@ -19,6 +19,7 @@ from contexthub.services.skill_service import SkillService
 from contexthub.services.masking_service import MaskingService
 from contexthub.store.context_store import ContextStore
 from contexthub.services.catalog_sync_service import CatalogSyncService
+from contexthub.services.feedback_service import FeedbackService
 from contexthub.services.share_service import ShareService
 
 
@@ -88,3 +89,7 @@ def get_audit_service(request: Request) -> AuditService:
 
 def get_share_service(request: Request) -> ShareService:
     return request.app.state.share_service
+
+
+def get_feedback_service(request: Request) -> FeedbackService:
+    return request.app.state.feedback_service

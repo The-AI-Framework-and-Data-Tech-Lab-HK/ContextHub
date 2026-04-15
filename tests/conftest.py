@@ -33,6 +33,8 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_marker)
         elif "lifecycle_service" in item.nodeid and _needs_db(item):
             item.add_marker(skip_marker)
+        elif "feedback_api" in item.nodeid and _needs_db(item):
+            item.add_marker(skip_marker)
 
 
 def _needs_db(item) -> bool:

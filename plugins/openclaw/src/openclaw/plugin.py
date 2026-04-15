@@ -28,7 +28,16 @@ call `contexthub_store` with the content.
 call `contexthub_promote` with the memory URI and target team name.
 - To **list** stored memories or shared knowledge, call `ls` with a URI prefix \
 (e.g. `ctx://agent/<agent_id>/memories` or `ctx://team/<team>/shared_knowledge`).
-- To **search** for relevant context, call `grep` with a keyword or question."""
+- To **search** for relevant context, call `grep` with a keyword or question.
+- After you explicitly use context returned by `grep`, call `contexthub_feedback` \
+with the `context_uri` and outcome.
+- If you directly use a context returned by `read`, you may also call \
+`contexthub_feedback` with the `context_uri`; this is degraded mode when no \
+`retrieval_id` is available.
+- When available, include `SearchResponse.retrieval_id` in `contexthub_feedback`; \
+if missing, you may still report feedback in degraded mode.
+- This feedback guidance applies only to explicit tool-based search usage, not \
+to auto-recall text injected into the prompt."""
 _CODE_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
 _SEGMENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _QUESTION_SENTENCE_RE = re.compile(r"[^.!?\n]{10,}\?")
@@ -68,7 +77,7 @@ class ContextHubContextEngine:
 
     @property
     def tools(self) -> list[dict[str, Any]]:
-        """JSON Schema definitions for the 7 MVP tools."""
+        """JSON Schema definitions for the 8 MVP tools."""
         return TOOL_DEFINITIONS
 
     async def dispatch_tool(self, tool_name: str, args: dict[str, Any]) -> str:
