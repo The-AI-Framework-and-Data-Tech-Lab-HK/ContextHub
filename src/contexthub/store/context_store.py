@@ -18,6 +18,7 @@ from contexthub.models.context import ContextLevel
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
+from contexthub.services.lifecycle_service import LifecycleService
 from contexthub.services.masking_service import MaskingService
 
 LEVEL_COLUMNS = {
@@ -46,10 +47,17 @@ class ContextStat:
 
 
 class ContextStore:
-    def __init__(self, acl: ACLService, masking: MaskingService, audit: AuditService | None = None):
+    def __init__(
+        self,
+        acl: ACLService,
+        masking: MaskingService,
+        audit: AuditService | None = None,
+        lifecycle: LifecycleService | None = None,
+    ):
         self._acl = acl
         self._masking = masking
         self._audit = audit
+        self._lifecycle = lifecycle
 
     async def read(
         self, db: ScopedRepo, uri: str, level: ContextLevel, ctx: RequestContext
@@ -73,15 +81,22 @@ class ContextStore:
 
         col = LEVEL_COLUMNS[level]
         row = await db.fetchrow(
-            f"SELECT {col} FROM contexts WHERE uri = $1 AND status != 'deleted'",
+            f"""
+            SELECT id, status, {col}
+            FROM contexts
+            WHERE uri = $1 AND status != 'deleted'
+            """,
             uri,
         )
         if row is None:
             raise NotFoundError(f"Context {uri} not found")
 
-        await db.execute(
-            "UPDATE contexts SET last_accessed_at = NOW() WHERE uri = $1", uri
-        )
+        if row["status"] == "stale" and self._lifecycle is not None:
+            await self._lifecycle.recover_from_stale(db, row["id"], ctx)
+        else:
+            await db.execute(
+                "UPDATE contexts SET last_accessed_at = NOW() WHERE uri = $1", uri
+            )
 
         content = row[col] or ""
         if decision.field_masks:

@@ -3,6 +3,7 @@ import pytest
 from contexthub.errors import BadRequestError, NotFoundError
 from contexthub.models.context import (
     ContextLevel,
+    ContextStatus,
     ContextType,
     CreateContextRequest,
     Scope,
@@ -75,6 +76,11 @@ class DenyWriteACL:
         return False
 
 
+class AllowWriteACL:
+    async def check_write(self, db, uri: str, ctx: RequestContext) -> bool:
+        return True
+
+
 @pytest.mark.asyncio
 async def test_ls_accepts_record_like_rows_and_filters_visible_children():
     store = ContextStore(ACLService(), MaskingService())
@@ -125,6 +131,20 @@ async def test_service_update_returns_not_found_when_acl_denies_missing_context(
             MissingContextDB(),
             "ctx://team/engineering/doc",
             UpdateContextRequest(tags=["docs"]),
+            RequestContext(account_id="acme", agent_id="query-agent", expected_version=1),
+        )
+
+
+@pytest.mark.asyncio
+async def test_service_update_rejects_generic_lifecycle_status_transition():
+    acl = AllowWriteACL()
+    service = ContextService(ContextStore(ACLService(), MaskingService()), acl)
+
+    with pytest.raises(BadRequestError, match="Lifecycle transitions are not allowed"):
+        await service.update(
+            object(),
+            "ctx://team/engineering/doc",
+            UpdateContextRequest(status=ContextStatus.ACTIVE),
             RequestContext(account_id="acme", agent_id="query-agent", expected_version=1),
         )
 

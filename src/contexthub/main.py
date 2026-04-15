@@ -21,6 +21,8 @@ from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
 from contexthub.services.context_service import ContextService
 from contexthub.services.indexer_service import IndexerService
+from contexthub.services.lifecycle_scheduler import LifecycleScheduler
+from contexthub.services.lifecycle_service import LifecycleService
 from contexthub.services.memory_service import MemoryService
 from contexthub.services.retrieval_service import RetrievalService
 from contexthub.services.skill_service import SkillService
@@ -47,6 +49,8 @@ async def lifespan(app: FastAPI):
         init=init_pg_connection,
     )
     embedding_client = None
+    lifecycle_scheduler = None
+    lifecycle_started = False
     propagation_engine = None
     propagation_started = False
 
@@ -57,7 +61,6 @@ async def lifespan(app: FastAPI):
         masking_service = MaskingService()
         audit_service = AuditService(pool=pool)
         share_service = ShareService(acl_service, audit=audit_service)
-        context_store = ContextStore(acl_service, masking_service, audit=audit_service)
 
         # Task 3 services
         embedding_client = create_embedding_client(settings)
@@ -66,6 +69,13 @@ async def lifespan(app: FastAPI):
             content_generator,
             embedding_client,
             embedding_dimensions=settings.embedding_dimensions,
+        )
+        lifecycle_service = LifecycleService(audit=audit_service, indexer=indexer_service)
+        context_store = ContextStore(
+            acl_service,
+            masking_service,
+            audit=audit_service,
+            lifecycle=lifecycle_service,
         )
 
         # Inject indexer into ContextService for embedding consistency
@@ -90,6 +100,7 @@ async def lifespan(app: FastAPI):
         app.state.memory_service = memory_service
         app.state.skill_service = skill_service
         app.state.indexer_service = indexer_service
+        app.state.lifecycle_service = lifecycle_service
         app.state.retrieval_service = retrieval_service
         app.state.masking_service = masking_service
         app.state.embedding_client = embedding_client
@@ -109,6 +120,14 @@ async def lifespan(app: FastAPI):
         app.state.catalog_sync_service = catalog_sync_service
         app.state.reconciler_service = reconciler_service
 
+        lifecycle_scheduler = LifecycleScheduler(
+            lifecycle=lifecycle_service,
+            repo=repo,
+            pool=pool,
+            interval_seconds=settings.lifecycle_sweep_interval,
+        )
+        app.state.lifecycle_scheduler = lifecycle_scheduler
+
         # Task 5: PropagationEngine
         rule_registry = PropagationRuleRegistry.default()
         propagation_engine = PropagationEngine(
@@ -116,6 +135,7 @@ async def lifespan(app: FastAPI):
             pool=pool,
             dsn=settings.asyncpg_database_url,
             rule_registry=rule_registry,
+            lifecycle=lifecycle_service,
             indexer=indexer_service,
             sweep_interval=settings.propagation_sweep_interval,
             lease_timeout=settings.propagation_lease_timeout,
@@ -124,10 +144,15 @@ async def lifespan(app: FastAPI):
         if settings.propagation_enabled:
             await propagation_engine.start()
             propagation_started = True
+        if settings.lifecycle_enabled:
+            await lifecycle_scheduler.start()
+            lifecycle_started = True
 
         try:
             yield
         finally:
+            if lifecycle_started:
+                await lifecycle_scheduler.stop()
             if propagation_started:
                 await propagation_engine.stop()
     finally:

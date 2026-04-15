@@ -8,9 +8,11 @@ from datetime import timedelta
 import asyncpg
 
 from contexthub.db.repository import PgRepository, ScopedRepo
+from contexthub.errors import NotFoundError
 from contexthub.propagation.base import PropagationAction
 from contexthub.propagation.registry import PropagationRuleRegistry
 from contexthub.services.indexer_service import IndexerService
+from contexthub.services.lifecycle_service import LifecycleService, make_system_context
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,7 @@ class PropagationEngine:
         pool: asyncpg.Pool,
         dsn: str,
         rule_registry: PropagationRuleRegistry,
+        lifecycle: LifecycleService,
         indexer: IndexerService,
         sweep_interval: int = 30,
         lease_timeout: int = 300,
@@ -41,6 +44,7 @@ class PropagationEngine:
         self._pool = pool
         self._dsn = dsn
         self._registry = rule_registry
+        self._lifecycle = lifecycle
         self._indexer = indexer
         self._sweep_interval = sweep_interval
         self._lease_timeout = lease_timeout
@@ -354,27 +358,17 @@ class PropagationEngine:
         event: dict,
         reason: str,
     ) -> None:
-        result = await db.execute(
-            """
-            UPDATE contexts
-            SET status = 'stale', stale_at = NOW(), updated_at = NOW()
-            WHERE id = $1
-              AND status NOT IN ('stale', 'archived', 'deleted')
-            """,
-            dependent_id,
-        )
-        if result and result != "UPDATE 0":
-            await db.execute(
-                """
-                INSERT INTO change_events
-                    (context_id, account_id, change_type, actor, diff_summary)
-                VALUES ($1, $2, 'marked_stale', 'propagation_engine', $3)
-                """,
+        ctx = make_system_context(event["account_id"], "propagation_engine")
+        try:
+            await self._lifecycle.mark_stale(db, dependent_id, reason, ctx=ctx)
+        except NotFoundError:
+            logger.info(
+                "Skip stale mark for missing/deleted dependent_id=%s reason=%s",
                 dependent_id,
-                event["account_id"],
                 reason,
             )
-            logger.info("Marked stale: dependent_id=%s reason=%s", dependent_id, reason)
+            return
+        logger.info("Marked stale: dependent_id=%s reason=%s", dependent_id, reason)
 
     async def _auto_update(self, dependent_id, event: dict) -> None:
         """source-aware 刷新 dependent context 的派生投影（仅 L0/L1）。"""

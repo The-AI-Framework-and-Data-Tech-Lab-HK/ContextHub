@@ -104,6 +104,10 @@ class ContextService:
 
         if body.status == ContextStatus.DELETED:
             raise BadRequestError("Use DELETE endpoint to delete a context")
+        if body.status is not None:
+            raise BadRequestError(
+                "Lifecycle transitions are not allowed via generic PATCH; use the lifecycle-specific endpoint"
+            )
 
         sets: list[str] = []
         args: list = []
@@ -125,16 +129,6 @@ class ContextService:
 
         if content_changed:
             sets.extend(["status = 'active'", "stale_at = NULL", "archived_at = NULL"])
-        elif body.status is not None:
-            sets.append(f"status = ${idx}")
-            args.append(body.status.value)
-            idx += 1
-            if body.status == ContextStatus.STALE:
-                sets.append("stale_at = NOW()")
-            elif body.status == ContextStatus.ARCHIVED:
-                sets.append("archived_at = NOW()")
-            elif body.status == ContextStatus.ACTIVE:
-                sets.extend(["stale_at = NULL", "archived_at = NULL"])
 
         if not sets:
             raise BadRequestError("No fields to update")
@@ -178,10 +172,8 @@ class ContextService:
             new_status = row["status"]
             if new_status == "archived":
                 await self._indexer.clear_embedding(db, row["id"])
-            elif row["l0_content"] and new_status in ("active", "stale"):
-                # Re-embed if content changed or status restored to active
-                if content_changed or (body.status == ContextStatus.ACTIVE):
-                    await self._indexer.update_embedding(db, row["id"], row["l0_content"])
+            elif row["l0_content"] and new_status in ("active", "stale") and content_changed:
+                await self._indexer.update_embedding(db, row["id"], row["l0_content"])
 
         result = self._row_to_context(row)
 

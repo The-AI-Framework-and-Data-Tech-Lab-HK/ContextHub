@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     propagation_enabled: bool = True
     propagation_sweep_interval: int = 30    # 秒，周期补扫间隔
     propagation_lease_timeout: int = 300    # 秒，processing 超时后回收
+    lifecycle_enabled: bool = True
+    lifecycle_sweep_interval: int = 3600
     openai_api_key: str = ""
     embedding_dimensions: int = 1536
     rerank_strategy: str = "keyword"
