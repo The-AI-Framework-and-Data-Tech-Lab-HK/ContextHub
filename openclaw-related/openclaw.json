@@ -29,6 +29,13 @@
     "controlUi": {
       "allowInsecureAuth": true
     },
+    "http": {
+      "endpoints": {
+        "responses": {
+          "enabled": true
+        }
+      }
+    },
     "nodes": {
       "denyCommands": [
         "camera.snap",
@@ -74,7 +81,7 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.3.31",
-    "lastTouchedAt": "2026-04-08T01:46:53.802Z"
+    "lastTouchedAt": "2026-04-10T07:49:31.121Z"
   },
   "plugins": {
     "load": {
@@ -84,13 +91,21 @@
     },
     "entries": {
       "amc": {
-        "enabled": true,
+        "enabled": false,
         "config": {
           "sidecarUrl": "http://localhost:9200"
         }
       },
       "openclaw-dacomp-tools": {
         "enabled": true
+      },
+      "openviking": {
+        "enabled": true,
+        "config": {
+          "mode": "local",
+          "configPath": "/home/qchenax/.openviking/ov.conf",
+          "port": 1933
+        }
       }
     },
     "installs": {
@@ -110,7 +125,7 @@
       }
     },
     "slots": {
-      "contextEngine": "amc"
+      "contextEngine": "openviking"
     }
   }
 }

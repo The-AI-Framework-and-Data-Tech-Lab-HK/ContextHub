@@ -3,8 +3,9 @@
 run_random_prompts.py — Pick k random prompts and run them via OpenClaw.
 
 Usage:
-    python3 run_random_prompts.py --k 5
-    python3 run_random_prompts.py --k 10 --prompts-dir my_prompts/
+    python3 run_random_prompts.py --mode single --k 5
+    python3 run_random_prompts.py --mode multiple --k 10
+    python3 run_random_prompts.py --mode single --k 10 --prompts-dir my_prompts/
 """
 
 import argparse
@@ -14,12 +15,36 @@ import subprocess
 import time
 from pathlib import Path
 
+DEFAULT_MODE = "single"
+MODE_TO_PROMPTS_DIR = {
+    "single": "/home/qchenax/.openclaw/workspace/prompts/single",
+    "multiple": "/home/qchenax/.openclaw/workspace/prompts/multiple",
+}
+MODE_TO_OUTPUTS_DIR = {
+    "single": "/home/qchenax/.openclaw/workspace/outputs/single",
+    "multiple": "/home/qchenax/.openclaw/workspace/outputs/multiple",
+}
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run k random prompts via OpenClaw.")
+    parser.add_argument(
+        "--mode",
+        choices=["single", "multiple"],
+        default=DEFAULT_MODE,
+        help=f"Run mode (default: {DEFAULT_MODE})",
+    )
     parser.add_argument("--k", type=int, required=True, help="Number of random prompts to run")
-    parser.add_argument("--prompts-dir", default="prompts", help="Directory containing prompt .txt files (default: prompts/)")
-    parser.add_argument("--outputs-dir", default="outputs", help="Directory for output files (default: outputs/)")
+    parser.add_argument(
+        "--prompts-dir",
+        default=None,
+        help="Directory containing prompt .txt files (default depends on --mode).",
+    )
+    parser.add_argument(
+        "--outputs-dir",
+        default=None,
+        help="Directory for output files (default depends on --mode).",
+    )
     parser.add_argument("--agent", default="main", help="OpenClaw agent id (default: main)")
     parser.add_argument(
         "--timeout",
@@ -27,7 +52,6 @@ def parse_args():
         default=None,
         help="OpenClaw agent timeout in seconds (default: no timeout)",
     )
-    parser.add_argument("--retries", type=int, default=0, help="Retries per prompt after first attempt (default: 0)")
     parser.add_argument("--seed", type=int, default=None, help="Optional random seed for reproducibility")
     parser.add_argument("--json-output", action="store_true", help="Force --json mode and parse payload text")
     parser.add_argument(
@@ -35,6 +59,11 @@ def parse_args():
         choices=["fresh", "shared"],
         default="fresh",
         help="Use fresh session per run (default) or shared agent session",
+    )
+    parser.add_argument(
+        "--delete-unexpected-outputs",
+        action="store_true",
+        help="Delete files unexpectedly created in the output dir during a task run.",
     )
     return parser.parse_args()
 
@@ -133,6 +162,10 @@ def call_openclaw(message: str, agent: str, timeout_s: int | None, json_output: 
     }
 
 
+def list_output_names(outputs_dir: Path) -> set[str]:
+    return {p.name for p in outputs_dir.iterdir() if p.is_file()}
+
+
 def snapshot_output(path: Path) -> dict:
     if not path.exists():
         return {"exists": False, "size": 0, "mtime_ns": None, "text": ""}
@@ -149,8 +182,8 @@ def main():
     if args.seed is not None:
         random.seed(args.seed)
 
-    prompts_dir = Path(args.prompts_dir)
-    outputs_dir = Path(args.outputs_dir)
+    prompts_dir = Path(args.prompts_dir or MODE_TO_PROMPTS_DIR[args.mode])
+    outputs_dir = Path(args.outputs_dir or MODE_TO_OUTPUTS_DIR[args.mode])
     outputs_dir.mkdir(parents=True, exist_ok=True)
 
     all_txts = sorted(prompts_dir.glob("*.txt"))
@@ -161,74 +194,77 @@ def main():
     k = min(args.k, len(all_txts))
     selected = random.sample(all_txts, k)
 
+    print(f"Mode: {args.mode}")
+    print(f"Prompts dir: {prompts_dir}")
+    print(f"Outputs dir: {outputs_dir}")
+    existing_output_names = list_output_names(outputs_dir)
+    if existing_output_names:
+        print(f"WARNING: outputs dir already has {len(existing_output_names)} files before this run.")
     print(f"Selected {k} prompts: {[f.name for f in selected]}\n")
 
     for i, prompt_file in enumerate(selected, 1):
         output_file = outputs_dir / prompt_file.stem
         message = prompt_file.read_text(encoding="utf-8")
+        before_names = list_output_names(outputs_dir)
         print(f"[{i}/{k}] Running {prompt_file.name} ...")
 
-        total_attempts = max(1, args.retries + 1)
-        before = snapshot_output(output_file)
+        session_id = None
+        if args.session_mode == "fresh":
+            session_id = f"batch-{prompt_file.stem}-{int(time.time() * 1000)}"
+            print(f"  → Session: {session_id}")
+        else:
+            print("  → Session: shared")
 
-        for attempt in range(1, total_attempts + 1):
-            if total_attempts > 1:
-                print(f"  → Attempt {attempt}/{total_attempts}")
-
-            session_id = None
-            if args.session_mode == "fresh":
-                session_id = f"batch-{prompt_file.stem}-{int(time.time() * 1000)}-{attempt}"
-                print(f"  → Session: {session_id}")
+        run = call_openclaw(
+            message=message,
+            agent=args.agent,
+            timeout_s=args.timeout,
+            json_output=args.json_output,
+            session_id=session_id,
+        )
+        response = run["response_text"]
+        if args.json_output:
+            if response:
+                print(f"  → Response: {response[:200]}{'...' if len(response) > 200 else ''}")
             else:
-                print("  → Session: shared")
+                print("  → Response: (empty)")
 
-            run = call_openclaw(
-                message=message,
-                agent=args.agent,
-                timeout_s=args.timeout,
-                json_output=args.json_output,
-                session_id=session_id,
+        if run["stop_reason"]:
+            print(f"  → stopReason: {run['stop_reason']}")
+        if run["timed_out"]:
+            print("  → Runner timeout: subprocess timed out")
+        elif run["returncode"] not in (0, None):
+            print(f"  → openclaw exit code: {run['returncode']}")
+        if run["stderr_preview"]:
+            print(f"  → stderr: {run['stderr_preview']}")
+        if args.json_output and run["stdout_preview"] and not response:
+            print(f"  → stdout: {run['stdout_preview']}")
+
+        after_names = list_output_names(outputs_dir)
+        unexpected_new = sorted((after_names - before_names) - {output_file.name})
+        if unexpected_new:
+            print(
+                f"  → WARNING: detected {len(unexpected_new)} unexpected new output file(s): "
+                f"{unexpected_new[:8]}{'...' if len(unexpected_new) > 8 else ''}"
             )
-            response = run["response_text"]
-            if args.json_output:
-                if response:
-                    print(f"  → Response: {response[:200]}{'...' if len(response) > 200 else ''}")
-                else:
-                    print("  → Response: (empty)")
+            if args.delete_unexpected_outputs:
+                for name in unexpected_new:
+                    try:
+                        (outputs_dir / name).unlink()
+                    except OSError:
+                        pass
+                print("  → Deleted unexpected output file(s)")
 
-            if run["stop_reason"]:
-                print(f"  → stopReason: {run['stop_reason']}")
-            if run["timed_out"]:
-                print("  → Runner timeout: subprocess timed out")
-            elif run["returncode"] not in (0, None):
-                print(f"  → openclaw exit code: {run['returncode']}")
-            if run["stderr_preview"]:
-                print(f"  → stderr: {run['stderr_preview']}")
-            if args.json_output and run["stdout_preview"] and not response:
-                print(f"  → stdout: {run['stdout_preview']}")
+        after = snapshot_output(output_file)
+        if not after["exists"]:
+            output_file.write_text("", encoding="utf-8")
+            print(f"  → Output file not found, created empty file: {output_file}\n")
+            continue
 
-            after = snapshot_output(output_file)
-            output_changed = (
-                before["exists"] != after["exists"]
-                or before["size"] != after["size"]
-                or before["mtime_ns"] != after["mtime_ns"]
-                or before["text"] != after["text"]
-            )
-            output_has_content = after["exists"] and bool(after["text"].strip())
-            wrote_new_nonempty_output = output_has_content and (output_changed or not bool(before["text"].strip()))
-
-            if wrote_new_nonempty_output:
-                print(f"  → Output file updated with content: {output_file}\n")
-                break
-
-            print(f"  → Output file missing/empty/unchanged: {output_file}")
-            if attempt < total_attempts:
-                print("  → Retrying...\n")
-            else:
-                if total_attempts == 1:
-                    print("  → No retry configured.\n")
-                else:
-                    print("  → Gave up after retries.\n")
+        if after["text"].strip():
+            print(f"  → Output file updated with content: {output_file}\n")
+        else:
+            print(f"  → Output file exists but empty: {output_file}\n")
 
 
 if __name__ == "__main__":

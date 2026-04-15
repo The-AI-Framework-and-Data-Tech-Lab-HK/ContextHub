@@ -553,7 +553,7 @@ async def assemble(request: Request) -> dict[str, Any]:
         memory_sections.append(f"[Retrieved Overview]\n{overview}")
 
     if memory_sections:
-        memory_text = "\n\n".join(memory_sections)
+        memory_text = "以下是一条相似的执行记录供参考：\n\n" + "\n\n".join(memory_sections)
         out_messages.append(
             {
                 "role": "system",
