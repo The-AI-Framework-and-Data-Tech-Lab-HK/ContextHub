@@ -3,6 +3,7 @@
 > 参考文档:
 > - https://github.com/opengauss-mirror
 > - https://docs.opengauss.org/zh/docs/7.0.0-RC1
+
 > 来源：
 > - https://github.com/initzhang/ContextHub/edit/main/opengauss-compatibility-report.md?pr=/The-AI-Framework-and-Data-Tech-Lab-HK/ContextHub/pull/29
 ---
