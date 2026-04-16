@@ -351,11 +351,9 @@ def test_semantic_recall_passes_scalar_filters_to_vector_query() -> None:
         top_k=3,
         scope_filter=["team", "agent"],
         owner_space_filter=["team-alpha"],
-        task_type="sql_analysis",
     )
     assert fake.last_filters is not None
     assert fake.last_filters.get("account_id") == "acc-1"
     assert fake.last_filters.get("exclude_statuses") == ["deleted"]
     assert sorted(fake.last_filters.get("scopes") or []) == ["agent", "team"]
     assert fake.last_filters.get("owner_spaces") == ["team-alpha"]
-    assert fake.last_filters.get("task_type") == "sql_analysis"

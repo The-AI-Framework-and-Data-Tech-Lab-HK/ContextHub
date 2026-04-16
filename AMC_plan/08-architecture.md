@@ -77,7 +77,7 @@ TrajectoryCommitted
 - `id`（确定性：`md5(account_id + seed_uri)`）
 - `uri`, `parent_uri`, `level`
 - `account_id`, `scope`, `owner_space`
-- `trajectory_id`, `agent_id`, `task_type`
+- `trajectory_id`, `agent_id`
 - `lifecycle_status`（active/cold/archived/deleted）
 - `stale_flag`（是否因传播被标记 stale）
 - `vector`, `created_at`, `updated_at`

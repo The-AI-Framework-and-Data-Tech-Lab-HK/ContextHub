@@ -41,7 +41,6 @@ def _target_path(*, root: Path, account_id: str, scope: str, owner_space: str, t
 def _patch_bundle_metadata(
     *,
     base: Path,
-    tenant_id: str,
     agent_id: str,
     account_id: str,
     scope: str,
@@ -50,7 +49,6 @@ def _patch_bundle_metadata(
     meta_path = base / "meta.json"
     meta = _read_json(meta_path)
     if meta:
-        meta["tenant_id"] = tenant_id
         meta["agent_id"] = agent_id
         meta["account_id"] = account_id
         meta["scope"] = scope
@@ -61,7 +59,6 @@ def _patch_bundle_metadata(
     pointer = _read_json(pointer_path)
     if pointer:
         pointer["storage_layout"] = "accounts_scope_owner_space"
-        pointer["tenant_id"] = tenant_id
         pointer["agent_id"] = agent_id
         pointer["account_id"] = account_id
         pointer["scope"] = scope
@@ -71,13 +68,13 @@ def _patch_bundle_metadata(
 
 def _collect_legacy_paths(root: Path) -> list[tuple[str, str, str, Path]]:
     out: list[tuple[str, str, str, Path]] = []
-    tenant_root = root / "tenant"
-    if not tenant_root.exists():
+    legacy_root = root / "tenant"
+    if not legacy_root.exists():
         return out
-    for tenant_dir in tenant_root.iterdir():
-        if not tenant_dir.is_dir():
+    for account_dir in legacy_root.iterdir():
+        if not account_dir.is_dir():
             continue
-        agent_root = tenant_dir / "agent"
+        agent_root = account_dir / "agent"
         if not agent_root.exists():
             continue
         for agent_dir in agent_root.iterdir():
@@ -89,7 +86,7 @@ def _collect_legacy_paths(root: Path) -> list[tuple[str, str, str, Path]]:
             for trajectory_dir in traj_root.iterdir():
                 if not trajectory_dir.is_dir():
                     continue
-                out.append((tenant_dir.name, agent_dir.name, trajectory_dir.name, trajectory_dir))
+                out.append((account_dir.name, agent_dir.name, trajectory_dir.name, trajectory_dir))
     return out
 
 
@@ -102,9 +99,8 @@ def run(*, root: Path, dry_run: bool = False) -> dict[str, Any]:
     total = 0
     updated_index = dict(index_payload)
 
-    for tenant_id, agent_id, trajectory_id, legacy_dir in _collect_legacy_paths(root):
+    for account_id, agent_id, trajectory_id, legacy_dir in _collect_legacy_paths(root):
         total += 1
-        account_id = tenant_id
         scope = "agent"
         owner_space = agent_id
         target = _target_path(
@@ -122,7 +118,6 @@ def run(*, root: Path, dry_run: bool = False) -> dict[str, Any]:
             shutil.move(str(legacy_dir), str(target))
             _patch_bundle_metadata(
                 base=target,
-                tenant_id=tenant_id,
                 agent_id=agent_id,
                 account_id=account_id,
                 scope=scope,

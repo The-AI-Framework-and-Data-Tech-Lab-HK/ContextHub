@@ -89,7 +89,6 @@ class SemanticRecall:
         top_k: int,
         scope_filter: list[str] | None = None,
         owner_space_filter: list[str] | None = None,
-        task_type: str | None = None,
     ) -> list[SemanticHit]:
         query_vec = self._embed_query(query_text)
         scope_set = {str(x).strip().lower() for x in (scope_filter or []) if str(x).strip()}
@@ -102,8 +101,6 @@ class SemanticRecall:
             scalar_filters["scopes"] = sorted(scope_set)
         if owner_space_set:
             scalar_filters["owner_spaces"] = sorted(owner_space_set)
-        if task_type:
-            scalar_filters["task_type"] = str(task_type)
         # Retrieve a wider candidate pool then aggregate by trajectory_id.
         raw_rows = self.vector_store.query(
             query_vec,
@@ -113,7 +110,7 @@ class SemanticRecall:
         grouped: dict[str, dict[str, Any]] = {}
         for row in raw_rows:
             meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-            if str(meta.get("account_id") or meta.get("tenant_id") or "") != account_id:
+            if str(meta.get("account_id") or "") != account_id:
                 continue
             lifecycle_status = str(meta.get("status") or meta.get("lifecycle_status") or "active").strip().lower()
             if lifecycle_status == "deleted":

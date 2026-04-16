@@ -78,7 +78,7 @@
 ## 13.4 测试数据与 Fixture 约定
 
 - **路径常量**：`PROJECT_ROOT / "sample_traj" / "traj{n}.json"`（避免复制大 JSON 进测试代码）。
-- **请求封装**：将 `list[dict]` 包装为 commit body：`session_id`、`task_id`、`labels.task_type`（如 `sql_analysis`）、`is_incremental=false`，并通过 header 提供 `X-Account-Id/X-Agent-Id`（兼容阶段允许 body 旧字段）。
+- **请求封装**：将 `list[dict]` 包装为 commit body：`session_id`、`task_id`、`labels={}`、`is_incremental=false`，并通过 header 提供 `X-Account-Id/X-Agent-Id`。
 - **`task_id` 策略**：每个文件使用稳定唯一 `task_id`（如 `task-traj1-sample`），避免与幂等测试冲突；幂等测试需固定 `task_id` 与轨迹内容。
 
 ---

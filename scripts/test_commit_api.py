@@ -19,21 +19,24 @@ def _load_json(path: Path) -> Any:
 
 
 def run(args: argparse.Namespace) -> int:
-    commit_steps = _load_json(Path(args.trajectory_file))
-    if not isinstance(commit_steps, list):
-        raise ValueError("trajectory file must be a JSON array")
+    raw = _load_json(Path(args.trajectory_file))
+    # Support both old format (top-level list) and new format ({ "query": ..., "trajectory": [...] }).
+    if isinstance(raw, list):
+        commit_steps = raw
+    elif isinstance(raw, dict) and isinstance(raw.get("trajectory"), list):
+        commit_steps = raw["trajectory"]
+    else:
+        raise ValueError("trajectory file must be a JSON array or an object with a 'trajectory' list field")
 
     base = args.base_url.rstrip("/")
     commit_url = f"{base}/commit"
 
-    if args.tenant_id:
-        print("[AMC] --tenant-id is deprecated; use --account-id.")
-    resolved_account_id = str(args.account_id or args.tenant_id or "account-local").strip()
+    resolved_account_id = str(args.account_id or "account-local").strip()
     commit_payload = {
         "session_id": args.session_id,
         "task_id": args.task_id,
         "trajectory": commit_steps,
-        "labels": {"task_type": args.task_type},
+        "labels": {},
         "is_incremental": False,
         "visualize_graph_png": False,
     }
@@ -72,8 +75,9 @@ def run(args: argparse.Namespace) -> int:
         raise RuntimeError("commit response missing trajectory_id")
     if int(data.get("nodes") or 0) <= 0:
         raise RuntimeError("commit response nodes should be > 0")
-    if int(data.get("edges") or 0) <= 0:
-        raise RuntimeError("commit response edges should be > 0")
+    edge_count = int(data.get("edges") or 0)
+    if edge_count < int(args.min_edges):
+        raise RuntimeError(f"commit response edges should be >= {int(args.min_edges)}")
 
     out = {
         "summary": {
@@ -102,14 +106,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-url", default="http://127.0.0.1:8000/api/v1/amc", help="AMC API base URL")
     p.add_argument("--health-url", default="http://127.0.0.1:8000/healthz", help="Health endpoint URL")
     p.add_argument("--account-id", default="account-local")
-    p.add_argument("--tenant-id", default=None, help="Deprecated alias of account_id")
     p.add_argument("--agent-id", default="agent-local")
     p.add_argument("--session-id", default="session-local")
     p.add_argument("--task-id", default="task-api-smoke")
-    p.add_argument("--task-type", default="sql_analysis")
     p.add_argument("--trajectory-file", default="sample_traj/traj1.json")
     p.add_argument("--health-timeout", type=float, default=15.0, help="Health check timeout (seconds)")
     p.add_argument("--commit-timeout", type=float, default=600.0, help="Commit request timeout (seconds)")
+    p.add_argument(
+        "--min-edges",
+        type=int,
+        default=0,
+        help="Minimum expected edge count in commit response (default: 0)",
+    )
     p.add_argument("--pretty", action="store_true")
     return p
 

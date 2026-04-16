@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
 from openai import OpenAI
+
+from core.commit.llm_runtime import chat_completion_with_retry, provider_key
 
 
 @dataclass
@@ -15,7 +18,20 @@ class LLMTrajectorySummarizer:
     model: str = "gpt-4.1-mini"
     base_url: str | None = None
     temperature: float = 0.0
-    last_traces: list[dict[str, Any]] = field(default_factory=list)
+    _thread_local: threading.local = field(default_factory=threading.local, init=False, repr=False)
+
+    @property
+    def last_traces(self) -> list[dict[str, Any]]:
+        value = getattr(self._thread_local, "last_traces", None)
+        if isinstance(value, list):
+            return value
+        value = []
+        self._thread_local.last_traces = value
+        return value
+
+    @last_traces.setter
+    def last_traces(self, value: list[dict[str, Any]]) -> None:
+        self._thread_local.last_traces = list(value)
 
     def _client(self) -> OpenAI:
         if self.base_url:
@@ -45,18 +61,25 @@ class LLMTrajectorySummarizer:
             "- Be factual and concise. Do not invent details not present in trajectory."
         )
         client = self._client()
-        resp = client.chat.completions.create(
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": json.dumps({"trajectory": steps}, ensure_ascii=False)},
+        ]
+        resp, retries = chat_completion_with_retry(
+            client=client,
+            provider_id=provider_key(base_url=self.base_url, model=self.model),
             model=self.model,
             temperature=self.temperature,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": json.dumps({"trajectory": steps}, ensure_ascii=False)},
-            ],
+            messages=messages,
         )
         content = resp.choices[0].message.content or "{}"
         data = self._extract_json(content)
         l0 = str(data.get("l0") or "").strip()
         l1 = str(data.get("l1") or "").strip()
+        usage = getattr(resp, "usage", None)
+        prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
         self.last_traces.append(
             {
                 "call_type": "summary",
@@ -66,6 +89,10 @@ class LLMTrajectorySummarizer:
                 "raw_response_text": content,
                 "parsed_result": {"l0": l0, "l1": l1},
                 "error": "",
+                "retry_count": int(retries),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
             }
         )
         if not l0 or not l1:

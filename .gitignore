@@ -16,3 +16,12 @@ build/
 .ruff_cache/
 
 /data
+/openclaw_message
+
+# AMC OpenClaw bridge (Node build/runtime artifacts)
+amc_bridge/node_modules/
+amc_bridge/*.tsbuildinfo
+amc_bridge/npm-debug.log*
+amc_bridge/yarn-debug.log*
+amc_bridge/yarn-error.log*
+amc_bridge/pnpm-debug.log*

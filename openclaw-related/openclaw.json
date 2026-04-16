@@ -1,0 +1,131 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "/home/qchenax/.openclaw/workspace",
+      "models": {
+        "volcengine-plan/ark-code-latest": {},
+        "volcengine/doubao-seed-1-8-251228": {}
+      },
+      "model": {
+        "primary": "volcengine/doubao-seed-1-8-251228"
+      },
+      "compaction": {
+        "mode": "safeguard"
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "386bc544fd72dbfa1d628b09b49278d77114b78928eda970"
+    },
+    "port": 18789,
+    "bind": "lan",
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    },
+    "controlUi": {
+      "allowInsecureAuth": true
+    },
+    "http": {
+      "endpoints": {
+        "responses": {
+          "enabled": true
+        }
+      }
+    },
+    "nodes": {
+      "denyCommands": [
+        "camera.snap",
+        "camera.clip",
+        "screen.record",
+        "contacts.add",
+        "calendar.add",
+        "reminders.add",
+        "sms.send",
+        "sms.search"
+      ]
+    }
+  },
+  "session": {
+    "dmScope": "per-channel-peer"
+  },
+  "tools": {
+    "profile": "full",
+    "exec": {
+      "host": "gateway",
+      "security": "full",
+      "ask": "off"
+    }
+  },
+  "auth": {
+    "profiles": {
+      "volcengine:default": {
+        "provider": "volcengine",
+        "mode": "api_key"
+      }
+    }
+  },
+  "skills": {
+    "install": {
+      "nodeManager": "npm"
+    }
+  },
+  "wizard": {
+    "lastRunAt": "2026-04-01T01:50:42.127Z",
+    "lastRunVersion": "2026.3.31",
+    "lastRunCommand": "onboard",
+    "lastRunMode": "local"
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.3.31",
+    "lastTouchedAt": "2026-04-10T07:49:31.121Z"
+  },
+  "plugins": {
+    "load": {
+      "paths": [
+        "/home/qchenax/ContextHub/amc_bridge"
+      ]
+    },
+    "entries": {
+      "amc": {
+        "enabled": false,
+        "config": {
+          "sidecarUrl": "http://localhost:9200"
+        }
+      },
+      "openclaw-dacomp-tools": {
+        "enabled": true
+      },
+      "openviking": {
+        "enabled": true,
+        "config": {
+          "mode": "local",
+          "configPath": "/home/qchenax/.openviking/ov.conf",
+          "port": 1933
+        }
+      }
+    },
+    "installs": {
+      "amc": {
+        "source": "path",
+        "sourcePath": "/home/qchenax/ContextHub/amc_bridge",
+        "installPath": "/home/qchenax/ContextHub/amc_bridge",
+        "version": "0.1.0",
+        "installedAt": "2026-04-01T03:54:39.317Z"
+      },
+      "openclaw-dacomp-tools": {
+        "source": "path",
+        "sourcePath": "/home/qchenax/openclaw-dacomp-plugin",
+        "installPath": "/home/qchenax/.openclaw/extensions/openclaw-dacomp-tools",
+        "version": "1.0.0",
+        "installedAt": "2026-04-08T01:46:53.447Z"
+      }
+    },
+    "slots": {
+      "contextEngine": "openviking"
+    }
+  }
+}

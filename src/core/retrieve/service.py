@@ -87,9 +87,9 @@ class RetrieveService:
         if s in {"agent", "user"}:
             return o == agent_id
         if s == "team":
-            # MVP rule: team resource is visible when requester belongs to that owner space.
-            # Detailed team-closure expansion is delegated to ACL service integration later.
-            return o == agent_id
+            # AMC MVP currently treats team-scoped trajectories as account-shared.
+            # Team-path ACL closure should be delegated to a dedicated ACL service later.
+            return True
         return False
 
     @classmethod
@@ -115,7 +115,6 @@ class RetrieveService:
             top_k=cmd.top_k,
             scope_filter=cmd.scope_filter,
             owner_space_filter=cmd.owner_space_filter,
-            task_type=pq.task_type,
         )
         unioned = union_candidates(hits)
         ranked_semantic = rerank_semantic_only(unioned)
@@ -147,8 +146,6 @@ class RetrieveService:
         items: list[dict[str, Any]] = []
         for hit in ranked_semantic:
             rationale = ["semantic recall match on trajectory-level summaries (L0/L1)"]
-            if pq.task_type:
-                rationale.append(f"task_type hint: {pq.task_type}")
             graph_match = graph_matches.get(hit.trajectory_id)
             graph_match_score = graph_match.graph_score if graph_match is not None else None
             if graph_match is not None:

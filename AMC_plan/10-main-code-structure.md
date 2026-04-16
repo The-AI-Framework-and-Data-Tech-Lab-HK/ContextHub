@@ -289,7 +289,7 @@ ChangeEvent(skill/table/tool)
 ## 10.7 开发态技术选型落地
 
 ### Vector（pgvector）
-- 用 metadata 存 `account_id/scope/owner_space/task_type/stale_flag/lifecycle_status`；
+- 用 metadata 存 `account_id/scope/owner_space/stale_flag/lifecycle_status`；
 - 仅索引 `.abstract.md` 与 `.overview.md`；
 - 使用确定性主键做 upsert，保证幂等。
 

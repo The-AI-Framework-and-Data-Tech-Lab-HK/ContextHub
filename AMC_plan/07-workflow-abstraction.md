@@ -14,7 +14,7 @@
 ## 7.2 输入与产出
 
 ### 输入
-- 一组高质量轨迹（按 task_type 或标签筛选）；
+- 一组高质量轨迹（按主题标签/工具骨架筛选）；
 - 每条轨迹的反馈分与执行结果；
 - 可选专家标注（关键步骤、禁止步骤）。
 
@@ -28,7 +28,7 @@ class WorkflowTemplate:
     workflow_id: str                   # 模板唯一 ID（版本管理主键）
     account_id: str                    # 账户隔离字段
     name: str                          # 模板名称
-    task_type: str                     # 适用任务类型（retrieve 过滤字段）
+    tags: list[str]                    # 适用主题标签（用于组织与展示）
     stages: list[WorkflowStage]        # 主流程阶段定义（工具链骨架）
     failure_playbook: list[FailurePattern]  # 常见失败模式与修复策略
     confidence: float                  # 模板可信度（覆盖率/成功率/反馈综合）

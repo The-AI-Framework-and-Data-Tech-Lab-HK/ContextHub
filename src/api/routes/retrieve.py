@@ -19,11 +19,11 @@ def retrieve(
     x_account_id: str | None = Header(default=None, alias="X-Account-Id"),
     x_agent_id: str | None = Header(default=None, alias="X-Agent-Id"),
 ) -> RetrieveResponse:
-    resolved_account_id = (x_account_id or body.tenant_id or "").strip()
+    resolved_account_id = (x_account_id or "").strip()
     if not resolved_account_id:
         raise HTTPException(
             status_code=422,
-            detail="missing account context: provide X-Account-Id header or body.tenant_id",
+            detail="missing account context: provide X-Account-Id header",
         )
     resolved_agent_id = (x_agent_id or body.agent_id or "").strip()
     if not resolved_agent_id:
@@ -31,13 +31,9 @@ def retrieve(
             status_code=422,
             detail="missing agent context: provide X-Agent-Id header or body.agent_id",
         )
-    if x_account_id and body.tenant_id and body.tenant_id != x_account_id:
-        raise HTTPException(status_code=422, detail="account context mismatch between header and body")
     if x_agent_id and body.agent_id and body.agent_id != x_agent_id:
         raise HTTPException(status_code=422, detail="agent context mismatch between header and body")
     deprecation_warnings: list[str] = []
-    if body.tenant_id:
-        deprecation_warnings.append("body.tenant_id is deprecated; use X-Account-Id instead")
     if body.agent_id:
         deprecation_warnings.append("body.agent_id is deprecated; use X-Agent-Id instead")
     try:

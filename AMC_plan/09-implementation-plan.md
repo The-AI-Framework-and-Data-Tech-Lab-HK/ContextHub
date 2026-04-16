@@ -26,7 +26,7 @@
    向量索引以 `uri` 对应文件，不直接存正文，embedding 时按 `uri` 回 FS 读取；
    重复 commit 时若原文变化需更新对应 embedding）；
 6. 接入审计日志。
-7. 补齐向量索引 metadata（`account_id/scope/owner_space/status/task_type/trajectory_id/uri`），
+7. 补齐向量索引 metadata（`account_id/scope/owner_space/status/trajectory_id/uri`），
    为 Phase 2 的 pgvector 标量过滤提供前置条件。
 
 **里程碑 M1**：可稳定提交并查询单条轨迹详情，图构建成功率 > 95%（样例集）。
@@ -64,7 +64,7 @@
 17. 输出 workflow 草案（人工可审）；
 18. 发布到 team scope 并支持 retrieve 优先命中。
 
-**里程碑 M4**：至少 1 个 task_type 产出可复用 workflow 模板。
+**里程碑 M4**：至少 1 个业务主题产出可复用 workflow 模板。
 
 ## 9.3 验证指标（AMC 专项）
 
@@ -168,4 +168,18 @@
 - `M2.1`：FS/metadata 对齐完成（不改 API）
 - `M2.2`：commit/retrieve API 双栈兼容
 - `M2.3`：ACL 强制 + 旧字段下线
+
+### E. promote 到 team 能力对齐（新增）
+
+1. 新增 `POST /api/v1/amc/promote`（header 读取 `X-Account-Id/X-Agent-Id`）；
+2. promote 校验顺序对齐 main：`读源 -> 类型校验 -> 所有权校验 -> ACL 写目标校验 -> 写目标`；
+3. 目标 URI 固定为 `ctx://team/{target_team}/memories/trajectories/{trajectory_id}`；
+4. 写入 `derived_from` 血缘与审计事件（`promote_trajectory`）；
+5. 向量/图索引补齐 team 视图，确保 retrieve 可命中被提升 workflow。
+
+验收：
+- 仅允许提升本人 agent 私有轨迹；
+- 团队成员可检索命中，非成员不可见；
+- 重复 promote 行为可预测（409 或幂等返回）；
+- 审计可追溯 `source_uri/target_uri/target_team/actor`。
 

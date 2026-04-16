@@ -36,11 +36,10 @@ def _temporary_env(overrides: dict[str, str | None]) -> Iterator[None]:
 def verify(
     *,
     trajectory_file: Path,
-    tenant_id: str,
+    account_id: str,
     agent_id: str,
     session_id: str,
     task_id: str | None,
-    task_type: str,
     config_path: str | None,
     disable_idempotency: bool,
     force_rule_based: bool,
@@ -49,11 +48,10 @@ def verify(
     with _temporary_env(env_overrides):
         commit_out = run_commit(
             trajectory_file=trajectory_file,
-            tenant_id=tenant_id,
+            account_id=account_id,
             agent_id=agent_id,
             session_id=session_id,
             task_id=task_id,
-            task_type=task_type,
             trajectory_id=None,
             visualize_graph_png=False,
             disable_idempotency=disable_idempotency,
@@ -71,7 +69,7 @@ def verify(
     try:
         with driver.session(database=settings.neo4j_database) as session:
             traj_row = session.run(
-                "MATCH (t:AMCTrajectory {trajectory_id:$tid}) RETURN t.tenant_id AS tenant, t.agent_id AS agent",
+                "MATCH (t:AMCTrajectory {trajectory_id:$tid}) RETURN t.account_id AS account_id, t.agent_id AS agent",
                 tid=tid,
             ).single()
             node_counts = session.run(
@@ -161,11 +159,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Commit a trajectory then verify Neo4j node/edge labels and relation types.",
     )
     parser.add_argument("trajectory_file", help="Path to trajectory JSON (e.g. sample_traj/traj1.json)")
-    parser.add_argument("--tenant-id", default="tenant-local", help="Tenant identifier")
+    parser.add_argument("--account-id", default="account-local", help="Account identifier")
     parser.add_argument("--agent-id", default="agent-local", help="Agent identifier")
     parser.add_argument("--session-id", default="session-local", help="Session identifier")
     parser.add_argument("--task-id", default=None, help="Task id (default: task-<filename>)")
-    parser.add_argument("--task-type", default="sql_analysis", help="labels.task_type value")
     parser.add_argument("--disable-idempotency", action="store_true", help="Force overwrite behavior")
     parser.add_argument(
         "--force-rule-based",
@@ -181,11 +178,10 @@ def main() -> int:
     args = build_parser().parse_args()
     out = verify(
         trajectory_file=Path(args.trajectory_file),
-        tenant_id=args.tenant_id,
+        account_id=args.account_id,
         agent_id=args.agent_id,
         session_id=args.session_id,
         task_id=args.task_id,
-        task_type=args.task_type,
         config_path=args.config_path,
         disable_idempotency=args.disable_idempotency,
         force_rule_based=args.force_rule_based,

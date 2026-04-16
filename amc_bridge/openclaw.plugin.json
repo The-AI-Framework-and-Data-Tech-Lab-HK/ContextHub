@@ -1,0 +1,15 @@
+{
+  "id": "amc",
+  "kind": "context-engine",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sidecarUrl": {
+        "type": "string",
+        "default": "http://localhost:9200",
+        "description": "URL of the AMC v0 Python sidecar"
+      }
+    }
+  }
+}

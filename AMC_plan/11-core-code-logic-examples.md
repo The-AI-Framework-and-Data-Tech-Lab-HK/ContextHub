@@ -106,7 +106,6 @@ class CommitOrchestrator:
                     "trajectory_id": trajectory_id,
                     "account_id": cmd.account_id,
                     "agent_id": cmd.agent_id,
-                    "task_type": cmd.labels.get("task_type"),
                     "failure_signature": failure_signature,
                 },
                 raw=raw_graph,
@@ -137,7 +136,6 @@ class CommitOrchestrator:
                     "trajectory_id": trajectory_id,
                     "account_id": cmd.account_id,
                     "agent_id": cmd.agent_id,
-                    "task_type": cmd.labels.get("task_type"),
                     "status": "success_or_partial",
                     "failure_signature": failure_signature,
                 },
@@ -154,7 +152,6 @@ class CommitOrchestrator:
             "account_id": cmd.account_id,
             "trajectory_id": trajectory_id,
             "trajectory_uri": traj_uri,
-            "task_type": cmd.labels.get("task_type"),
         }
         await self.event_log.append(event)
         await self.embedding_queue.enqueue(event)
@@ -196,7 +193,6 @@ class RetrieveCommand:
     task_description: str
     partial_trajectory: list[dict[str, Any]] | None
     constraints: dict[str, Any]
-    task_type: str | None
     top_k: int = 5
     include_stale: bool = False
 
@@ -238,14 +234,12 @@ class RetrieveOrchestrator:
         q = self.query_parser.parse(
             task_description=cmd.task_description,
             constraints=cmd.constraints,
-            task_type=cmd.task_type,
         )
 
         sem_candidates = await self.semantic_recall.search(
             account_id=cmd.account_id,
             query_text=q["embedding_text"],
             filters={
-                "task_type": cmd.task_type,
                 "tool_set": cmd.constraints.get("tool_whitelist"),
                 "stale_flag": None if cmd.include_stale else False,
                 "lifecycle_status": ["active", "cold"],
@@ -471,7 +465,6 @@ async def retrieve_endpoint(req: RetrieveRequest, actor=Depends(current_actor), 
             task_description=req.query.task_description,
             partial_trajectory=req.query.partial_trajectory,
             constraints=req.query.constraints or {},
-            task_type=req.query.task_type,
             top_k=req.top_k,
             include_stale=req.query.include_stale,
         ),

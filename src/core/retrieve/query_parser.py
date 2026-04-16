@@ -9,7 +9,6 @@ from typing import Any
 @dataclass
 class ParsedRetrieveQuery:
     query_text: str
-    task_type: str | None
     has_partial_trajectory: bool
     tool_whitelist: tuple[str, ...]
 
@@ -28,8 +27,6 @@ def _extract_failure_clues(partial_trajectory: list[dict[str, Any]] | None) -> l
 
 def parse_retrieve_query(query: dict[str, Any]) -> ParsedRetrieveQuery:
     task_description = str(query.get("task_description") or "").strip()
-    task_type_raw = str(query.get("task_type") or "").strip()
-    task_type = task_type_raw or None
     constraints = query.get("constraints") or {}
     tool_whitelist_raw = constraints.get("tool_whitelist") if isinstance(constraints, dict) else []
     tool_whitelist = tuple(str(x).strip() for x in (tool_whitelist_raw or []) if str(x).strip())
@@ -40,8 +37,6 @@ def parse_retrieve_query(query: dict[str, Any]) -> ParsedRetrieveQuery:
     parts: list[str] = []
     if task_description:
         parts.append(task_description)
-    if task_type:
-        parts.append(f"task_type: {task_type}")
     if tool_whitelist:
         parts.append("tools: " + ", ".join(tool_whitelist))
     if failure_clues:
@@ -50,7 +45,6 @@ def parse_retrieve_query(query: dict[str, Any]) -> ParsedRetrieveQuery:
     query_text = " || ".join(parts).strip() or "retrieve similar trajectories"
     return ParsedRetrieveQuery(
         query_text=query_text,
-        task_type=task_type,
         has_partial_trajectory=bool(partial_steps),
         tool_whitelist=tool_whitelist,
     )
