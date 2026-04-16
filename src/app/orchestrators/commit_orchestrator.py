@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from typing import Any
 
 from core.commit.service import CommitCommand, CommitResult, CommitService
@@ -9,6 +11,13 @@ from core.indexing.base import TrajectoryIndexer
 from infra.audit.audit_logger import JsonlAuditLogger
 from infra.storage.fs.trajectory_repo import LocalFSTrajectoryRepository
 from infra.storage.graph.base import GraphStoreWriter
+
+
+@dataclass
+class PreparedCommitOutcome:
+    command: CommitCommand
+    result: CommitResult | None
+    error: Exception | None = None
 
 
 class CommitOrchestrator:
@@ -29,9 +38,8 @@ class CommitOrchestrator:
         self.vector_indexer = vector_indexer
         self.idempotency_enabled = idempotency_enabled
 
-    def commit(self, command: CommitCommand) -> CommitResult:
-        # Service computes graph + summaries and returns deterministic idempotency key.
-        result = self.commit_service.run(command)
+    def _persist_prepared_commit(self, command: CommitCommand, result: CommitResult) -> CommitResult:
+        # Persist prepared result into graph/fs/vector backends.
         account_id = command.resolved_account_id()
         scope = command.resolved_scope()
         owner_space = command.resolved_owner_space()
@@ -146,6 +154,60 @@ class CommitOrchestrator:
             },
         )
         return result
+
+    def prepare_commit(self, command: CommitCommand) -> CommitResult:
+        # Service computes graph + summaries and returns deterministic idempotency key.
+        return self.commit_service.run(command)
+
+    def prepare_commits(
+        self, commands: list[CommitCommand], *, max_workers: int = 1
+    ) -> list[PreparedCommitOutcome]:
+        if not commands:
+            return []
+        workers = max(1, int(max_workers))
+        if workers == 1:
+            outcomes: list[PreparedCommitOutcome] = []
+            for command in commands:
+                try:
+                    outcomes.append(
+                        PreparedCommitOutcome(
+                            command=command,
+                            result=self.prepare_commit(command),
+                            error=None,
+                        )
+                    )
+                except Exception as exc:
+                    outcomes.append(
+                        PreparedCommitOutcome(command=command, result=None, error=exc)
+                    )
+            return outcomes
+
+        outcomes_by_idx: dict[int, PreparedCommitOutcome] = {}
+        with ThreadPoolExecutor(max_workers=min(workers, len(commands))) as pool:
+            future_to_idx = {
+                pool.submit(self.prepare_commit, command): idx for idx, command in enumerate(commands)
+            }
+            for fut in as_completed(future_to_idx):
+                idx = future_to_idx[fut]
+                command = commands[idx]
+                try:
+                    outcomes_by_idx[idx] = PreparedCommitOutcome(
+                        command=command,
+                        result=fut.result(),
+                        error=None,
+                    )
+                except Exception as exc:
+                    outcomes_by_idx[idx] = PreparedCommitOutcome(
+                        command=command, result=None, error=exc
+                    )
+        return [outcomes_by_idx[i] for i in range(len(commands))]
+
+    def commit(self, command: CommitCommand) -> CommitResult:
+        prepared = self.prepare_commit(command)
+        return self._persist_prepared_commit(command, prepared)
+
+    def commit_prepared(self, command: CommitCommand, result: CommitResult) -> CommitResult:
+        return self._persist_prepared_commit(command, result)
 
     def replay(self, trajectory_id: str) -> dict[str, Any] | None:
         # Thin pass-through for API replay endpoint.

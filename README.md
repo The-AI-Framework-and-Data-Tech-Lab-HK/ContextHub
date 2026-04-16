@@ -314,6 +314,42 @@ amc-commit-trajectory sample_traj/traj1.json \
 ```
 
 该命令会直接运行 Phase 1 commit pipeline，并输出 L0/L1 与图文件落盘位置。
+如需一键批量提交，新增命令 `amc-commit-trajectory-batch`（默认提交 Alfworld 0001-0008）：
+
+```bash
+amc-commit-trajectory-batch \
+  --account-id acc-demo \
+  --agent-id agent-a \
+  --scope agent \
+  --owner-space agent-a \
+  --pretty
+```
+
+默认输出为精简模式（每条轨迹仅显示 `status` 与 `extraction_success`，并给出 `load/prepare/persist/total` 阶段耗时）。
+如需旧版完整明细（`neo4j_summary/vector_index_summary/storage` 等），可增加：
+
+```bash
+amc-commit-trajectory-batch --output-mode full --pretty
+```
+
+默认输入是：
+- `sample_traj/alfworld/data/traj_alfworld_0001.json`
+- ...
+- `sample_traj/alfworld/data/traj_alfworld_0008.json`
+
+也可显式传入文件列表覆盖默认输入：
+
+```bash
+amc-commit-trajectory-batch sample_traj/traj1.json sample_traj/traj2.json --pretty
+```
+
+批量命令可用主要参数：
+- `--fail-fast`：首条失败后跳过剩余；
+- `--llm-batch-size-hint / --llm-max-items-per-batch`：LLM 并行/分批提示；
+- `--llm-token-usage-ratio`：token 预算比例；
+- `--llm-max-context-tokens-fallback`：模型上下文回退上限；
+- `--labels-json '{"source":"cli-batch"}'`：附加到每条 item 的 labels。
+
 如需在同目录生成 `raw_graph.png` 和 `clean_graph.png`，可增加参数：
 
 ```bash

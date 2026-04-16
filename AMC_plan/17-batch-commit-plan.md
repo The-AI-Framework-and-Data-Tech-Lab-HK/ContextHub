@@ -193,6 +193,22 @@ Receive Batch
 - 批量失败：回退单条 LLM；
 - 单条 LLM 失败：回退 rule-based summarizer。
 
+### 17.4.4 当前实现状态（2026-04-16）
+
+- 已落地“token-aware 微批”到 `/commit/batch` 的 prepare 阶段：
+  - 先估算每条轨迹的 LLM token 负载；
+  - 用 `llm_token_usage_ratio * max_context_tokens` 作为预算；
+  - 同时受 `llm_max_items_per_batch` 限制；
+  - 每个微批内部再做并行 prepare（`ThreadPoolExecutor`）。
+- `max_context_tokens` 获取策略：
+  - 优先从 provider 模型元数据读取；
+  - 失败时回退 `llm_max_context_tokens_fallback`（默认 24000）。
+- 已落地 provider 级限流/重试：
+  - provider+model 维度并发门控（semaphore）；
+  - 429/5xx/连接超时等可重试错误指数退避 + jitter；
+  - 支持读取 `Retry-After` 头；
+  - trace 追加 `retry_count/prompt_tokens/completion_tokens/total_tokens`。
+
 ---
 
 ## 17.5 批量持久化设计
@@ -297,6 +313,10 @@ commit:
 - `AMC_COMMIT_BATCH_LLM_TOKEN_USAGE_RATIO`
 - `AMC_COMMIT_BATCH_LLM_MAX_CONTEXT_TOKENS_FALLBACK`
 - `AMC_COMMIT_BATCH_PERSIST_BATCH_SIZE`
+- `AMC_LLM_MAX_CONCURRENCY`
+- `AMC_LLM_MAX_RETRIES`
+- `AMC_LLM_BACKOFF_BASE_SECONDS`
+- `AMC_LLM_BACKOFF_MAX_SECONDS`
 
 ---
 
@@ -333,12 +353,15 @@ commit:
 - 打通 item 级返回与失败语义。
 
 ### Phase B（完整批处理）
-- 实现 LLM `extract_batch/summarize_batch`；
-- 实现 FS/Graph/Vector 批写接口；
-- 增加重试与补偿状态记录。
+- 已完成：prepare 阶段并行（LLM 相关计算并发）；
+- 已完成：provider 级限流 + 429 backoff 重试；
+- 已完成：`llm_token_usage_ratio` 驱动的 token-aware 微批打包；
+- 待继续：真正的单请求 LLM `extract_batch/summarize_batch` 接口化；
+- 待继续：FS/Graph/Vector 原生批写接口化；
+- 待继续：持久化阶段补偿状态持久化。
 
 ### Phase C（性能与稳定性）
-- token-aware packing 优化；
+- 估算器持续校准（estimated vs actual token）；
 - Graph `UNWIND` 与 embedding 批请求调优；
 - 增加压测、告警、SLO 守护。
 

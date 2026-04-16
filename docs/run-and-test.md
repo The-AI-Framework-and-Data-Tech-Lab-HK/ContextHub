@@ -171,6 +171,33 @@ You can also run module style:
 python -m cli.commit_trajectory sample_traj/traj1.json --pretty
 ```
 
+Batch commit CLI (defaults to Alfworld `0001~0008`):
+
+```bash
+amc-commit-trajectory-batch \
+  --account-id account-local \
+  --agent-id agent-local \
+  --scope agent \
+  --owner-space agent-local \
+  --pretty
+```
+
+By default, batch CLI prints compact output:
+- per item: `status` + `extraction_success`
+- global timing: `load_inputs_seconds`, `prepare_seconds`, `persist_seconds`, `total_seconds`
+
+To print full detailed item payloads (storage + graph/vector summaries):
+
+```bash
+amc-commit-trajectory-batch --output-mode full --pretty
+```
+
+Override default inputs with explicit files:
+
+```bash
+amc-commit-trajectory-batch sample_traj/traj1.json sample_traj/traj2.json --pretty
+```
+
 Enable graph PNG visualization (default is off):
 
 ```bash
