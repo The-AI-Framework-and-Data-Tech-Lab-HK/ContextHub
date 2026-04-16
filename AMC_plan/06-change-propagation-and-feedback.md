@@ -74,7 +74,7 @@ class TrajectoryFeedback:
 回写逻辑：
 - 更新 trajectory 质量分；
 - 更新 node/edge 的“可复用度”；
-- 更新 task_type 下的 workflow 候选权重。
+- 更新同主题/同工具骨架下的 workflow 候选权重。
 
 ## 6.5 生命周期策略（AMC 子域）
 

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
 from openai import OpenAI
+
+from core.commit.llm_runtime import chat_completion_with_retry, provider_key
 
 
 @dataclass
@@ -17,7 +20,20 @@ class LLMDataflowExtractor:
     model: str = "gpt-4.1-mini"
     base_url: str | None = None
     temperature: float = 0.0
-    last_traces: list[dict[str, Any]] = field(default_factory=list)
+    _thread_local: threading.local = field(default_factory=threading.local, init=False, repr=False)
+
+    @property
+    def last_traces(self) -> list[dict[str, Any]]:
+        value = getattr(self._thread_local, "last_traces", None)
+        if isinstance(value, list):
+            return value
+        value = []
+        self._thread_local.last_traces = value
+        return value
+
+    @last_traces.setter
+    def last_traces(self, value: list[dict[str, Any]]) -> None:
+        self._thread_local.last_traces = list(value)
 
     def _client(self) -> OpenAI:
         if self.base_url:
@@ -48,6 +64,10 @@ class LLMDataflowExtractor:
         raw_response_text: str,
         parsed_result: Any,
         error: str | None = None,
+        retry_count: int = 0,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        total_tokens: int = 0,
     ) -> None:
         self.last_traces.append(
             {
@@ -60,6 +80,10 @@ class LLMDataflowExtractor:
                 "raw_response_text": raw_response_text,
                 "parsed_result": parsed_result,
                 "error": error or "",
+                "retry_count": int(retry_count),
+                "prompt_tokens": int(prompt_tokens),
+                "completion_tokens": int(completion_tokens),
+                "total_tokens": int(total_tokens),
             }
         )
 
@@ -88,16 +112,23 @@ class LLMDataflowExtractor:
         )
 
         client = self._client()
-        resp = client.chat.completions.create(
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": json.dumps({"nodes": nodes}, ensure_ascii=False)},
+        ]
+        resp, retries = chat_completion_with_retry(
+            client=client,
+            provider_id=provider_key(base_url=self.base_url, model=self.model),
             model=self.model,
             temperature=self.temperature,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": json.dumps({"nodes": nodes}, ensure_ascii=False)},
-            ],
+            messages=messages,
         )
         content = resp.choices[0].message.content or '{"dataflow_edges":[]}'
         data = self._extract_json(content)
+        usage = getattr(resp, "usage", None)
+        prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
         # Backward compatibility if model returns old {'edges': [...]} format.
         if isinstance(data.get("edges"), list):
             edges = [e for e in data.get("edges", []) if isinstance(e, dict)]
@@ -107,6 +138,10 @@ class LLMDataflowExtractor:
                 top_k_per_dst=top_k_per_dst,
                 raw_response_text=content,
                 parsed_result={"dataflow_edges": edges},
+                retry_count=retries,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
             )
             return edges
         dataflow_raw = data.get("dataflow_edges")
@@ -117,6 +152,10 @@ class LLMDataflowExtractor:
             top_k_per_dst=top_k_per_dst,
             raw_response_text=content,
             parsed_result={"dataflow_edges": edges},
+            retry_count=retries,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
         )
         return edges
 
@@ -141,16 +180,23 @@ class LLMDataflowExtractor:
             f"For each dst node, keep at most {top_k_per_dst} best edges."
         )
         client = self._client()
-        resp = client.chat.completions.create(
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": json.dumps({"nodes": nodes}, ensure_ascii=False)},
+        ]
+        resp, retries = chat_completion_with_retry(
+            client=client,
+            provider_id=provider_key(base_url=self.base_url, model=self.model),
             model=self.model,
             temperature=self.temperature,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": json.dumps({"nodes": nodes}, ensure_ascii=False)},
-            ],
+            messages=messages,
         )
         content = resp.choices[0].message.content or '{"reasoning_edges":[]}'
         data = self._extract_json(content)
+        usage = getattr(resp, "usage", None)
+        prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
         reasoning_raw = data.get("reasoning_edges")
         edges = [e for e in (reasoning_raw or []) if isinstance(e, dict)] if isinstance(reasoning_raw, list) else []
         self._record_trace(
@@ -159,6 +205,10 @@ class LLMDataflowExtractor:
             top_k_per_dst=top_k_per_dst,
             raw_response_text=content,
             parsed_result={"reasoning_edges": edges},
+            retry_count=retries,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
         )
         return edges
 

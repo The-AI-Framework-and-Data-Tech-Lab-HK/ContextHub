@@ -23,22 +23,27 @@ def _load_trajectory(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         raise FileNotFoundError(f"trajectory file not found: {path}")
     data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, list):
-        raise ValueError("trajectory JSON must be a list of step objects")
-    return data
+    # Backward compatibility:
+    # - old format: top-level is a list of step objects
+    # - new format: top-level is an object with a "trajectory" list field
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        inner = data.get("trajectory")
+        if isinstance(inner, list):
+            return inner
+    raise ValueError("trajectory JSON must be a list of step objects or an object with a 'trajectory' list field")
 
 
 def run_commit(
     *,
     trajectory_file: Path,
-    account_id: str | None,
-    tenant_id: str | None,
+    account_id: str,
     agent_id: str,
     scope: str,
     owner_space: str | None,
     session_id: str,
     task_id: str | None,
-    task_type: str,
     trajectory_id: str | None,
     visualize_graph_png: bool = False,
     disable_idempotency: bool = False,
@@ -46,9 +51,7 @@ def run_commit(
 ) -> dict[str, Any]:
     """Execute Phase 1 commit pipeline and return a CLI-friendly result payload."""
     settings = load_settings(config_path=config_path)
-    resolved_account_id = str(account_id or tenant_id or "account-local").strip()
-    if tenant_id:
-        print("[AMC] --tenant-id is deprecated; use --account-id.")
+    resolved_account_id = str(account_id or "account-local").strip()
     repo = LocalFSTrajectoryRepository(root=settings.storage.localfs_root)
     audit = JsonlAuditLogger(file_path=settings.storage.audit_file_path)
     graph_store = build_graph_store_writer(settings)
@@ -114,7 +117,6 @@ def run_commit(
     steps = _load_trajectory(trajectory_file)
     effective_task_id = task_id or f"task-{trajectory_file.stem}"
     command = CommitCommand(
-        tenant_id=resolved_account_id,
         agent_id=agent_id,
         account_id=resolved_account_id,
         scope=scope,
@@ -122,7 +124,7 @@ def run_commit(
         session_id=session_id,
         task_id=effective_task_id,
         trajectory=steps,
-        labels={"task_type": task_type},
+        labels={},
         is_incremental=False,
         trajectory_id=trajectory_id,
         visualize_graph_png=visualize_graph_png,
@@ -160,7 +162,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("trajectory_file", help="Path to trajectory JSON (e.g. sample_traj/traj1.json)")
     parser.add_argument("--account-id", default="account-local", help="Account identifier (primary)")
-    parser.add_argument("--tenant-id", default=None, help="Deprecated alias of account_id")
     parser.add_argument("--agent-id", default="agent-local", help="Agent identifier")
     parser.add_argument(
         "--scope",
@@ -175,7 +176,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--session-id", default="session-local", help="Session identifier")
     parser.add_argument("--task-id", default=None, help="Task identifier (default: task-<filename>)")
-    parser.add_argument("--task-type", default="sql_analysis", help="labels.task_type value")
     parser.add_argument("--trajectory-id", default=None, help="Optional explicit trajectory_id")
     parser.add_argument(
         "--visualize-graph-png",
@@ -197,13 +197,11 @@ def main() -> int:
     result = run_commit(
         trajectory_file=Path(args.trajectory_file),
         account_id=args.account_id,
-        tenant_id=args.tenant_id,
         agent_id=args.agent_id,
         scope=args.scope,
         owner_space=args.owner_space,
         session_id=args.session_id,
         task_id=args.task_id,
-        task_type=args.task_type,
         trajectory_id=args.trajectory_id,
         visualize_graph_png=args.visualize_graph_png,
         disable_idempotency=args.disable_idempotency,

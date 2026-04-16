@@ -27,7 +27,6 @@ class Trajectory:
     scope: str                     # 作用域：agent|team|datalake|user
     owner_space: str               # 作用域归属（agent_id 或 team path）
     agent_id: str                  # 产生该轨迹的 agent ID
-    task_type: str | None          # 任务类型标签（用于检索过滤与 workflow 分桶）
     task_summary_l0: str           # 轨迹 L0 摘要（~100 tokens，快速召回）
     task_overview_l1: str          # 轨迹 L1 概览（~1-2k tokens，重排/理解）
     status: str                    # 任务结果状态：success | partial | failed

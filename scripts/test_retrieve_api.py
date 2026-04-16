@@ -25,9 +25,7 @@ def run(args: argparse.Namespace) -> int:
         if not isinstance(partial_steps, list):
             raise ValueError("partial trajectory file must be a JSON array")
 
-    if args.tenant_id:
-        print("[AMC] --tenant-id is deprecated; use --account-id.")
-    resolved_account_id = str(args.account_id or args.tenant_id or "account-local").strip()
+    resolved_account_id = str(args.account_id or "account-local").strip()
     base = args.base_url.rstrip("/")
     retrieve_url = f"{base}/retrieve"
     retrieve_payload = {
@@ -35,8 +33,9 @@ def run(args: argparse.Namespace) -> int:
             "task_description": args.task_description,
             "partial_trajectory": partial_steps,
             "constraints": {"tool_whitelist": args.tool_whitelist},
-            "task_type": args.task_type,
         },
+        "scope": args.scope,
+        "owner_space": args.owner_space,
         "top_k": args.top_k,
         "include_full_clean_graph": bool(args.include_full_clean_graph),
     }
@@ -101,10 +100,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-url", default="http://127.0.0.1:8000/api/v1/amc", help="AMC API base URL")
     p.add_argument("--health-url", default="http://127.0.0.1:8000/healthz", help="Health endpoint URL")
     p.add_argument("--account-id", default="account-local")
-    p.add_argument("--tenant-id", default=None, help="Deprecated alias of account_id")
     p.add_argument("--agent-id", default="agent-local")
-    p.add_argument("--task-type", default="sql_analysis")
     p.add_argument("--task-description", default="中小微 企业信贷及经营数据")
+    p.add_argument("--scope", nargs="*", default=[], help="Optional scope filter list, e.g. team agent")
+    p.add_argument(
+        "--owner-space",
+        nargs="*",
+        default=[],
+        help="Optional owner_space filter list, e.g. engineering agent-a",
+    )
     p.add_argument("--partial-trajectory-file", default="sample_graph_query/pq02_retry_pattern_traj1.json")
     p.add_argument("--top-k", type=int, default=5)
     p.add_argument("--tool-whitelist", nargs="*", default=["local_db_sql"], help="Space-separated tool list")

@@ -15,13 +15,11 @@ class RetrieveQuery(BaseModel):
     task_description: str = ""
     partial_trajectory: list[dict[str, Any]] | None = None
     constraints: RetrieveQueryConstraints = Field(default_factory=RetrieveQueryConstraints)
-    task_type: str | None = None
 
 
 class RetrieveRequest(BaseModel):
-    # tenant_id/agent_id are kept for backward compatibility.
+    # agent_id is kept for backward compatibility.
     # Preferred context source is headers: X-Account-Id / X-Agent-Id.
-    tenant_id: str | None = None
     agent_id: str | None = None
     query: RetrieveQuery
     scope: list[str] = Field(default_factory=list)
