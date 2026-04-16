@@ -85,6 +85,18 @@ def _retrieve_payload_header_mode() -> dict:
     }
 
 
+def _batch_item_payload(sample_traj_dir: Path, name: str) -> dict:
+    raw = json.loads((sample_traj_dir / name).read_text(encoding="utf-8"))
+    steps = raw.get("trajectory") if isinstance(raw, dict) else raw
+    return {
+        "session_id": f"batch-session-{name}",
+        "task_id": f"batch-task-{name}",
+        "trajectory": steps,
+        "labels": {"source": "integration-test"},
+        "is_incremental": False,
+    }
+
+
 def test_i01_post_commit_accepted(sample_traj_dir: Path, tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
     client = TestClient(app)
@@ -94,6 +106,91 @@ def test_i01_post_commit_accepted(sample_traj_dir: Path, tmp_path: Path) -> None
     assert body["status"] == "accepted"
     assert body["nodes"] > 0
     assert body["edges"] >= 0
+
+
+def test_i01b_post_batch_commit_accepted(sample_traj_dir: Path, tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    payload = {
+        "scope": "agent",
+        "items": [
+            _batch_item_payload(sample_traj_dir, "traj1.json"),
+            _batch_item_payload(sample_traj_dir, "traj2.json"),
+        ],
+    }
+    resp = client.post("/api/v1/amc/commit/batch", json=payload, headers=_header())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "accepted"
+    assert body["summary"]["total"] == 2
+    assert body["summary"]["accepted"] == 2
+    assert body["summary"]["failed"] == 0
+    assert body["summary"]["skipped"] == 0
+    assert len(body["items"]) == 2
+    for item in body["items"]:
+        assert item["status"] == "accepted"
+        tid = str(item["trajectory_id"])
+        replay = client.get(f"/api/v1/amc/replay/{tid}")
+        assert replay.status_code == 200
+
+
+def test_i01c_batch_commit_partial_failure(sample_traj_dir: Path, tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    payload = {
+        "scope": "agent",
+        "items": [
+            _batch_item_payload(sample_traj_dir, "traj3.json"),
+            {
+                "session_id": "batch-invalid",
+                "task_id": "batch-invalid",
+                "trajectory": [],
+                "labels": {},
+                "is_incremental": False,
+            },
+        ],
+    }
+    resp = client.post("/api/v1/amc/commit/batch", json=payload, headers=_header())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "accepted_partial"
+    assert body["summary"]["total"] == 2
+    assert body["summary"]["accepted"] == 1
+    assert body["summary"]["failed"] == 1
+    assert body["summary"]["skipped"] == 0
+    assert body["items"][0]["status"] == "accepted"
+    assert body["items"][1]["status"] == "failed"
+    assert body["items"][1]["error_code"] == "VALIDATION_ERROR"
+
+
+def test_i01d_batch_commit_fail_fast_skips_remaining(sample_traj_dir: Path, tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    client = TestClient(app)
+    payload = {
+        "scope": "agent",
+        "options": {"fail_fast": True},
+        "items": [
+            {
+                "session_id": "batch-invalid-fast",
+                "task_id": "batch-invalid-fast",
+                "trajectory": [],
+                "labels": {},
+                "is_incremental": False,
+            },
+            _batch_item_payload(sample_traj_dir, "traj4.json"),
+        ],
+    }
+    resp = client.post("/api/v1/amc/commit/batch", json=payload, headers=_header())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "accepted_partial"
+    assert body["summary"]["total"] == 2
+    assert body["summary"]["accepted"] == 0
+    assert body["summary"]["failed"] == 1
+    assert body["summary"]["skipped"] == 1
+    assert body["items"][0]["status"] == "failed"
+    assert body["items"][1]["status"] == "skipped"
+    assert body["items"][1]["error_code"] == "SKIPPED_FAIL_FAST"
 
 
 def test_i02_fs_writes_trajectory_bundle(sample_traj_dir: Path, tmp_path: Path) -> None:

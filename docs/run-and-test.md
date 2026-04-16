@@ -11,7 +11,7 @@ This document records how to run AMC in development and production-like modes.
   - `.env` (copy from `.env.example`)
 
 Optional external services:
-- Neo4j service (for graph backend in later phases)
+- Neo4j service (for retrieve graph-recall branch and graph backend writes)
 - PostgreSQL + pgvector extension (default vector backend)
 
 ## 2) Install Dependencies
@@ -76,17 +76,39 @@ pytest src/tests -m m1
 ```
 
 Notes:
-- Some integration tests are intentionally skipped until Neo4j/Chroma wiring is fully enabled.
+- Some integration tests require Neo4j env vars and are skipped when Neo4j is not configured.
 - If your shell does not auto-select `.venv`, use `.venv/bin/pytest ...`.
 
 ## 4) Run Project in Command Line (Foreground)
 
-### Quick start with `uvicorn`
+### Quick start with unified startup script
 
 ```bash
 cd /path/to/ContextHub
-source .venv/bin/activate
-uvicorn main:app --app-dir src --host 0.0.0.0 --port 8000 --reload
+bash scripts/start_amc.sh
+```
+
+This script starts required dependencies first:
+- PostgreSQL (`5432`)
+- Neo4j (`7687`)
+
+It also bootstraps Python env automatically:
+- create/activate `.venv` when missing
+- run `pip install -U pip`
+- run `pip install -e ".[dev]"` when dependencies are missing
+
+Then it starts AMC API with `uvicorn`.
+
+Optional host/port override:
+
+```bash
+AMC_HOST=0.0.0.0 AMC_PORT=8000 AMC_RELOAD=1 bash scripts/start_amc.sh
+```
+
+Optional: skip dependency bootstrap:
+
+```bash
+AMC_INSTALL_DEPS=0 bash scripts/start_amc.sh
 ```
 
 Health check:
@@ -103,7 +125,7 @@ curl -X POST "http://127.0.0.1:8000/api/v1/amc/commit" \
   -d @sample_request.json
 ```
 
-Example retrieve endpoint (Phase 2 semantic recall only):
+Example retrieve endpoint (semantic-first + optional graph recall):
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/v1/amc/retrieve" \
@@ -120,8 +142,10 @@ curl -X POST "http://127.0.0.1:8000/api/v1/amc/retrieve" \
 ```
 
 Notes:
-- Current implementation is semantic recall only (L0/L1 vector retrieval).
-- Graph matching and hybrid rerank are intentionally deferred.
+- Retrieve always starts with semantic recall on L0/L1 vector index.
+- When `query.partial_trajectory` is provided and graph backend is available, AMC builds a query graph and runs max-common-subgraph matching on candidates.
+- Final score is hybrid when graph match exists (`semantic` + `graph` weighted blend); otherwise it falls back to semantic score.
+- If graph backend is unavailable or query graph build fails, response warnings include the reason and semantic-only ranking is returned.
 
 ### Commit via CLI script (no HTTP server needed)
 
@@ -177,7 +201,7 @@ amc-retrieve-trajectory \
 ```
 
 Optional:
-- `--partial-trajectory-file sample_traj/traj5.json` to include partial trajectory in query payload.
+- `--partial-trajectory-file sample_traj/traj5.json` to enable query-graph construction and graph recall branch.
 - `--repeat N` prints `min/max/mean/p50/p95/p99` latency (ms) and returns the final run result payload.
 - default output shows `clean_graph_stats` only (Neo4j summary); add `--include-clean-graph` to print full graph JSON.
 

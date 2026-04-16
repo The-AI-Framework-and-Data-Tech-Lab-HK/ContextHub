@@ -4,7 +4,7 @@ This guide explains how to connect the **AMC v0 context-engine plugin** into Ope
 
 v0 is intentionally minimal:
 - `ingest`: record full message payload to local files
-- `assemble`: return empty context (`messages: []`)
+- `assemble`: query AMC `/retrieve` and optionally inject one memory hint message
 - `compact`: delegated to OpenClaw built-in compaction
 
 ## 1) Build the AMC bridge plugin
@@ -123,7 +123,7 @@ Merged trajectory files include:
 Only trajectories containing at least one `toolCall` are persisted in
 `openclaw_message/trajectories/...`. Pure chat-only turns are skipped.
 
-### Verify assemble returns empty
+### Verify assemble response
 
 ```bash
 curl -X POST http://localhost:9200/assemble \
@@ -132,13 +132,9 @@ curl -X POST http://localhost:9200/assemble \
 ```
 
 Expected:
-
-```json
-{
-  "messages": [],
-  "estimatedTokens": 0
-}
-```
+- If AMC retrieve finds no candidate, `messages` can be empty.
+- If AMC retrieve returns hits, sidecar returns one `system` message that includes retrieved memory (`Abstract` / `Overview`).
+- `estimatedTokens` remains `0` in v0.
 
 ### Verify compact delegation
 
@@ -172,7 +168,7 @@ Ensure `amc_bridge/package.json` contains:
 ## 7) What comes next (v1+)
 
 After v0 connectivity is stable, evolve to:
-- `assemble` -> AMC semantic retrieve path
+- richer `assemble` retrieval strategy (multi-hit fusion, stronger prompt shaping, configurable top-k)
 - `ingestBatch/afterTurn` -> commit/index pipeline
 - optional AMC-owned compaction (`ownsCompaction=true`)
 

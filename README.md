@@ -25,6 +25,11 @@ AMC 的 commit/retrieve 集成测试与本地完整链路依赖以下服务：
 - PostgreSQL（启用 `pgvector` 扩展）
 - Neo4j（图存储）
 
+说明（重要）：
+- 若 PostgreSQL 未启动，`pgvector` 向量检索/索引会被自动禁用；
+- 若 Neo4j 未启动，图存储与图召回分支会被自动禁用；
+- 要验证完整链路（commit + retrieve + graph/vector），这两个服务都必须处于运行状态。
+
 参考：
 - [How to install PostgreSQL with pgvector on Ubuntu - Rocketeers](https://rocketee.rs/install-postgresql-pgvector-ubuntu)
 - [How to install Neo4j on Ubuntu Server - TechRepublic](https://www.techrepublic.com/article/how-to-install-neo4j-ubuntu-server/)
@@ -101,6 +106,45 @@ AMC_NEO4J_PASSWORD=your_password
 AMC_NEO4J_DATABASE=neo4j
 ```
 
+### 手动服务控制（可选，排障用）
+
+推荐（systemd）：
+
+```bash
+sudo systemctl start postgresql
+sudo systemctl start neo4j
+sudo systemctl status postgresql
+sudo systemctl status neo4j
+```
+
+兼容（service 命令）：
+
+```bash
+sudo service postgresql start
+sudo service neo4j start
+sudo service postgresql status
+sudo service neo4j status
+```
+
+端口自检（应为 `True`）：
+
+```bash
+python - <<'PY'
+import socket
+for p in (5432, 7687):
+    s = socket.socket(); s.settimeout(0.8)
+    ok = False
+    try:
+        s.connect(("127.0.0.1", p))
+        ok = True
+    except Exception:
+        ok = False
+    finally:
+        s.close()
+    print(p, ok)
+PY
+```
+
 ## 一键安装依赖
 
 **依赖清单以根目录 `pyproject.toml` 为准**（运行时 + 可选开发组 `[dev]`）。
@@ -139,10 +183,33 @@ pytest src/tests -m integration          # 集成测试（需 Neo4j 等，部分
 
 ### FastAPI 功能脚本（拆分版）
 
-先启动 FastAPI 服务：
+统一使用一个命令启动整套服务（PostgreSQL + Neo4j + AMC API）：
 
 ```bash
-uvicorn main:app --app-dir src --host 127.0.0.1 --port 8000 --reload
+bash scripts/start_amc.sh
+```
+
+该脚本会先检查并启动：
+- PostgreSQL（5432）
+- Neo4j（7687）
+
+并自动执行 Python 环境准备：
+- 自动创建/激活 `.venv`（若不存在）；
+- 自动执行 `pip install -U pip`；
+- 若检测到依赖缺失，自动执行 `pip install -e ".[dev]"`。
+
+然后再启动 AMC API（`uvicorn main:app --app-dir src ...`）。
+
+可选：通过环境变量调整监听地址/端口（仍由同一脚本启动）：
+
+```bash
+AMC_HOST=0.0.0.0 AMC_PORT=8000 AMC_RELOAD=1 bash scripts/start_amc.sh
+```
+
+可选：若你明确不希望脚本触发 pip 安装（例如 CI 或离线环境），可设置：
+
+```bash
+AMC_INSTALL_DEPS=0 bash scripts/start_amc.sh
 ```
 
 再分别测试 commit / promote / retrieve：
@@ -233,7 +300,7 @@ AMC v0 作为 OpenClaw context engine 的接入步骤见 `docs/amc-openclaw-inte
 补充说明：
 - `--account-id` 是当前主参数；
 - 账号上下文统一使用 `account_id`（或 `X-Account-Id` 请求头）。
-- 检索默认走语义召回 + scope/owner_space 过滤。
+- 检索默认先做语义召回（L0/L1）；当提供 `partial_trajectory` 且图后端可用时，会追加图相似召回并做融合打分；不可用时自动回退语义召回并在 warnings 标注原因。
 
 ## 命令行提交轨迹（无 HTTP）
 
