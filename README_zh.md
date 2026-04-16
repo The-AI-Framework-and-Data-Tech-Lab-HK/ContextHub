@@ -165,9 +165,11 @@ cp .env.example .env
 | 变量 | 是否必填 | 默认值 | 用途 |
 |---|---|---|---|
 | `API_KEY` | 是 | `changeme` | 服务端认证——所有 SDK/HTTP 请求需在 `X-API-Key` header 中携带此值 |
-| `OPENAI_API_KEY` | 需要搜索功能时必填 | *（空）* | 启用向量 embedding 生成；不填则 `search` 无法返回结果 |
+| `OPENAI_API_KEY` | 使用 OpenAI 相关功能时必填 | *（空）* | 启用 `search` 所需的向量 embedding，以及长文档入库时用于构建文档树的 chat-based tree builder；不填则向量搜索不可用，长文档入库会返回 `503` |
 | `EMBEDDING_MODEL` | 否 | `text-embedding-3-small` | OpenAI embedding 模型名称 |
 | `EMBEDDING_DIMENSIONS` | 否 | `1536` | 需与所选模型的输出维度匹配 |
+
+当前版本不需要在 `.env` 中单独配置 chat model：长文档 chat client 使用代码内置的默认模型。
 
 ```bash
 # 执行数据库迁移

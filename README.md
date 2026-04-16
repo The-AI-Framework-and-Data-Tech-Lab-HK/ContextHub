@@ -165,9 +165,11 @@ cp .env.example .env
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `API_KEY` | Yes | `changeme` | Server auth — all SDK/HTTP requests must send this as `X-API-Key` header |
-| `OPENAI_API_KEY` | For search | *(empty)* | Enables vector embedding generation; without it, `search` returns no results |
+| `OPENAI_API_KEY` | For OpenAI-backed features | *(empty)* | Enables vector embeddings for `search` and the chat-based tree builder used by long-document ingestion; without it, vector search is disabled and long-document ingestion returns `503` |
 | `EMBEDDING_MODEL` | No | `text-embedding-3-small` | OpenAI embedding model name |
 | `EMBEDDING_DIMENSIONS` | No | `1536` | Must match the chosen model's output dimensions |
+
+Current builds do not require a separate chat model setting in `.env`: the long-document chat client uses an internal default model.
 
 ```bash
 # Run database migrations

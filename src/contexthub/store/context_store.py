@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from uuid import UUID
 
 from contexthub.db.repository import ScopedRepo
@@ -82,7 +83,7 @@ class ContextStore:
         col = LEVEL_COLUMNS[level]
         row = await db.fetchrow(
             f"""
-            SELECT id, status, {col}
+            SELECT id, status, {col}, file_path
             FROM contexts
             WHERE uri = $1 AND status != 'deleted'
             """,
@@ -98,7 +99,11 @@ class ContextStore:
                 "UPDATE contexts SET last_accessed_at = NOW() WHERE uri = $1", uri
             )
 
-        content = row[col] or ""
+        if row["file_path"] and level == ContextLevel.L2:
+            txt_path = Path(row["file_path"]) / "extracted.txt"
+            content = txt_path.read_text(encoding="utf-8") if txt_path.exists() else ""
+        else:
+            content = row[col] or ""
         if decision.field_masks:
             content = self._masking.apply_masks(content, decision.field_masks)
 
