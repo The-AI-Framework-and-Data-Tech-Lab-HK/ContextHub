@@ -32,6 +32,7 @@ def mock_client():
     client.memory = AsyncMock()
     client.skill = AsyncMock()
     client.search = AsyncMock()
+    client.report_feedback = AsyncMock()
     client.ls = AsyncMock()
     client.read = AsyncMock()
     client.grep = AsyncMock()
@@ -48,17 +49,23 @@ def engine(mock_client):
 # ── §8.1: Tool definition completeness ─────────────────────────────────
 
 EXPECTED_TOOLS = [
-    "ls", "read", "grep", "stat",
-    "contexthub_store", "contexthub_promote", "contexthub_skill_publish",
+    "ls",
+    "read",
+    "grep",
+    "stat",
+    "contexthub_store",
+    "contexthub_promote",
+    "contexthub_skill_publish",
+    "contexthub_feedback",
 ]
 
 
 class TestToolDefinitions:
     """§8.1: Each tool has name, description, parameters JSON Schema."""
 
-    def test_all_seven_tools_present(self):
+    def test_all_eight_tools_present_in_order(self):
         names = [t["name"] for t in TOOL_DEFINITIONS]
-        assert sorted(names) == sorted(EXPECTED_TOOLS)
+        assert names == EXPECTED_TOOLS
 
     @pytest.mark.parametrize("tool", TOOL_DEFINITIONS, ids=lambda t: t["name"])
     def test_tool_has_required_fields(self, tool):
@@ -70,6 +77,18 @@ class TestToolDefinitions:
         assert params.get("type") == "object"
         assert "properties" in params
         assert "required" in params
+
+    def test_feedback_tool_schema_matches_contract(self):
+        tool = next(t for t in TOOL_DEFINITIONS if t["name"] == "contexthub_feedback")
+        params = tool["parameters"]
+        assert params["required"] == ["context_uri", "outcome"]
+        assert set(params["properties"]) == {"context_uri", "outcome", "retrieval_id", "metadata"}
+        assert params["properties"]["outcome"]["enum"] == [
+            "adopted",
+            "ignored",
+            "corrected",
+            "irrelevant",
+        ]
 
 
 # ── §8.2: Each tool calls the correct SDK method ───────────────────────
@@ -108,6 +127,27 @@ class TestToolDispatch:
         )
         result = await dispatch(mock_client, "stat", {"uri": "x"})
         mock_client.stat.assert_awaited_once_with("x")
+
+    @pytest.mark.asyncio
+    async def test_feedback_calls_report_feedback(self, mock_client):
+        mock_client.report_feedback.return_value = {"id": 1, "outcome": "adopted"}
+        result = await dispatch(
+            mock_client,
+            "contexthub_feedback",
+            {
+                "context_uri": "ctx://team/engineering/resources/orders",
+                "outcome": "adopted",
+                "retrieval_id": "rid-1",
+                "metadata": {"source": "explicit-search"},
+            },
+        )
+        mock_client.report_feedback.assert_awaited_once_with(
+            context_uri="ctx://team/engineering/resources/orders",
+            outcome="adopted",
+            retrieval_id="rid-1",
+            metadata={"source": "explicit-search"},
+        )
+        assert json.loads(result)["outcome"] == "adopted"
 
     @pytest.mark.asyncio
     async def test_store_calls_memory_add(self, mock_client):
@@ -171,7 +211,11 @@ class TestAssemble:
     async def test_does_not_modify_messages(self, engine, mock_client):
         msgs = [{"role": "user", "content": "hello"}]
         original = [m.copy() for m in msgs]
-        mock_client.search.return_value = SearchResponse(results=[], total=0)
+        mock_client.search.return_value = SearchResponse(
+            results=[],
+            total=0,
+            retrieval_id="550e8400-e29b-41d4-a716-446655440000",
+        )
         result = await engine.assemble(sessionId="s1", messages=msgs)
         assert result["messages"] is msgs
         assert msgs == original
@@ -188,6 +232,7 @@ class TestAssemble:
                 )
             ],
             total=1,
+            retrieval_id="550e8400-e29b-41d4-a716-446655440001",
         )
         result = await engine.assemble(
             sessionId="s1", messages=[{"role": "user", "content": "query"}]
@@ -232,6 +277,7 @@ class TestAssemble:
                 )
             ],
             total=1,
+            retrieval_id="550e8400-e29b-41d4-a716-446655440002",
         )
         result = await engine.assemble(
             sessionId="s1",
@@ -242,6 +288,25 @@ class TestAssemble:
         assert "Auto-Recall" not in result["systemPromptAddition"]
         assert result["estimatedTokens"] > 6
         mock_client.search.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_tool_guide_includes_feedback_guidance(self, engine, mock_client):
+        mock_client.search.return_value = SearchResponse(
+            results=[],
+            total=0,
+            retrieval_id="550e8400-e29b-41d4-a716-446655440003",
+        )
+        result = await engine.assemble(
+            sessionId="s1",
+            messages=[{"role": "user", "content": "search for orders context"}],
+        )
+        guide = result["systemPromptAddition"]
+        assert "contexthub_feedback" in guide
+        assert "retrieval_id" in guide
+        assert "degraded mode" in guide
+        assert "explicit tool-based search" in guide
+        assert "returned by `read`" in guide
+        assert "auto-recall" in guide
 
 
 # ── Query extraction from instruction-wrapped messages ──────────────────
@@ -361,6 +426,7 @@ class TestAssembleRecallFormat:
                 )
             ],
             total=1,
+            retrieval_id="550e8400-e29b-41d4-a716-446655440004",
         )
         result = await engine.assemble(
             sessionId="s1",
@@ -387,6 +453,7 @@ class TestAssembleRecallFormat:
                 )
             ],
             total=1,
+            retrieval_id="550e8400-e29b-41d4-a716-446655440005",
         )
         result = await engine.assemble(
             sessionId="s1",
@@ -511,7 +578,11 @@ class TestNamingContract:
 
     @pytest.mark.asyncio
     async def test_assemble_return_keys(self, engine, mock_client):
-        mock_client.search.return_value = SearchResponse(results=[], total=0)
+        mock_client.search.return_value = SearchResponse(
+            results=[],
+            total=0,
+            retrieval_id="550e8400-e29b-41d4-a716-446655440006",
+        )
         result = await engine.assemble(
             sessionId="s1", messages=[{"role": "user", "content": "q"}]
         )

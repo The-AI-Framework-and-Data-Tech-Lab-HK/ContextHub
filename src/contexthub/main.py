@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from contexthub.api.middleware import AuthMiddleware
 from contexthub.api.routers.contexts import router as contexts_router
 from contexthub.api.routers.memories import router as memories_router
+from contexthub.api.routers.feedback import router as feedback_router
 from contexthub.api.routers.search import router as search_router
 from contexthub.api.routers.skills import router as skills_router
 from contexthub.api.routers.tools import router as tools_router
@@ -20,6 +21,7 @@ from contexthub.retrieval.router import RetrievalRouter
 from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
 from contexthub.services.context_service import ContextService
+from contexthub.services.feedback_service import FeedbackService
 from contexthub.services.indexer_service import IndexerService
 from contexthub.services.lifecycle_scheduler import LifecycleScheduler
 from contexthub.services.lifecycle_service import LifecycleService
@@ -91,6 +93,7 @@ async def lifespan(app: FastAPI):
             audit_service=audit_service,
             over_retrieve_factor=settings.search_over_retrieve_factor,
         )
+        feedback_service = FeedbackService(acl_service, audit=audit_service)
 
         app.state.settings = settings
         app.state.repo = repo
@@ -106,6 +109,7 @@ async def lifespan(app: FastAPI):
         app.state.embedding_client = embedding_client
         app.state.audit_service = audit_service
         app.state.share_service = share_service
+        app.state.feedback_service = feedback_service
 
         # Task 7: Carrier-specific services
         catalog_connector = MockCatalogConnector()
@@ -165,6 +169,7 @@ app = FastAPI(title="ContextHub", lifespan=lifespan)
 app.add_middleware(AuthMiddleware)
 app.include_router(contexts_router)
 app.include_router(memories_router)
+app.include_router(feedback_router)
 app.include_router(skills_router)
 app.include_router(search_router)
 app.include_router(tools_router)

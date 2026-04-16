@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from uuid import uuid4
 
 from contexthub.db.repository import ScopedRepo
 from contexthub.llm.base import EmbeddingClient
@@ -13,11 +14,24 @@ from contexthub.retrieval.router import RetrievalRouter
 from contexthub.retrieval.vector_strategy import vector_search
 from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
+from contexthub.services.feedback_service import QUALITY_MIN_SAMPLES
 from contexthub.services.masking_service import MaskingService
 
 logger = logging.getLogger(__name__)
 
 _STALE_PENALTY = 0.85
+
+
+def _quality_factor(adopted: int, ignored: int) -> float:
+    total = adopted + ignored
+    if total < QUALITY_MIN_SAMPLES:
+        return 1.0
+    quality_score = adopted / (total + 1)
+    return 0.5 + 0.5 * quality_score
+
+
+def _score_key(candidate: dict) -> str:
+    return "_rerank_score" if "_rerank_score" in candidate else "cosine_similarity"
 
 
 class RetrievalService:
@@ -41,6 +55,7 @@ class RetrievalService:
     async def search(
         self, db: ScopedRepo, request: SearchRequest, ctx: RequestContext
     ) -> SearchResponse:
+        retrieval_id = str(uuid4())
         retrieve_k = request.top_k * self._over_retrieve_factor
 
         # 1. Embed query
@@ -68,26 +83,48 @@ class RetrievalService:
         # 3. Rerank
         candidates = await self._router.rerank.rerank(request.query, candidates)
 
-        # 4. Stale penalty
+        # 4. Quality factor
+        if candidates:
+            quality_rows = await db.fetch(
+                """
+                SELECT id, adopted_count, ignored_count
+                FROM contexts
+                WHERE id = ANY($1)
+                """,
+                [c["id"] for c in candidates],
+            )
+            quality_map = {
+                row["id"]: (row["adopted_count"], row["ignored_count"])
+                for row in quality_rows
+            }
+            for c in candidates:
+                adopted_count, ignored_count = quality_map.get(c["id"], (0, 0))
+                c["adopted_count"] = adopted_count
+                c["ignored_count"] = ignored_count
+                score_key = _score_key(c)
+                c[score_key] = c.get(score_key, 0) * _quality_factor(
+                    adopted_count, ignored_count
+                )
+
+        # 5. Stale penalty
         for c in candidates:
             if c.get("status") == "stale":
-                score_key = "_rerank_score" if "_rerank_score" in c else "cosine_similarity"
+                score_key = _score_key(c)
                 c[score_key] = c.get(score_key, 0) * _STALE_PENALTY
 
-        # Re-sort after penalty
-        score_key = "_rerank_score" if candidates and "_rerank_score" in candidates[0] else "cosine_similarity"
-        candidates.sort(key=lambda x: x.get(score_key, 0), reverse=True)
+        # Re-sort after post-rerank score adjustments
+        candidates.sort(key=lambda x: x.get(_score_key(x), 0), reverse=True)
 
-        # 5. ACL filter (Phase 2: ACL-aware with field masks)
+        # 6. ACL filter (Phase 2: ACL-aware with field masks)
         acl_results = await self._acl.filter_visible_with_acl(db, candidates, ctx)
         candidates = [c for c, _ in acl_results]
         candidate_masks = [masks for _, masks in acl_results]
 
-        # 6. Truncate to top_k
+        # 7. Truncate to top_k
         candidates = candidates[: request.top_k]
         candidate_masks = candidate_masks[: request.top_k]
 
-        # 7. L2 on demand
+        # 8. L2 on demand
         if request.level.value == "L2" and candidates:
             ids = [c["id"] for c in candidates]
             placeholders = ", ".join(f"${i+1}" for i in range(len(ids)))
@@ -99,7 +136,7 @@ class RetrievalService:
             for c in candidates:
                 c["l2_content"] = l2_map.get(c["id"])
 
-        # 8. Update active_count
+        # 9. Update active_count
         if candidates:
             ids = [c["id"] for c in candidates]
             await db.execute(
@@ -107,7 +144,7 @@ class RetrievalService:
                 ids,
             )
 
-        # 9. Build response (with masking)
+        # 10. Build response (with masking)
         results = []
         for c, masks in zip(candidates, candidate_masks):
             final_score = c.get("_rerank_score", c.get("cosine_similarity", 0))
@@ -135,11 +172,19 @@ class RetrievalService:
                 tags=c.get("tags", []),
             ))
 
-        response = SearchResponse(results=results, total=len(results))
+        response = SearchResponse(
+            results=results,
+            total=len(results),
+            retrieval_id=retrieval_id,
+        )
 
         if self._audit:
             await self._audit.log_best_effort(
                 db, ctx.agent_id, "search", None, "success",
-                metadata={"query": request.query, "result_count": len(results)},
+                metadata={
+                    "query": request.query,
+                    "result_count": len(results),
+                    "retrieval_id": retrieval_id,
+                },
             )
         return response

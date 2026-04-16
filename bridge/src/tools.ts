@@ -1,7 +1,7 @@
 /**
  * ContextHub agent tools for OpenClaw.
  *
- * Seven MVP tools that proxy to the ContextHub Python sidecar.
+ * Eight MVP tools that proxy to the ContextHub Python sidecar.
  * Each tool is registered via api.registerTool() in the plugin entry point.
  */
 
@@ -39,7 +39,7 @@ function makeTool(
 }
 
 /**
- * Create all 7 ContextHub tools bound to a bridge instance.
+ * Create all 8 ContextHub tools bound to a bridge instance.
  */
 export function createContextHubTools(bridge: ContextHubBridge) {
   return [
@@ -122,6 +122,32 @@ export function createContextHubTools(bridge: ContextHubBridge) {
           is_breaking: { type: "boolean", description: "Whether this is a breaking change" },
         },
         required: ["skill_uri", "content"],
+      },
+    ),
+
+    makeTool(
+      bridge,
+      "contexthub_feedback",
+      "Report whether a retrieved ContextHub context was adopted or ignored.",
+      {
+        type: "object",
+        properties: {
+          context_uri: { type: "string", description: "Context URI being rated" },
+          outcome: {
+            type: "string",
+            enum: ["adopted", "ignored", "corrected", "irrelevant"],
+            description: "Feedback outcome for the context",
+          },
+          retrieval_id: {
+            type: "string",
+            description: "SearchResponse.retrieval_id when available",
+          },
+          metadata: {
+            type: "object",
+            description: "Optional structured feedback metadata",
+          },
+        },
+        required: ["context_uri", "outcome"],
       },
     ),
   ];

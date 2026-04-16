@@ -1,4 +1,4 @@
-"""7 MVP tool definitions (JSON Schema) and dispatch logic.
+"""8 MVP tool definitions (JSON Schema) and dispatch logic.
 
 Each tool does: parameter conversion -> SDK call -> result formatting -> error
 capture. No HTTP stack details are exposed to the agent.
@@ -151,6 +151,33 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["skill_uri", "content"],
         },
     },
+    {
+        "name": "contexthub_feedback",
+        "description": "Report whether retrieved ContextHub context was useful.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "context_uri": {
+                    "type": "string",
+                    "description": "Context URI that the agent used or evaluated.",
+                },
+                "outcome": {
+                    "type": "string",
+                    "enum": ["adopted", "ignored", "corrected", "irrelevant"],
+                    "description": "How useful the context turned out to be.",
+                },
+                "retrieval_id": {
+                    "type": "string",
+                    "description": "SearchResponse.retrieval_id when available.",
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Optional structured feedback metadata.",
+                },
+            },
+            "required": ["context_uri", "outcome"],
+        },
+    },
 ]
 
 
@@ -196,6 +223,18 @@ async def dispatch(client: ContextHubClient, tool_name: str, args: dict[str, Any
 
         if tool_name == "stat":
             result = await client.stat(args["uri"])
+            return _ok(result)
+
+        if tool_name == "contexthub_feedback":
+            kwargs = {
+                "context_uri": args["context_uri"],
+                "outcome": args["outcome"],
+            }
+            if "retrieval_id" in args:
+                kwargs["retrieval_id"] = args["retrieval_id"]
+            if "metadata" in args:
+                kwargs["metadata"] = args["metadata"]
+            result = await client.report_feedback(**kwargs)
             return _ok(result)
 
         if tool_name == "contexthub_store":

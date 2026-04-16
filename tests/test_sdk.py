@@ -181,7 +181,14 @@ def client():
 @pytest.mark.asyncio
 async def test_headers_injected(client: ContextHubClient):
     route = respx.post(f"{BASE}/api/v1/search").mock(
-        return_value=httpx.Response(200, json={"results": [], "total": 0})
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [],
+                "total": 0,
+                "retrieval_id": "550e8400-e29b-41d4-a716-446655440020",
+            },
+        )
     )
     await client.search("test")
     req = route.calls.last.request
@@ -213,6 +220,7 @@ async def test_search_returns_typed_and_uses_server_enum_values(client: ContextH
                     }
                 ],
                 "total": 1,
+                "retrieval_id": "550e8400-e29b-41d4-a716-446655440000",
             },
         )
     )
@@ -226,6 +234,7 @@ async def test_search_returns_typed_and_uses_server_enum_values(client: ContextH
     assert body["context_type"] == ["table_schema"]
     assert isinstance(resp, SearchResponse)
     assert resp.total == 1
+    assert resp.retrieval_id == "550e8400-e29b-41d4-a716-446655440000"
     assert resp.results[0].context_type == ContextType.TABLE_SCHEMA
     assert resp.results[0].status == ContextStatus.ACTIVE
 
@@ -472,12 +481,49 @@ async def test_tools_grep(client: ContextHubClient):
                     }
                 ],
                 "total": 1,
+                "retrieval_id": "550e8400-e29b-41d4-a716-446655440001",
             },
         )
     )
     resp = await client.grep("orders")
     assert isinstance(resp, SearchResponse)
+    assert resp.retrieval_id == "550e8400-e29b-41d4-a716-446655440001"
     assert resp.results[0].context_type == ContextType.TABLE_SCHEMA
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_report_feedback_posts_minimal_payload(client: ContextHubClient):
+    route = respx.post(f"{BASE}/api/v1/feedback").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": 1,
+                "context_id": CTX_ID,
+                "retrieval_id": "rid-1",
+                "actor": AGENT,
+                "retrieved_at": TS,
+                "outcome": "adopted",
+                "metadata": {"source": "explicit-search"},
+                "account_id": ACCOUNT,
+                "created_at": TS,
+            },
+        )
+    )
+    result = await client.report_feedback(
+        context_uri=CTX_URI,
+        outcome="adopted",
+        retrieval_id="rid-1",
+        metadata={"source": "explicit-search"},
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert body == {
+        "context_uri": CTX_URI,
+        "outcome": "adopted",
+        "retrieval_id": "rid-1",
+        "metadata": {"source": "explicit-search"},
+    }
+    assert result["outcome"] == "adopted"
 
 
 @respx.mock
@@ -556,7 +602,14 @@ async def test_error_code_mapping(client: ContextHubClient, status, exc_cls):
 @pytest.mark.asyncio
 async def test_async_with_closes_client():
     respx.post(f"{BASE}/api/v1/search").mock(
-        return_value=httpx.Response(200, json={"results": [], "total": 0})
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [],
+                "total": 0,
+                "retrieval_id": "550e8400-e29b-41d4-a716-446655440021",
+            },
+        )
     )
     async with ContextHubClient(
         url=BASE,

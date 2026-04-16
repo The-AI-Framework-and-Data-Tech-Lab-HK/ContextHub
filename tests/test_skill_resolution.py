@@ -4,9 +4,13 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
 from contexthub.api.routers.contexts import read_context, update_context
 from contexthub.api.routers.tools import tool_read
+from contexthub.api.routers.contexts import router as contexts_router
+from contexthub.api.routers.tools import router as tools_router
 from contexthub.errors import BadRequestError, ForbiddenError, NotFoundError
 from contexthub.models.context import ContextLevel, UpdateContextRequest
 from contexthub.generation.base import ContentGenerator
@@ -240,6 +244,39 @@ class StubSkillService:
 class UnexpectedUpdateService:
     async def update(self, db, uri, body, ctx):
         raise AssertionError("generic context update should not run for skills")
+
+
+class _RepoSession:
+    def __init__(self, db):
+        self._db = db
+
+    async def __aenter__(self):
+        return self._db
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class FakeRepo:
+    def __init__(self, db):
+        self._db = db
+
+    def session(self, account_id):
+        return _RepoSession(self._db)
+
+
+def _make_skill_http_app(db):
+    app = FastAPI()
+    app.include_router(contexts_router)
+    app.include_router(tools_router)
+    app.state.repo = FakeRepo(db)
+    app.state.context_store = object()
+    app.state.acl_service = AllowReadACL()
+    app.state.skill_service = StubSkillService()
+    app.state.masking_service = MaskingService()
+    app.state.audit_service = object()
+    app.state.lifecycle_service = LifecycleService()
+    return app
 
 
 # --- Tests ---
@@ -528,6 +565,50 @@ async def test_skill_tool_read_recovers_stale_status():
     )
 
     assert result["version"] == 2
+    assert db.stale_recoveries == [_SKILL_ID]
+    assert db.last_accessed_updates == []
+
+
+@pytest.mark.asyncio
+async def test_skill_http_read_route_recovers_stale_status():
+    db = RouteSkillReadDB(status="stale")
+    app = _make_skill_http_app(db)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/api/v1/contexts/ctx://team/engineering/skills/sql-generator",
+            headers={"X-Account-Id": "acme", "X-Agent-Id": "query-agent"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["version"] == 2
+    assert db.stale_recoveries == [_SKILL_ID]
+    assert db.last_accessed_updates == []
+
+
+@pytest.mark.asyncio
+async def test_skill_http_tool_read_recovers_stale_status():
+    db = RouteSkillReadDB(status="stale")
+    app = _make_skill_http_app(db)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/api/v1/tools/read",
+            headers={"X-Account-Id": "acme", "X-Agent-Id": "query-agent"},
+            json={
+                "uri": "ctx://team/engineering/skills/sql-generator",
+                "level": "L1",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["version"] == 2
     assert db.stale_recoveries == [_SKILL_ID]
     assert db.last_accessed_updates == []
 

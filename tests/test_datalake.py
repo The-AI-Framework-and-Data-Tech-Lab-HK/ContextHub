@@ -141,6 +141,7 @@ async def test_search_sql_context_drops_denied_rows_on_post_fetch_acl():
                     ),
                 ],
                 total=2,
+                retrieval_id="550e8400-e29b-41d4-a716-446655440010",
             )
 
     class _PostFetchDenyACL:
@@ -214,6 +215,7 @@ async def test_search_sql_context_masks_fields_when_acl_returns_field_masks():
                     ),
                 ],
                 total=1,
+                retrieval_id="550e8400-e29b-41d4-a716-446655440011",
             )
 
     class _MaskingACL:
@@ -514,6 +516,7 @@ async def test_sql_context_filters_catalog_and_preserves_rank(
                     ),
                 ],
                 total=3,
+                retrieval_id="550e8400-e29b-41d4-a716-446655440012",
             )
 
     class _AllowAllACL:

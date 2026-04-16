@@ -32,7 +32,7 @@ def test_phase3_audit_actions_exposed_on_server_and_sdk():
     assert SdkAuditAction.FEEDBACK.value == "feedback"
 
 
-def test_search_response_defaults_remain_backward_compatible():
+def test_search_response_requires_non_empty_retrieval_id():
     server_result = ServerSearchResult(
         uri="ctx://test",
         context_type="memory",
@@ -49,16 +49,34 @@ def test_search_response_defaults_remain_backward_compatible():
         status="active",
         version=1,
     )
-    server_resp = ServerSearchResponse(results=[], total=0)
-    sdk_resp = SdkSearchResponse(results=[], total=0)
     assert server_result.snippet is None
     assert server_result.section_id is None
     assert server_result.retrieval_strategy is None
     assert sdk_result.snippet is None
     assert sdk_result.section_id is None
     assert sdk_result.retrieval_strategy is None
-    assert server_resp.retrieval_id == ""
-    assert sdk_resp.retrieval_id == ""
+
+    with pytest.raises(ValidationError):
+        ServerSearchResponse(results=[], total=0)
+    with pytest.raises(ValidationError):
+        SdkSearchResponse(results=[], total=0)
+    with pytest.raises(ValidationError):
+        ServerSearchResponse(results=[], total=0, retrieval_id="")
+    with pytest.raises(ValidationError):
+        SdkSearchResponse(results=[], total=0, retrieval_id="")
+
+    server_resp = ServerSearchResponse(
+        results=[],
+        total=0,
+        retrieval_id="550e8400-e29b-41d4-a716-446655440000",
+    )
+    sdk_resp = SdkSearchResponse(
+        results=[],
+        total=0,
+        retrieval_id="550e8400-e29b-41d4-a716-446655440000",
+    )
+    assert server_resp.retrieval_id == "550e8400-e29b-41d4-a716-446655440000"
+    assert sdk_resp.retrieval_id == "550e8400-e29b-41d4-a716-446655440000"
 
 
 def test_phase3_models_preserve_runtime_enums_and_json_dump_values():
