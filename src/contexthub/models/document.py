@@ -51,4 +51,28 @@ class DocumentIngestResponse(BaseModel):
     file_path: str
 
 
+class DocumentSectionSummary(BaseModel):
+    """对外暴露的文档章节摘要。"""
+
+    section_id: int
+    parent_id: int | None = None
+    title: str
+    depth: int
+    summary: str | None = None
+    start_offset: int | None = None
+    end_offset: int | None = None
+    token_count: int | None = None
+
+
+class DocumentSectionReadResult(BaseModel):
+    """读取单个文档章节的对外响应。"""
+
+    context_id: UUID
+    section_id: int
+    title: str
+    content: str
+    start_offset: int | None = None
+    end_offset: int | None = None
+
+
 SectionNode.model_rebuild()

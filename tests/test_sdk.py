@@ -21,6 +21,7 @@ from contexthub_sdk import (
     BadRequestError,
     ConflictError,
     ContextHubClient,
+    ContextFeedbackRecord,
     ContextLevel,
     ContextReadResult,
     ContextRecord,
@@ -28,12 +29,20 @@ from contexthub_sdk import (
     ContextStatus,
     ContextType,
     DependencyRecord,
+    DocumentIngestResponse,
+    DocumentSectionReadResult,
+    DocumentSectionSummary,
+    FeedbackOutcome,
     ForbiddenError,
+    LifecyclePolicyRecord,
+    LifecycleTransitionResult,
     MemoryRecord,
     NotFoundError,
+    OkResult,
     PolicyAction,
     PolicyEffect,
     PreconditionRequiredError,
+    QualityReport,
     ResolvedSkillReadResult,
     Scope,
     SearchResponse,
@@ -495,24 +504,11 @@ async def test_tools_grep(client: ContextHubClient):
 @pytest.mark.asyncio
 async def test_report_feedback_posts_minimal_payload(client: ContextHubClient):
     route = respx.post(f"{BASE}/api/v1/feedback").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "id": 1,
-                "context_id": CTX_ID,
-                "retrieval_id": "rid-1",
-                "actor": AGENT,
-                "retrieved_at": TS,
-                "outcome": "adopted",
-                "metadata": {"source": "explicit-search"},
-                "account_id": ACCOUNT,
-                "created_at": TS,
-            },
-        )
+        return_value=httpx.Response(200, json=FEEDBACK_RECORD)
     )
     result = await client.report_feedback(
         context_uri=CTX_URI,
-        outcome="adopted",
+        outcome=FeedbackOutcome.ADOPTED,
         retrieval_id="rid-1",
         metadata={"source": "explicit-search"},
     )
@@ -523,7 +519,22 @@ async def test_report_feedback_posts_minimal_payload(client: ContextHubClient):
         "retrieval_id": "rid-1",
         "metadata": {"source": "explicit-search"},
     }
-    assert result["outcome"] == "adopted"
+    assert isinstance(result, ContextFeedbackRecord)
+    assert result.outcome == FeedbackOutcome.ADOPTED
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_list_feedback_returns_typed_records(client: ContextHubClient):
+    route = respx.get(f"{BASE}/api/v1/feedback").mock(
+        return_value=httpx.Response(200, json=[FEEDBACK_RECORD])
+    )
+    result = await client.list_feedback(context_id=CTX_ID, limit=5, offset=2)
+    req = route.calls.last.request
+    assert req.url.params["context_id"] == CTX_ID
+    assert req.url.params["limit"] == "5"
+    assert req.url.params["offset"] == "2"
+    assert isinstance(result[0], ContextFeedbackRecord)
 
 
 @respx.mock
@@ -650,6 +661,80 @@ AUDIT_ENTRY = {
     "account_id": ACCOUNT,
     "ip_address": None,
     "request_id": None,
+}
+
+FEEDBACK_RECORD = {
+    "id": 1,
+    "context_id": CTX_ID,
+    "retrieval_id": "rid-1",
+    "actor": AGENT,
+    "retrieved_at": TS,
+    "outcome": "adopted",
+    "metadata": {"source": "explicit-search"},
+    "account_id": ACCOUNT,
+    "created_at": TS,
+}
+
+QUALITY_REPORT = {
+    "items": [
+        {
+            "context_id": CTX_ID,
+            "uri": CTX_URI,
+            "context_type": "table_schema",
+            "scope": "team",
+            "active_count": 20,
+            "adopted_count": 2,
+            "ignored_count": 18,
+            "adoption_rate": 0.1,
+            "quality_score": 2 / 21,
+        }
+    ],
+    "total": 1,
+    "min_active_count": 10,
+    "max_adoption_rate": 0.2,
+}
+
+LIFECYCLE_POLICY = {
+    "context_type": "resource",
+    "scope": "team",
+    "stale_after_days": 10,
+    "archive_after_days": 30,
+    "delete_after_days": 60,
+    "account_id": ACCOUNT,
+    "updated_at": TS,
+}
+
+LIFECYCLE_TRANSITION = {
+    "ok": True,
+    "context_uri": CTX_URI,
+    "target_status": "stale",
+}
+
+DOCUMENT_INGEST = {
+    "context_id": CTX_ID,
+    "uri": "ctx://resources/manuals/sdk",
+    "section_count": 3,
+    "file_path": "/tmp/sdk-doc",
+}
+
+DOCUMENT_SECTION = {
+    "section_id": 7,
+    "parent_id": None,
+    "title": "Overview",
+    "depth": 0,
+    "summary": "Short summary",
+    "start_offset": 0,
+    "end_offset": 42,
+    "token_count": 10,
+}
+
+DOCUMENT_SECTION_READ = {
+    "context_id": CTX_ID,
+    "section_id": 7,
+    "title": "Overview",
+    "content": "masked content",
+    "start_offset": 0,
+    "end_offset": 42,
 }
 
 
@@ -793,3 +878,101 @@ async def test_share_grant_lifecycle(client: ContextHubClient):
     )
     await client.share.revoke(pid)
     assert revoke_route.calls.last.request.method == "DELETE"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_admin_quality_report_returns_typed_model(client: ContextHubClient):
+    route = respx.get(f"{BASE}/api/v1/admin/quality-report").mock(
+        return_value=httpx.Response(200, json=QUALITY_REPORT)
+    )
+    result = await client.admin.quality_report(min_active_count=12, max_adoption_rate=0.4, limit=3)
+    req = route.calls.last.request
+    assert req.url.params["min_active_count"] == "12"
+    assert req.url.params["max_adoption_rate"] == "0.4"
+    assert req.url.params["limit"] == "3"
+    assert isinstance(result, QualityReport)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_admin_lifecycle_methods_return_typed_models(client: ContextHubClient):
+    respx.get(f"{BASE}/api/v1/admin/lifecycle/policies").mock(
+        return_value=httpx.Response(200, json=[LIFECYCLE_POLICY])
+    )
+    upsert_route = respx.put(f"{BASE}/api/v1/admin/lifecycle/policies").mock(
+        return_value=httpx.Response(200, json=LIFECYCLE_POLICY)
+    )
+    transition_route = respx.post(f"{BASE}/api/v1/admin/lifecycle/transition").mock(
+        return_value=httpx.Response(200, json=LIFECYCLE_TRANSITION)
+    )
+    respx.post(f"{BASE}/api/v1/admin/lifecycle/sweep").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    policies = await client.admin.lifecycle_policies()
+    upserted = await client.admin.upsert_lifecycle_policy(
+        context_type=ContextType.RESOURCE,
+        scope=Scope.TEAM,
+        stale_after_days=10,
+        archive_after_days=30,
+        delete_after_days=60,
+    )
+    transitioned = await client.admin.lifecycle_transition(
+        CTX_URI,
+        ContextStatus.STALE,
+        reason="manual",
+    )
+    swept = await client.admin.lifecycle_sweep()
+
+    upsert_body = json.loads(upsert_route.calls.last.request.content)
+    transition_body = json.loads(transition_route.calls.last.request.content)
+    assert upsert_body["context_type"] == "resource"
+    assert upsert_body["scope"] == "team"
+    assert transition_body["context_uri"] == CTX_URI
+    assert transition_body["target_status"] == "stale"
+    assert isinstance(policies[0], LifecyclePolicyRecord)
+    assert isinstance(upserted, LifecyclePolicyRecord)
+    assert isinstance(transitioned, LifecycleTransitionResult)
+    assert isinstance(swept, OkResult)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_document_namespace_uses_multipart_and_repeated_tags(client: ContextHubClient, tmp_path):
+    route = respx.post(f"{BASE}/api/v1/documents/ingest").mock(
+        return_value=httpx.Response(201, json=DOCUMENT_INGEST)
+    )
+    source = tmp_path / "manual.txt"
+    source.write_text("hello world", encoding="utf-8")
+
+    result = await client.document.ingest(
+        uri="ctx://resources/manuals/sdk",
+        file_path=str(source),
+        tags=["alpha", "beta"],
+    )
+
+    req = route.calls.last.request
+    payload = req.content.decode("utf-8", errors="ignore")
+    assert "multipart/form-data" in req.headers["content-type"]
+    assert payload.count('name="tags"') == 2
+    assert "alpha" in payload
+    assert "beta" in payload
+    assert isinstance(result, DocumentIngestResponse)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_document_namespace_sections_and_read_are_typed(client: ContextHubClient):
+    respx.get(f"{BASE}/api/v1/documents/{CTX_ID}/sections").mock(
+        return_value=httpx.Response(200, json=[DOCUMENT_SECTION])
+    )
+    respx.get(f"{BASE}/api/v1/documents/{CTX_ID}/section/7").mock(
+        return_value=httpx.Response(200, json=DOCUMENT_SECTION_READ)
+    )
+
+    sections = await client.document.sections(CTX_ID)
+    section = await client.document.read_section(CTX_ID, 7)
+
+    assert isinstance(sections[0], DocumentSectionSummary)
+    assert isinstance(section, DocumentSectionReadResult)

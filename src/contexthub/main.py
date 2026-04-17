@@ -9,6 +9,7 @@ from contexthub.api.middleware import AuthMiddleware
 from contexthub.api.routers.contexts import router as contexts_router
 from contexthub.api.routers.memories import router as memories_router
 from contexthub.api.routers.feedback import router as feedback_router
+from contexthub.api.routers.documents import router as documents_router
 from contexthub.api.routers.search import router as search_router
 from contexthub.api.routers.skills import router as skills_router
 from contexthub.api.routers.tools import router as tools_router
@@ -197,6 +198,7 @@ app.add_middleware(AuthMiddleware)
 app.include_router(contexts_router)
 app.include_router(memories_router)
 app.include_router(feedback_router)
+app.include_router(documents_router)
 app.include_router(skills_router)
 app.include_router(search_router)
 app.include_router(tools_router)

@@ -15,6 +15,7 @@ dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "httpx>=0.28",
+    "python-multipart>=0.0.26",
     "PyMuPDF>=1.24",
 ]
 

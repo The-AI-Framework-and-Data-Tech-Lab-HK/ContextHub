@@ -50,6 +50,13 @@ class SkillVersionStatus(str, enum.Enum):
     DEPRECATED = "deprecated"
 
 
+class FeedbackOutcome(str, enum.Enum):
+    ADOPTED = "adopted"
+    IGNORED = "ignored"
+    CORRECTED = "corrected"
+    IRRELEVANT = "irrelevant"
+
+
 # ── Context models ──────────────────────────────────────────────────────
 
 
@@ -150,6 +157,93 @@ class SearchResponse(BaseModel):
     results: list[SearchResult]
     total: int
     retrieval_id: str = Field(min_length=1)
+
+
+# ── Feedback / quality models (Phase 3) ─────────────────────────────────
+
+
+class ContextFeedbackRecord(BaseModel):
+    id: int
+    context_id: UUID
+    retrieval_id: str
+    actor: str
+    retrieved_at: datetime | None = None
+    outcome: FeedbackOutcome
+    metadata: dict | None = None
+    account_id: str
+    created_at: datetime | None = None
+
+
+class QualityReportItem(BaseModel):
+    context_id: UUID
+    uri: str
+    context_type: str
+    scope: str
+    active_count: int
+    adopted_count: int
+    ignored_count: int
+    adoption_rate: float
+    quality_score: float
+
+
+class QualityReport(BaseModel):
+    items: list[QualityReportItem]
+    total: int
+    min_active_count: int
+    max_adoption_rate: float
+
+
+# ── Lifecycle models (Phase 3) ──────────────────────────────────────────
+
+
+class LifecyclePolicyRecord(BaseModel):
+    context_type: ContextType
+    scope: Scope
+    stale_after_days: int = 0
+    archive_after_days: int = 0
+    delete_after_days: int = 0
+    account_id: str
+    updated_at: datetime | None = None
+
+
+class LifecycleTransitionResult(BaseModel):
+    ok: bool
+    context_uri: str
+    target_status: ContextStatus
+
+
+class OkResult(BaseModel):
+    ok: bool
+
+
+# ── Document models (Phase 3) ───────────────────────────────────────────
+
+
+class DocumentSectionSummary(BaseModel):
+    section_id: int
+    parent_id: int | None = None
+    title: str
+    depth: int
+    summary: str | None = None
+    start_offset: int | None = None
+    end_offset: int | None = None
+    token_count: int | None = None
+
+
+class DocumentIngestResponse(BaseModel):
+    context_id: UUID
+    uri: str
+    section_count: int
+    file_path: str
+
+
+class DocumentSectionReadResult(BaseModel):
+    context_id: UUID
+    section_id: int
+    title: str
+    content: str
+    start_offset: int | None = None
+    end_offset: int | None = None
 
 
 # ── Memory models ───────────────────────────────────────────────────────

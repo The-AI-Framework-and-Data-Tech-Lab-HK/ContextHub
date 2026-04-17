@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Union
 
 import httpx
@@ -12,6 +13,7 @@ from .models import (
     AuditAction,
     AuditEntryRecord,
     AuditResult,
+    ContextFeedbackRecord,
     ContextLevel,
     ContextReadResult,
     ContextRecord,
@@ -19,9 +21,17 @@ from .models import (
     ContextStatus,
     ContextType,
     DependencyRecord,
+    DocumentIngestResponse,
+    DocumentSectionReadResult,
+    DocumentSectionSummary,
+    FeedbackOutcome,
+    LifecyclePolicyRecord,
+    LifecycleTransitionResult,
     MemoryRecord,
+    OkResult,
     PolicyAction,
     PolicyEffect,
+    QualityReport,
     ResolvedSkillReadResult,
     Scope,
     SearchResponse,
@@ -314,6 +324,97 @@ class _AdminNamespace:
         data = await self._c._get("/api/v1/admin/audit", params=params)
         return [AuditEntryRecord.model_validate(d) for d in data]
 
+    async def quality_report(
+        self,
+        *,
+        min_active_count: int = 10,
+        max_adoption_rate: float = 0.2,
+        limit: int = 50,
+    ) -> QualityReport:
+        params = {
+            "min_active_count": min_active_count,
+            "max_adoption_rate": max_adoption_rate,
+            "limit": limit,
+        }
+        data = await self._c._get("/api/v1/admin/quality-report", params=params)
+        return QualityReport.model_validate(data)
+
+    async def lifecycle_policies(self) -> list[LifecyclePolicyRecord]:
+        data = await self._c._get("/api/v1/admin/lifecycle/policies")
+        return [LifecyclePolicyRecord.model_validate(d) for d in data]
+
+    async def upsert_lifecycle_policy(
+        self,
+        *,
+        context_type: ContextType,
+        scope: Scope,
+        stale_after_days: int = 0,
+        archive_after_days: int = 0,
+        delete_after_days: int = 0,
+    ) -> LifecyclePolicyRecord:
+        body = {
+            "context_type": context_type.value,
+            "scope": scope.value,
+            "stale_after_days": stale_after_days,
+            "archive_after_days": archive_after_days,
+            "delete_after_days": delete_after_days,
+        }
+        data = await self._c._put("/api/v1/admin/lifecycle/policies", json=body)
+        return LifecyclePolicyRecord.model_validate(data)
+
+    async def lifecycle_transition(
+        self,
+        context_uri: str,
+        target_status: ContextStatus,
+        reason: str | None = None,
+    ) -> LifecycleTransitionResult:
+        body: dict[str, Any] = {
+            "context_uri": context_uri,
+            "target_status": target_status.value,
+        }
+        if reason is not None:
+            body["reason"] = reason
+        data = await self._c._post("/api/v1/admin/lifecycle/transition", json=body)
+        return LifecycleTransitionResult.model_validate(data)
+
+    async def lifecycle_sweep(self) -> OkResult:
+        data = await self._c._post("/api/v1/admin/lifecycle/sweep", json={})
+        return OkResult.model_validate(data)
+
+
+class _DocumentNamespace:
+    """client.document.* operations."""
+
+    def __init__(self, client: ContextHubClient) -> None:
+        self._c = client
+
+    async def ingest(
+        self,
+        uri: str,
+        file_path: str,
+        tags: list[str] | None = None,
+    ) -> DocumentIngestResponse:
+        path = Path(file_path)
+        with path.open("rb") as fh:
+            multipart_fields: list[tuple[str, Any]] = [("uri", (None, uri))]
+            for tag in tags or []:
+                multipart_fields.append(("tags", (None, tag)))
+            multipart_fields.append(("file", (path.name, fh)))
+            data = await self._c._post_multipart(
+                "/api/v1/documents/ingest",
+                files=multipart_fields,
+                expected_status=201,
+            )
+        return DocumentIngestResponse.model_validate(data)
+
+    async def sections(self, context_id: str) -> list[DocumentSectionSummary]:
+        data = await self._c._get(f"/api/v1/documents/{context_id}/sections")
+        return [DocumentSectionSummary.model_validate(d) for d in data]
+
+    async def read_section(self, context_id: str, section_id: int) -> DocumentSectionReadResult:
+        data = await self._c._get(f"/api/v1/documents/{context_id}/section/{section_id}")
+        return DocumentSectionReadResult.model_validate(data)
+
 
 class _ShareNamespace:
     """client.share.* operations — cross-team share grants."""
@@ -377,6 +478,7 @@ class ContextHubClient:
         self.memory = _MemoryNamespace(self)
         self.skill = _SkillNamespace(self)
         self.admin = _AdminNamespace(self)
+        self.document = _DocumentNamespace(self)
         self.share = _ShareNamespace(self)
 
     # ── async context manager ───────────────────────────────────────────
@@ -407,6 +509,38 @@ class ContextHubClient:
         expected_status: int = 200,
     ) -> Any:
         resp = await self._http.post(path, json=json)
+        raise_for_status(resp.status_code, _extract_detail(resp))
+        if resp.status_code != expected_status:
+            raise ContextHubError(
+                f"Unexpected status code: expected {expected_status}, got {resp.status_code}",
+                status_code=resp.status_code,
+            )
+        return resp.json()
+
+    async def _put(
+        self,
+        path: str,
+        *,
+        json: dict[str, Any],
+        expected_status: int = 200,
+    ) -> Any:
+        resp = await self._http.put(path, json=json)
+        raise_for_status(resp.status_code, _extract_detail(resp))
+        if resp.status_code != expected_status:
+            raise ContextHubError(
+                f"Unexpected status code: expected {expected_status}, got {resp.status_code}",
+                status_code=resp.status_code,
+            )
+        return resp.json()
+
+    async def _post_multipart(
+        self,
+        path: str,
+        *,
+        files: list[tuple[str, Any]],
+        expected_status: int = 200,
+    ) -> Any:
+        resp = await self._http.post(path, files=files)
         raise_for_status(resp.status_code, _extract_detail(resp))
         if resp.status_code != expected_status:
             raise ContextHubError(
@@ -504,19 +638,39 @@ class ContextHubClient:
         self,
         *,
         context_uri: str,
-        outcome: str,
+        outcome: str | FeedbackOutcome,
         retrieval_id: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> ContextFeedbackRecord:
         body: dict[str, Any] = {
             "context_uri": context_uri,
-            "outcome": outcome,
+            "outcome": outcome.value if hasattr(outcome, "value") else outcome,
         }
         if retrieval_id is not None:
             body["retrieval_id"] = retrieval_id
         if metadata is not None:
             body["metadata"] = metadata
-        return await self._post("/api/v1/feedback", json=body)
+        data = await self._post("/api/v1/feedback", json=body)
+        return ContextFeedbackRecord.model_validate(data)
+
+    async def list_feedback(
+        self,
+        *,
+        context_id: str | None = None,
+        retrieval_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[ContextFeedbackRecord]:
+        params: dict[str, Any] = {
+            "limit": limit,
+            "offset": offset,
+        }
+        if context_id is not None:
+            params["context_id"] = context_id
+        if retrieval_id is not None:
+            params["retrieval_id"] = retrieval_id
+        data = await self._get("/api/v1/feedback", params=params)
+        return [ContextFeedbackRecord.model_validate(d) for d in data]
 
     async def stat(self, uri: str) -> ContextStat:
         data = await self._post("/api/v1/tools/stat", json={"uri": uri})

@@ -13,6 +13,7 @@ from contexthub.services.audit_service import AuditService
 from contexthub.services.context_service import ContextService
 from contexthub.services.indexer_service import IndexerService
 from contexthub.services.lifecycle_service import LifecycleService
+from contexthub.services.lifecycle_scheduler import LifecycleScheduler
 from contexthub.services.memory_service import MemoryService
 from contexthub.services.retrieval_service import RetrievalService
 from contexthub.services.skill_service import SkillService
@@ -20,6 +21,7 @@ from contexthub.services.masking_service import MaskingService
 from contexthub.store.context_store import ContextStore
 from contexthub.services.catalog_sync_service import CatalogSyncService
 from contexthub.services.feedback_service import FeedbackService
+from contexthub.services.document_ingester import LongDocumentIngester
 from contexthub.services.share_service import ShareService
 
 
@@ -75,6 +77,10 @@ def get_lifecycle_service(request: Request) -> LifecycleService:
     return request.app.state.lifecycle_service
 
 
+def get_lifecycle_scheduler(request: Request) -> LifecycleScheduler | None:
+    return getattr(request.app.state, "lifecycle_scheduler", None)
+
+
 def get_masking_service(request: Request) -> MaskingService:
     return request.app.state.masking_service
 
@@ -93,3 +99,7 @@ def get_share_service(request: Request) -> ShareService:
 
 def get_feedback_service(request: Request) -> FeedbackService:
     return request.app.state.feedback_service
+
+
+def get_document_ingester(request: Request) -> LongDocumentIngester:
+    return request.app.state.document_ingester

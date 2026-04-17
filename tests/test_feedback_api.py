@@ -62,17 +62,35 @@ async def _insert_context(
     )
 
 
+async def _insert_deny_policy(db, pattern: str, principal: str):
+    await db.execute(
+        """
+        INSERT INTO access_policies (
+            resource_uri_pattern, principal, effect, actions,
+            conditions, field_masks, priority, account_id, created_by
+        )
+        VALUES (
+            $1, $2, 'deny', ARRAY['read']::text[],
+            NULL, NULL, 0, current_setting('app.account_id'), 'test'
+        )
+        """,
+        pattern,
+        principal,
+    )
+
+
 @pytest_asyncio.fixture
 async def feedback_http_client():
-    def build(feedback_service, repo):
+    def build(feedback_service, repo, acl_service=None):
         app = FastAPI()
         app.include_router(feedback_router)
         app.state.repo = repo
         app.state.feedback_service = feedback_service
+        app.state.acl_service = acl_service or ACLService()
         return app
 
-    async def factory(feedback_service, *, repo):
-        app = build(feedback_service, repo)
+    async def factory(feedback_service, *, repo, acl_service=None):
+        app = build(feedback_service, repo, acl_service=acl_service)
         client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
         return client
 
@@ -189,3 +207,71 @@ async def test_feedback_http_route_records_feedback_end_to_end(
     assert row["actor"] == "query-agent"
     assert row["account_id"] == "acme"
     assert row["outcome"] == "ignored"
+
+
+@pytest.mark.asyncio
+async def test_feedback_list_requires_at_least_one_filter(feedback_http_client):
+    client = await feedback_http_client(FeedbackService(ACLService()), repo=FakeRepo(object()))
+    try:
+        response = await client.get(
+            "/api/v1/feedback",
+            headers={"X-Account-Id": "acme", "X-Agent-Id": "query-agent"},
+        )
+    finally:
+        await client.aclose()
+
+    assert response.status_code == 400
+    assert "context_id or retrieval_id" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_feedback_list_filters_by_context_id_and_retrieval_id(
+    feedback_http_client,
+    repo,
+    clean_db,
+):
+    visible_uri = "ctx://team/engineering/backend/feedback/list-visible"
+    hidden_uri = "ctx://datalake/prod/feedback/list-hidden"
+
+    async with repo.session("acme") as db:
+        visible_id = await _insert_context(db, visible_uri)
+        hidden_id = await _insert_context(db, hidden_uri, scope="datalake", owner_space=None)
+
+        service = FeedbackService(ACLService())
+        ctx = RequestContext(account_id="acme", agent_id="query-agent")
+        await service.record_feedback(db, visible_uri, "rid-shared", "adopted", ctx)
+        await service.record_feedback(db, hidden_uri, "rid-shared", "ignored", ctx)
+        await _insert_deny_policy(db, hidden_uri, "query-agent")
+
+    client = await feedback_http_client(FeedbackService(ACLService()), repo=repo)
+    try:
+        by_context = await client.get(
+            "/api/v1/feedback",
+            headers={"X-Account-Id": "acme", "X-Agent-Id": "query-agent"},
+            params={"context_id": str(visible_id)},
+        )
+        by_retrieval = await client.get(
+            "/api/v1/feedback",
+            headers={"X-Account-Id": "acme", "X-Agent-Id": "query-agent"},
+            params={"retrieval_id": "rid-shared"},
+        )
+        hidden_context = await client.get(
+            "/api/v1/feedback",
+            headers={"X-Account-Id": "acme", "X-Agent-Id": "query-agent"},
+            params={"context_id": str(hidden_id)},
+        )
+    finally:
+        await client.aclose()
+
+    assert by_context.status_code == 200
+    context_items = by_context.json()
+    assert len(context_items) == 1
+    assert context_items[0]["context_id"] == str(visible_id)
+
+    assert by_retrieval.status_code == 200
+    retrieval_items = by_retrieval.json()
+    assert len(retrieval_items) == 1
+    assert retrieval_items[0]["context_id"] == str(visible_id)
+    assert retrieval_items[0]["retrieval_id"] == "rid-shared"
+
+    assert hidden_context.status_code == 403
