@@ -12,11 +12,19 @@ from contexthub.api.deps import (
     get_acl_service,
     get_audit_service,
     get_db,
+    get_feedback_service,
+    get_lifecycle_scheduler,
+    get_lifecycle_service,
     get_request_context,
     get_share_service,
 )
 from contexthub.db.repository import ScopedRepo
-from contexthub.errors import BadRequestError, ForbiddenError, NotFoundError
+from contexthub.errors import (
+    BadRequestError,
+    ForbiddenError,
+    NotFoundError,
+    ServiceUnavailableError,
+)
 from contexthub.models.access import (
     AccessPolicy,
     CreatePolicyRequest,
@@ -24,9 +32,18 @@ from contexthub.models.access import (
     UpdatePolicyRequest,
 )
 from contexthub.models.audit import AuditAction, AuditEntry, AuditResult
+from contexthub.models.feedback import QualityReport
+from contexthub.models.lifecycle import (
+    CreateLifecyclePolicyRequest,
+    LifecyclePolicy,
+    LifecycleTransitionRequest,
+)
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
+from contexthub.services.feedback_service import FeedbackService
+from contexthub.services.lifecycle_scheduler import LifecycleScheduler
+from contexthub.services.lifecycle_service import LifecycleService
 from contexthub.services.share_service import ShareService
 
 router = APIRouter(prefix="/api/v1", tags=["admin"])
@@ -51,6 +68,121 @@ async def _require_admin(db: ScopedRepo, ctx: RequestContext) -> None:
     )
     if not has_admin:
         raise ForbiddenError("Admin role required")
+
+
+@router.get("/admin/quality-report")
+async def get_quality_report(
+    min_active_count: int = Query(10, ge=0),
+    max_adoption_rate: float = Query(0.2, ge=0.0, le=1.0),
+    limit: int = Query(50, ge=1, le=200),
+    ctx: RequestContext = Depends(get_request_context),
+    db: ScopedRepo = Depends(get_db),
+    feedback_svc: FeedbackService = Depends(get_feedback_service),
+) -> QualityReport:
+    await _require_admin(db, ctx)
+    return await feedback_svc.generate_quality_report(
+        db,
+        min_active_count=min_active_count,
+        max_adoption_rate=max_adoption_rate,
+        limit=limit,
+    )
+
+
+@router.get("/admin/lifecycle/policies")
+async def list_lifecycle_policies(
+    ctx: RequestContext = Depends(get_request_context),
+    db: ScopedRepo = Depends(get_db),
+    lifecycle_svc: LifecycleService = Depends(get_lifecycle_service),
+) -> list[LifecyclePolicy]:
+    await _require_admin(db, ctx)
+    await lifecycle_svc.ensure_default_policies(db, ctx)
+    rows = await db.fetch(
+        """
+        SELECT context_type, scope, stale_after_days, archive_after_days,
+               delete_after_days, account_id, updated_at
+        FROM lifecycle_policies
+        ORDER BY context_type ASC, scope ASC
+        """
+    )
+    return [LifecyclePolicy(**dict(row)) for row in rows]
+
+
+@router.put("/admin/lifecycle/policies")
+async def upsert_lifecycle_policy(
+    body: CreateLifecyclePolicyRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    db: ScopedRepo = Depends(get_db),
+    lifecycle_svc: LifecycleService = Depends(get_lifecycle_service),
+) -> LifecyclePolicy:
+    await _require_admin(db, ctx)
+    return await lifecycle_svc.upsert_policy(
+        db,
+        context_type=body.context_type,
+        scope=body.scope,
+        stale_after_days=body.stale_after_days,
+        archive_after_days=body.archive_after_days,
+        delete_after_days=body.delete_after_days,
+        ctx=ctx,
+    )
+
+
+@router.post("/admin/lifecycle/transition")
+async def transition_lifecycle(
+    body: LifecycleTransitionRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    db: ScopedRepo = Depends(get_db),
+    lifecycle_svc: LifecycleService = Depends(get_lifecycle_service),
+):
+    await _require_admin(db, ctx)
+    row = await db.fetchrow(
+        """
+        SELECT id, status
+        FROM contexts
+        WHERE uri = $1 AND status != 'deleted'
+        """,
+        body.context_uri,
+    )
+    if row is None:
+        raise NotFoundError(f"Context {body.context_uri} not found")
+
+    transition_map = {
+        ("active", "stale"): lambda: lifecycle_svc.mark_stale(
+            db,
+            row["id"],
+            body.reason or "manual_transition",
+            ctx,
+        ),
+        ("stale", "active"): lambda: lifecycle_svc.recover_from_stale(db, row["id"], ctx),
+        ("stale", "archived"): lambda: lifecycle_svc.mark_archived(db, row["id"], ctx),
+        ("archived", "active"): lambda: lifecycle_svc.recover_from_archived(db, row["id"], ctx),
+        ("archived", "deleted"): lambda: lifecycle_svc.mark_deleted(db, row["id"], ctx),
+    }
+    transition = transition_map.get((row["status"], body.target_status.value))
+    if transition is None:
+        raise BadRequestError(
+            "Invalid lifecycle transition; lifecycle changes must follow the dedicated "
+            "state graph instead of generic PATCH updates"
+        )
+
+    await transition()
+    return {
+        "ok": True,
+        "context_uri": body.context_uri,
+        "target_status": body.target_status.value,
+    }
+
+
+@router.post("/admin/lifecycle/sweep")
+async def run_lifecycle_sweep(
+    ctx: RequestContext = Depends(get_request_context),
+    db: ScopedRepo = Depends(get_db),
+    scheduler: LifecycleScheduler | None = Depends(get_lifecycle_scheduler),
+):
+    await _require_admin(db, ctx)
+    if scheduler is None:
+        raise ServiceUnavailableError("Lifecycle scheduler is not configured")
+    await scheduler.run_once()
+    return {"ok": True}
 
 
 # ── Policy CRUD ─────────────────────────────────────────────────────────

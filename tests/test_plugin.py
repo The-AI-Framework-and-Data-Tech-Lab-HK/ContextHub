@@ -1,14 +1,14 @@
-"""Unit tests for the ContextHub OpenClaw Plugin.
-
-All tests mock the SDK — no real server dependency.
-"""
+"""Tests for the ContextHub OpenClaw Plugin."""
 
 from __future__ import annotations
 
 import json
+import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
 import sys
 from pathlib import Path
@@ -16,8 +16,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "openclaw" / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sdk" / "src"))
 
-from contexthub_sdk import ContextHubError, NotFoundError, SearchResponse, SearchResult
+from contexthub_sdk import ContextHubClient, ContextHubError, NotFoundError, SearchResponse, SearchResult
 from contexthub_sdk.models import ContextStatus, ContextType, Scope
+from contexthub.api.routers.feedback import router as feedback_router
+from contexthub.services.acl_service import ACLService
+from contexthub.services.feedback_service import FeedbackService
 
 from openclaw.plugin import ContextHubContextEngine
 from openclaw.tools import TOOL_DEFINITIONS, dispatch
@@ -44,6 +47,42 @@ def mock_client():
 @pytest.fixture
 def engine(mock_client):
     return ContextHubContextEngine(mock_client)
+
+
+class _RepoSession:
+    def __init__(self, db):
+        self._db = db
+
+    async def __aenter__(self):
+        return self._db
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class FakeRepo:
+    def __init__(self, db):
+        self._db = db
+
+    def session(self, account_id):
+        return _RepoSession(self._db)
+
+
+async def _insert_context(db, uri: str):
+    return await db.fetchval(
+        """
+        INSERT INTO contexts (
+            id, uri, context_type, scope, owner_space, account_id, status, l0_content
+        )
+        VALUES (
+            $1, $2, 'resource', 'team', 'engineering/backend',
+            current_setting('app.account_id'), 'active', 'plugin fixture'
+        )
+        RETURNING id
+        """,
+        uuid.uuid4(),
+        uri,
+    )
 
 
 # ── §8.1: Tool definition completeness ─────────────────────────────────
@@ -130,7 +169,9 @@ class TestToolDispatch:
 
     @pytest.mark.asyncio
     async def test_feedback_calls_report_feedback(self, mock_client):
-        mock_client.report_feedback.return_value = {"id": 1, "outcome": "adopted"}
+        mock_client.report_feedback.return_value = MagicMock(
+            model_dump=MagicMock(return_value={"id": 1, "outcome": "adopted"})
+        )
         result = await dispatch(
             mock_client,
             "contexthub_feedback",
@@ -180,6 +221,67 @@ class TestToolDispatch:
             {"skill_uri": "skill://x", "content": "SELECT 1"},
         )
         mock_client.skill.publish.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_feedback_tool_sidecar_sdk_http_path(repo, clean_db):
+    uri = "ctx://team/engineering/resources/orders"
+    async with repo.session("acme") as db:
+        context_id = await _insert_context(db, uri)
+
+    app = FastAPI()
+    app.include_router(feedback_router)
+    app.state.repo = repo
+    app.state.feedback_service = FeedbackService(ACLService())
+    app.state.acl_service = ACLService()
+
+    client = ContextHubClient(
+        url="http://test",
+        api_key="test-key",
+        account_id="acme",
+        agent_id="query-agent",
+    )
+    await client._http.aclose()
+    client._http = AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={
+            "X-API-Key": "test-key",
+            "X-Account-Id": "acme",
+            "X-Agent-Id": "query-agent",
+        },
+    )
+    try:
+        result = await dispatch(
+            client,
+            "contexthub_feedback",
+            {
+                "context_uri": uri,
+                "outcome": "adopted",
+                "retrieval_id": "rid-plugin",
+                "metadata": {"source": "sidecar"},
+            },
+        )
+    finally:
+        await client.aclose()
+
+    payload = json.loads(result)
+    assert payload["outcome"] == "adopted"
+    assert payload["retrieval_id"] == "rid-plugin"
+
+    async with repo.session("acme") as db:
+        row = await db.fetchrow(
+            """
+            SELECT outcome, retrieval_id, actor
+            FROM context_feedback
+            WHERE context_id = $1
+            """,
+            context_id,
+        )
+    assert row is not None
+    assert row["outcome"] == "adopted"
+    assert row["retrieval_id"] == "rid-plugin"
+    assert row["actor"] == "query-agent"
 
 
 # ── §8.3: SDK exceptions → agent-readable error ────────────────────────
