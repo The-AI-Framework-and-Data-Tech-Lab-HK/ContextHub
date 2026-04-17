@@ -72,7 +72,7 @@ async def clean_db(db_pool):
     """Truncate business data before each test, preserving seed data."""
     async with db_pool.acquire() as conn:
         await conn.execute("""
-            TRUNCATE contexts, dependencies, change_events,
+            TRUNCATE contexts, document_sections, dependencies, change_events,
                      table_metadata, lineage, table_relationships,
                      query_templates, skill_versions, skill_subscriptions,
                      lifecycle_policies,

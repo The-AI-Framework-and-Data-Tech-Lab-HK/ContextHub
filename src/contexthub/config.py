@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     search_over_retrieve_factor: int = 3
     search_default_top_k: int = 10
     catalog_type: str = "mock"  # Carrier-specific: catalog connector type
+    doc_store_root: str = "./data/docs"
+    max_document_size_mb: int = 50
+    max_token_per_node: int = 2000
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

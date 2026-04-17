@@ -16,7 +16,7 @@ from contexthub.config import Settings
 from contexthub.db.codecs import init_pg_connection
 from contexthub.db.repository import PgRepository
 from contexthub.generation.base import ContentGenerator
-from contexthub.llm.factory import create_embedding_client
+from contexthub.llm.factory import create_chat_client, create_embedding_client
 from contexthub.retrieval.router import RetrievalRouter
 from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
@@ -28,6 +28,7 @@ from contexthub.services.lifecycle_service import LifecycleService
 from contexthub.services.memory_service import MemoryService
 from contexthub.services.retrieval_service import RetrievalService
 from contexthub.services.skill_service import SkillService
+from contexthub.services.document_ingester import LongDocumentIngester
 from contexthub.store.context_store import ContextStore
 from contexthub.propagation.registry import PropagationRuleRegistry
 from contexthub.services.propagation_engine import PropagationEngine
@@ -51,6 +52,7 @@ async def lifespan(app: FastAPI):
         init=init_pg_connection,
     )
     embedding_client = None
+    chat_client = None
     lifecycle_scheduler = None
     lifecycle_started = False
     propagation_engine = None
@@ -66,6 +68,7 @@ async def lifespan(app: FastAPI):
 
         # Task 3 services
         embedding_client = create_embedding_client(settings)
+        chat_client = create_chat_client(settings)
         content_generator = ContentGenerator()
         indexer_service = IndexerService(
             content_generator,
@@ -93,6 +96,16 @@ async def lifespan(app: FastAPI):
             audit_service=audit_service,
             over_retrieve_factor=settings.search_over_retrieve_factor,
         )
+        document_ingester = LongDocumentIngester(
+            chat_client=chat_client,
+            embedding_client=embedding_client,
+            content_generator=content_generator,
+            acl=acl_service,
+            audit=audit_service,
+            doc_store_root=settings.doc_store_root,
+            max_document_size_mb=settings.max_document_size_mb,
+            max_token_per_node=settings.max_token_per_node,
+        )
         feedback_service = FeedbackService(acl_service, audit=audit_service)
 
         app.state.settings = settings
@@ -107,9 +120,11 @@ async def lifespan(app: FastAPI):
         app.state.retrieval_service = retrieval_service
         app.state.masking_service = masking_service
         app.state.embedding_client = embedding_client
+        app.state.chat_client = chat_client
         app.state.audit_service = audit_service
         app.state.share_service = share_service
         app.state.feedback_service = feedback_service
+        app.state.document_ingester = document_ingester
 
         # Task 7: Carrier-specific services
         catalog_connector = MockCatalogConnector()
@@ -160,6 +175,8 @@ async def lifespan(app: FastAPI):
             if propagation_started:
                 await propagation_engine.stop()
     finally:
+        if chat_client is not None and hasattr(chat_client, "close"):
+            await chat_client.close()
         if embedding_client is not None and hasattr(embedding_client, "close"):
             await embedding_client.close()
         await pool.close()
