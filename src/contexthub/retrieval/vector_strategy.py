@@ -42,7 +42,7 @@ async def vector_search(
     rows = await db.fetch(
         f"""
         SELECT id, uri, context_type, scope, owner_space, status, version,
-               l0_content, l1_content, tags,
+               l0_content, l1_content, tags, file_path,
                1 - (l0_embedding <=> $1::vector) AS cosine_similarity
         FROM contexts
         WHERE {where}
@@ -64,6 +64,7 @@ async def vector_search(
             "l0_content": r["l0_content"],
             "l1_content": r["l1_content"],
             "tags": list(r["tags"] or []),
+            "file_path": r.get("file_path"),
             "cosine_similarity": float(r["cosine_similarity"]),
         }
         for r in rows

@@ -56,7 +56,7 @@ async def keyword_search(
     rows = await db.fetch(
         f"""
         SELECT id, uri, context_type, scope, owner_space, status, version,
-               l0_content, l1_content, tags,
+               l0_content, l1_content, tags, file_path,
                ({score_expr})::float / {max_score} AS cosine_similarity
         FROM contexts
         WHERE {where} AND ({score_expr}) > 0
@@ -78,6 +78,7 @@ async def keyword_search(
             "l0_content": r["l0_content"],
             "l1_content": r["l1_content"],
             "tags": list(r["tags"] or []),
+            "file_path": r.get("file_path"),
             "cosine_similarity": float(r["cosine_similarity"]),
         }
         for r in rows

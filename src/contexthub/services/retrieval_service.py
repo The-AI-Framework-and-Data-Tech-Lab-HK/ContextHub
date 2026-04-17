@@ -10,6 +10,7 @@ from contexthub.llm.base import EmbeddingClient
 from contexthub.models.request import RequestContext
 from contexthub.models.search import SearchRequest, SearchResponse, SearchResult
 from contexthub.retrieval.keyword_strategy import keyword_search
+from contexthub.retrieval.long_doc import LongDocRetrievalCoordinator
 from contexthub.retrieval.router import RetrievalRouter
 from contexthub.retrieval.vector_strategy import vector_search
 from contexthub.services.acl_service import ACLService
@@ -43,6 +44,7 @@ class RetrievalService:
         *,
         masking_service: MaskingService,
         audit_service: AuditService | None = None,
+        long_doc_coordinator: LongDocRetrievalCoordinator | None = None,
         over_retrieve_factor: int = 3,
     ):
         self._router = retrieval_router
@@ -50,6 +52,7 @@ class RetrievalService:
         self._acl = acl_service
         self._masking = masking_service
         self._audit = audit_service
+        self._long_doc_coordinator = long_doc_coordinator
         self._over_retrieve_factor = over_retrieve_factor
 
     async def search(
@@ -82,6 +85,13 @@ class RetrievalService:
 
         # 3. Rerank
         candidates = await self._router.rerank.rerank(request.query, candidates)
+
+        if self._long_doc_coordinator:
+            candidates = await self._long_doc_coordinator.retrieve(
+                db,
+                request.query,
+                candidates,
+            )
 
         # 4. Quality factor
         if candidates:
@@ -152,11 +162,14 @@ class RetrievalService:
             l0 = c.get("l0_content")
             l1 = c.get("l1_content")
             l2 = c.get("l2_content")
+            snippet = c.get("snippet")
 
             if masks:
                 l0 = self._masking.apply_masks(l0, masks)
                 l1 = self._masking.apply_masks(l1, masks)
                 l2 = self._masking.apply_masks(l2, masks)
+                if snippet is not None:
+                    snippet = self._masking.apply_masks(snippet, masks)
 
             results.append(SearchResult(
                 uri=c["uri"],
@@ -170,6 +183,9 @@ class RetrievalService:
                 status=c["status"],
                 version=c["version"],
                 tags=c.get("tags", []),
+                snippet=snippet,
+                section_id=c.get("section_id"),
+                retrieval_strategy=c.get("retrieval_strategy"),
             ))
 
         response = SearchResponse(

@@ -515,6 +515,16 @@ class QueryCaptureDB:
         return []
 
 
+class QueryResultDB(QueryCaptureDB):
+    def __init__(self, rows):
+        super().__init__()
+        self._rows = rows
+
+    async def fetch(self, sql, *args):
+        self.fetches.append((sql, args))
+        return self._rows
+
+
 @pytest.mark.asyncio
 async def test_vector_search_excludes_archived_and_deleted_statuses():
     db = QueryCaptureDB()
@@ -533,3 +543,57 @@ async def test_keyword_search_excludes_archived_and_deleted_statuses():
 
     assert db.fetches
     assert "status NOT IN ('archived', 'deleted')" in db.fetches[0][0]
+
+
+@pytest.mark.asyncio
+async def test_vector_search_returns_file_path_in_candidates():
+    ctx_id = uuid.uuid4()
+    db = QueryResultDB(
+        [
+            FakeRecord(
+                id=ctx_id,
+                uri="ctx://resources/manuals/postgres",
+                context_type="resource",
+                scope="team",
+                owner_space="engineering",
+                status="active",
+                version=1,
+                l0_content="postgres handbook",
+                l1_content="replication guide",
+                tags=[],
+                file_path="/tmp/postgres-doc",
+                cosine_similarity=0.8,
+            )
+        ]
+    )
+
+    results = await vector_search(db, [0.1, 0.2, 0.3], 5)
+
+    assert results[0]["file_path"] == "/tmp/postgres-doc"
+
+
+@pytest.mark.asyncio
+async def test_keyword_search_returns_file_path_in_candidates():
+    ctx_id = uuid.uuid4()
+    db = QueryResultDB(
+        [
+            FakeRecord(
+                id=ctx_id,
+                uri="ctx://resources/manuals/postgres",
+                context_type="resource",
+                scope="team",
+                owner_space="engineering",
+                status="active",
+                version=1,
+                l0_content="postgres handbook",
+                l1_content="replication guide",
+                tags=[],
+                file_path="/tmp/postgres-doc",
+                cosine_similarity=0.5,
+            )
+        ]
+    )
+
+    results = await keyword_search(db, "postgres", 5)
+
+    assert results[0]["file_path"] == "/tmp/postgres-doc"

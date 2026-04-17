@@ -17,6 +17,11 @@ from contexthub.db.codecs import init_pg_connection
 from contexthub.db.repository import PgRepository
 from contexthub.generation.base import ContentGenerator
 from contexthub.llm.factory import create_chat_client, create_embedding_client
+from contexthub.retrieval.long_doc import (
+    KeywordRetriever,
+    LongDocRetrievalCoordinator,
+    TreeRetriever,
+)
 from contexthub.retrieval.router import RetrievalRouter
 from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
@@ -90,10 +95,14 @@ async def lifespan(app: FastAPI):
 
         # Task 4: retrieval
         retrieval_router = RetrievalRouter.default()
+        long_doc_coordinator = LongDocRetrievalCoordinator()
+        long_doc_coordinator.register_strategy("tree", TreeRetriever(chat_client))
+        long_doc_coordinator.register_strategy("keyword", KeywordRetriever(chat_client))
         retrieval_service = RetrievalService(
             retrieval_router, embedding_client, acl_service,
             masking_service=masking_service,
             audit_service=audit_service,
+            long_doc_coordinator=long_doc_coordinator,
             over_retrieve_factor=settings.search_over_retrieve_factor,
         )
         document_ingester = LongDocumentIngester(
@@ -118,6 +127,7 @@ async def lifespan(app: FastAPI):
         app.state.indexer_service = indexer_service
         app.state.lifecycle_service = lifecycle_service
         app.state.retrieval_service = retrieval_service
+        app.state.long_doc_retrieval_coordinator = long_doc_coordinator
         app.state.masking_service = masking_service
         app.state.embedding_client = embedding_client
         app.state.chat_client = chat_client

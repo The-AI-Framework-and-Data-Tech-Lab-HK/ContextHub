@@ -955,6 +955,17 @@ async def test_lifespan_exposes_chat_client_and_document_ingester_and_closes_cha
         async with main_module.lifespan(app):
             assert app.state.chat_client is fake_chat
             assert app.state.document_ingester is not None
+            assert app.state.long_doc_retrieval_coordinator is not None
+            assert app.state.retrieval_service._long_doc_coordinator is app.state.long_doc_retrieval_coordinator
+            assert set(app.state.long_doc_retrieval_coordinator._strategies) == {"tree", "keyword"}
+            assert isinstance(
+                app.state.long_doc_retrieval_coordinator._strategies["tree"],
+                main_module.TreeRetriever,
+            )
+            assert isinstance(
+                app.state.long_doc_retrieval_coordinator._strategies["keyword"],
+                main_module.KeywordRetriever,
+            )
 
     fake_chat.close.assert_awaited_once()
     fake_embedding.close.assert_awaited_once()
