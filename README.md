@@ -156,7 +156,7 @@ pip install greenlet
 pip install -e sdk/
 ```
 
-Configure `.env` (copy from the example and fill in your OpenAI API key):
+Configure `.env` (copy from the example, then fill in your API key and adjust model settings if needed):
 
 ```bash
 cp .env.example .env
@@ -165,11 +165,13 @@ cp .env.example .env
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `API_KEY` | Yes | `changeme` | Server auth — all SDK/HTTP requests must send this as `X-API-Key` header |
-| `OPENAI_API_KEY` | For OpenAI-backed features | *(empty)* | Enables vector embeddings for `search` and the chat-based tree builder used by long-document ingestion; without it, vector search is disabled and long-document ingestion returns `503` |
-| `EMBEDDING_MODEL` | No | `text-embedding-3-small` | OpenAI embedding model name |
-| `EMBEDDING_DIMENSIONS` | No | `1536` | Must match the chosen model's output dimensions |
+| `OPENAI_API_KEY` | For LLM-backed features | *(empty)* | Enables vector embeddings for `search` and the chat-based tree builder / tree selector used by long-document ingestion and retrieval; without it, vector search is disabled and long-document ingestion returns `503` |
+| `OPENAI_BASE_URL` | No | `https://api.openai.com/v1` | Shared base URL for both chat and embedding requests; can point to an OpenAI-compatible endpoint |
+| `CHAT_MODEL` | No | `gpt-4o-mini` | Chat model used by long-document tree construction and tree-based section selection |
+| `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Embedding model used for L0/query embeddings during retrieval |
+| `EMBEDDING_DIMENSIONS` | No | `1536` | Target stored vector dimension; exact matches are accepted, shorter compatible embeddings are zero-padded, and larger embeddings are rejected |
 
-Current builds do not require a separate chat model setting in `.env`: the long-document chat client uses an internal default model.
+By default, ContextHub uses the official OpenAI endpoint with `gpt-4o-mini` for chat and `text-embedding-3-small` for embeddings. To switch to another OpenAI-compatible deployment, change `OPENAI_BASE_URL`, `CHAT_MODEL`, and `EMBEDDING_MODEL` together. If your provider returns a shorter embedding than the configured `EMBEDDING_DIMENSIONS`, ContextHub pads it with trailing zeros before storage and retrieval so it can still fit the configured pgvector column.
 
 ```bash
 # Run database migrations
@@ -278,7 +280,7 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
   Context store (`ctx://` URI routing), memory / skill / retrieval / propagation services, ACL with RLS + team hierarchy, Python SDK, OpenClaw context-engine plugin, data lake carrier, Tier 3 integration tests (P-1~P-8, C-1~C-5, A-1~A-4)
 - [x] **Phase 2 — Explicit ACL & Audit** ✅
   ACL allow/deny/field mask overlay, tiered audit logging, cross-team share grants, Admin API + audit query, SDK extensions, Tier 3 integration tests (A-5~A-15)
-- [ ] **Phase 3 — Feedback & Lifecycle** — Quality signals, automatic lifecycle transitions, long doc retrieval
+- [x] **Phase 3 — Feedback & Lifecycle** — Quality signals, automatic lifecycle transitions, long doc retrieval
 - [ ] **Phase 4 — Quantitative Evaluation (ECMB)** — SQL accuracy benchmarks, L0/L1/L2 vs. flat RAG A/B experiments
 - [ ] **Phase 5 — Production Hardening** — Multi-instance (`SKIP LOCKED`), MCP Server, real catalog connectors
 

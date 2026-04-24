@@ -12,6 +12,7 @@ def create_embedding_client(settings: Settings) -> EmbeddingClient:
     if settings.openai_api_key:
         return OpenAIEmbeddingClient(
             api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
             model=settings.embedding_model,
             expected_dimensions=settings.embedding_dimensions,
         )
@@ -20,5 +21,9 @@ def create_embedding_client(settings: Settings) -> EmbeddingClient:
 
 def create_chat_client(settings: Settings) -> BaseChatClient:
     if settings.openai_api_key:
-        return OpenAIChatClient(api_key=settings.openai_api_key)
+        return OpenAIChatClient(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            model=settings.chat_model,
+        )
     return NoOpChatClient()

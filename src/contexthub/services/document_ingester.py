@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import shutil
+from collections import Counter
 from pathlib import Path
 import re
 from typing import Any
@@ -61,6 +62,13 @@ _SECTION_KEYS = {
     "summary",
 }
 
+_PDF_STANDALONE_HEADINGS = {
+    "abstract",
+    "acknowledgements",
+    "references",
+    "appendix",
+}
+
 
 def doc_dir_key(account_id: str, uri: str) -> str:
     return hashlib.sha256(f"{account_id}\x00{uri}".encode()).hexdigest()[:16]
@@ -113,6 +121,134 @@ def _collect_heading_excerpt(extracted_md: str, budget: int) -> str:
         collected.append(addition)
         used += extra
     return "\n".join(collected)
+
+
+def _is_page_marker(line: str) -> bool:
+    return bool(re.fullmatch(r"(?:page\s+)?\d+", line.strip(), re.IGNORECASE))
+
+
+def _looks_like_running_header(line: str) -> bool:
+    stripped = " ".join(line.split())
+    if len(stripped) < 12 or len(stripped) > 120:
+        return False
+    if _is_page_marker(stripped):
+        return True
+    if stripped.endswith((".", "?", "!", ":")):
+        return False
+    letters = [char for char in stripped if char.isalpha()]
+    if len(letters) < 6:
+        return False
+    upper_ratio = sum(1 for char in letters if char.isupper()) / len(letters)
+    return upper_ratio >= 0.7 or "conference paper" in stripped.lower()
+
+
+def _looks_like_all_caps_heading(line: str) -> bool:
+    stripped = " ".join(line.split())
+    letters = [char for char in stripped if char.isalpha()]
+    if len(letters) < 4 or len(stripped) > 120:
+        return False
+    if stripped.endswith((".", "?", "!")):
+        return False
+    upper_ratio = sum(1 for char in letters if char.isupper()) / len(letters)
+    word_count = len(stripped.split())
+    if upper_ratio < 0.8:
+        return False
+    if word_count == 1 and stripped.lower() not in _PDF_STANDALONE_HEADINGS and len(stripped) < 8:
+        return False
+    return True
+
+
+def _looks_like_numbered_heading(line: str) -> bool:
+    stripped = " ".join(line.split())
+    match = re.match(r"^(?P<prefix>\d+(?:\.\d+)*|[A-Z])\s+(?P<body>.+)$", stripped)
+    if match is None:
+        return False
+    body = match.group("body").strip()
+    if not body:
+        return False
+    if re.match(r"^[A-Z][A-Z0-9 ,()'/-]+$", body):
+        return True
+    body_letters = [char for char in body if char.isalpha()]
+    if len(body_letters) < 4:
+        return False
+    upper_ratio = sum(1 for char in body_letters if char.isupper()) / len(body_letters)
+    return upper_ratio >= 0.8
+
+
+def _heading_level(title: str) -> int:
+    stripped = " ".join(title.split())
+    if re.match(r"^\d+\.\d+\s+", stripped):
+        return 3
+    if re.match(r"^\d+\s+", stripped):
+        return 2
+    if re.match(r"^[A-Z]\s+[A-Z]", stripped):
+        return 2
+    if stripped.lower() in _PDF_STANDALONE_HEADINGS:
+        return 2
+    return 2
+
+
+def _pdf_to_markdownish_text(plain_text: str) -> str:
+    raw_lines = [line.rstrip() for line in plain_text.splitlines()]
+    normalized_lines = [" ".join(line.split()) for line in raw_lines]
+    line_counts = Counter(
+        line for line in normalized_lines if line and not _is_page_marker(line)
+    )
+    repeated_noise = {
+        line for line, count in line_counts.items()
+        if count >= 3 and _looks_like_running_header(line)
+    }
+
+    md_lines: list[str] = []
+    non_empty_seen = 0
+    i = 0
+    while i < len(normalized_lines):
+        line = normalized_lines[i]
+        if not line:
+            if md_lines and md_lines[-1] != "":
+                md_lines.append("")
+            i += 1
+            continue
+        if line in repeated_noise or _is_page_marker(line):
+            i += 1
+            continue
+
+        if (
+            re.fullmatch(r"\d+(?:\.\d+)*", line)
+            and i + 1 < len(normalized_lines)
+            and _looks_like_all_caps_heading(normalized_lines[i + 1])
+        ):
+            heading = f"{line} {normalized_lines[i + 1]}"
+            md_lines.append(f"{'#' * _heading_level(heading)} {heading}")
+            i += 2
+            non_empty_seen += 1
+            continue
+
+        if (
+            non_empty_seen <= 5
+            and _looks_like_all_caps_heading(line)
+        ):
+            title_lines = [line]
+            j = i + 1
+            while j < len(normalized_lines) and _looks_like_all_caps_heading(normalized_lines[j]):
+                title_lines.append(normalized_lines[j])
+                j += 1
+            if len(title_lines) >= 2:
+                md_lines.append(f"# {' '.join(title_lines)}")
+                i = j
+                non_empty_seen += len(title_lines)
+                continue
+
+        if _looks_like_all_caps_heading(line) or _looks_like_numbered_heading(line):
+            md_lines.append(f"{'#' * _heading_level(line)} {line}")
+        else:
+            md_lines.append(line)
+        i += 1
+        non_empty_seen += 1
+
+    while md_lines and md_lines[-1] == "":
+        md_lines.pop()
+    return "\n".join(md_lines).strip()
 
 
 def _extract_json_object(raw: str) -> str | None:
@@ -206,7 +342,44 @@ def validate_flat_sections(payload: dict[str, Any], text_len: int) -> list[dict[
         return None
 
     roots = [node for node in flat if node["parent_node_id"] is None]
-    return flat if len(roots) == 1 else None
+    if len(roots) != 1:
+        return None
+
+    root = roots[0]
+    root["start_offset"] = 0
+    root["end_offset"] = text_len
+
+    by_id = {node["node_id"]: node for node in flat}
+    changed = True
+    while changed:
+        changed = False
+        for node in flat:
+            parent_id = node["parent_node_id"]
+            if parent_id is None:
+                continue
+            parent = by_id.get(parent_id)
+            if parent is None:
+                return None
+            if node["start_offset"] < parent["start_offset"]:
+                parent["start_offset"] = node["start_offset"]
+                changed = True
+            if node["end_offset"] > parent["end_offset"]:
+                parent["end_offset"] = node["end_offset"]
+                changed = True
+
+    for node in flat:
+        parent_id = node["parent_node_id"]
+        if parent_id is None:
+            continue
+        parent = by_id.get(parent_id)
+        if parent is None:
+            return None
+        if node["start_offset"] < parent["start_offset"]:
+            return None
+        if node["end_offset"] > parent["end_offset"]:
+            return None
+
+    return flat
 
 
 def _converge_roots(flat: list[dict[str, Any]], text_len: int) -> list[dict[str, Any]] | None:
@@ -616,6 +789,8 @@ class LongDocumentIngester:
         source_path: str,
         ctx: RequestContext,
         tags: list[str] | None = None,
+        *,
+        allow_llm_tree: bool = True,
     ) -> DocumentIngestResponse:
         if isinstance(self._chat_client, NoOpChatClient):
             raise ServiceUnavailableError(
@@ -653,7 +828,11 @@ class LongDocumentIngester:
                 metadata={"uri": uri, "source_path": str(source)},
             )
             embedding = await self._embed_l0(generated.l0)
-            tree = await self.build_document_tree(markdown_text, plain_text)
+            tree = await self.build_document_tree(
+                markdown_text,
+                plain_text,
+                allow_llm=allow_llm_tree,
+            )
 
             try:
                 row = await db.fetchrow(
@@ -776,7 +955,8 @@ class LongDocumentIngester:
                 if text:
                     chunks.append(text)
         plain_text = "\n".join(chunks).strip()
-        return plain_text, plain_text
+        markdown_text = _pdf_to_markdownish_text(plain_text)
+        return plain_text, markdown_text or plain_text
 
     async def _embed_l0(self, text: str) -> list[float] | None:
         try:
@@ -785,16 +965,23 @@ class LongDocumentIngester:
             logger.exception("L0 embedding failed; proceeding without embedding")
             return None
 
-    async def build_document_tree(self, extracted_md: str, extracted_txt: str) -> SectionNode:
+    async def build_document_tree(
+        self,
+        extracted_md: str,
+        extracted_txt: str,
+        *,
+        allow_llm: bool = True,
+    ) -> SectionNode:
         prompt = build_bounded_tree_prompt(extracted_md, extracted_txt)
         flat: list[dict[str, Any]] | None = None
-        try:
-            response = await self._chat_client.complete(prompt, max_tokens=2000)
-            payload = parse_llm_sections_json(response) if response else None
-            flat = validate_flat_sections(payload, len(extracted_txt)) if payload else None
-        except Exception:
-            logger.exception("LLM tree generation failed; falling back deterministically")
-            flat = None
+        if allow_llm:
+            try:
+                response = await self._chat_client.complete(prompt, max_tokens=2000)
+                payload = parse_llm_sections_json(response) if response else None
+                flat = validate_flat_sections(payload, len(extracted_txt)) if payload else None
+            except Exception:
+                logger.exception("LLM tree generation failed; falling back deterministically")
+                flat = None
 
         if not flat:
             flat = markdown_heading_fallback(extracted_md, extracted_txt, extracted_txt)

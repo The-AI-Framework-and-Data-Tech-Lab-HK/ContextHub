@@ -22,13 +22,14 @@ class OpenAIChatClient(BaseChatClient):
     def __init__(
         self,
         api_key: str,
+        base_url: str = "https://api.openai.com/v1",
         model: str = "gpt-4o-mini",
         timeout: float = 120.0,
     ):
         self._api_key = api_key
         self._model = model
         self._client = httpx.AsyncClient(
-            base_url="https://api.openai.com/v1",
+            base_url=base_url.rstrip("/"),
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=timeout,
         )

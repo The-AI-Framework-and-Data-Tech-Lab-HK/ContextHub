@@ -17,6 +17,7 @@ class OpenAIEmbeddingClient:
     def __init__(
         self,
         api_key: str,
+        base_url: str = "https://api.openai.com/v1",
         model: str = "text-embedding-3-small",
         expected_dimensions: int | None = None,
     ):
@@ -24,7 +25,7 @@ class OpenAIEmbeddingClient:
         self._model = model
         self._expected_dimensions = expected_dimensions
         self._client = httpx.AsyncClient(
-            base_url="https://api.openai.com/v1",
+            base_url=base_url.rstrip("/"),
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=30.0,
         )
@@ -104,15 +105,25 @@ class OpenAIEmbeddingClient:
             )
             return None
 
-        if (
-            self._expected_dimensions is not None
-            and len(embedding) != self._expected_dimensions
-        ):
+        if self._expected_dimensions is not None:
+            actual_dimensions = len(embedding)
+            if actual_dimensions == self._expected_dimensions:
+                return embedding
+            if actual_dimensions < self._expected_dimensions:
+                logger.info(
+                    "Padding embedding for %s from %s to %s dimensions for model=%s",
+                    operation,
+                    actual_dimensions,
+                    self._expected_dimensions,
+                    self._model,
+                )
+                return embedding + [0.0] * (self._expected_dimensions - actual_dimensions)
+
             logger.error(
-                "OpenAI embedding dimension mismatch for %s: expected=%s got=%s model=%s",
+                "OpenAI embedding dimension mismatch for %s: expected_at_most=%s got=%s model=%s",
                 operation,
                 self._expected_dimensions,
-                len(embedding),
+                actual_dimensions,
                 self._model,
             )
             return None

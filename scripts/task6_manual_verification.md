@@ -1,6 +1,6 @@
 # Task 6 Manual Verification
 
-This document explains how to manually verify the Task 6 long-document retrieval flow after you have a valid `OPENAI_API_KEY`.
+This document explains how to manually verify the Task 6 long-document retrieval flow after you have a valid LLM configuration in `ContextHub/.env`.
 
 The goal is to confirm that ContextHub can:
 
@@ -9,8 +9,8 @@ The goal is to confirm that ContextHub can:
 3. run `RetrievalService.search()`,
 4. return the ingested document with:
    - non-empty `snippet`
-   - `retrieval_strategy == "tree"`
-   - non-empty `section_id`
+   - `retrieval_strategy == "tree"` or `retrieval_strategy == "keyword"` when fallback activates
+   - non-empty `section_id` for `tree`, or a focused snippet for `keyword`
 
 
 ## What you need
@@ -19,7 +19,7 @@ Before running the manual smoke script, make sure you have:
 
 1. PostgreSQL running
 2. database migrations applied
-3. a valid `OPENAI_API_KEY` in `ContextHub/.env`
+3. a valid LLM setup in `ContextHub/.env`
 
 You do not need to start the HTTP server for this verification.
 
@@ -32,10 +32,31 @@ From the `ContextHub` repo root:
 alembic upgrade head
 ```
 
-Check that your `.env` contains a valid key:
+Check that your `.env` contains a valid key. The defaults are:
 
 ```bash
 OPENAI_API_KEY=your_real_key_here
+OPENAI_BASE_URL=https://api.openai.com/v1
+CHAT_MODEL=gpt-4o-mini
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=1536
+```
+
+What these defaults mean:
+
+- `CHAT_MODEL` is used for long-document tree construction and tree-based section picking.
+- `EMBEDDING_MODEL` is used for retrieval embeddings.
+- `OPENAI_BASE_URL` can be changed if you want to target an OpenAI-compatible endpoint instead of the official OpenAI API.
+- `EMBEDDING_DIMENSIONS` is the stored vector size used by ContextHub. Exact matches are accepted directly; if your provider returns a shorter compatible embedding, ContextHub pads it with trailing zeros before writing/querying pgvector.
+
+Example: switching to another compatible endpoint while keeping the same smoke script:
+
+```bash
+OPENAI_API_KEY=your_provider_key
+OPENAI_BASE_URL=https://your-compatible-endpoint.example/v1
+CHAT_MODEL=your-chat-model
+EMBEDDING_MODEL=your-embedding-model
+EMBEDDING_DIMENSIONS=1536
 ```
 
 
@@ -137,8 +158,8 @@ The script should print all of the following stages:
 
 The most important fields in the final search result are:
 
-- `retrieval_strategy: tree`
-- `section_id:` non-empty
+- `retrieval_strategy:` usually `tree`, but `keyword` is also acceptable when tree falls back
+- `section_id:` non-empty for `tree`; `keyword` fallback may leave this empty
 - `snippet preview:` non-empty
 
 
@@ -150,26 +171,29 @@ The script now verifies the Task 6 runtime path end to end:
 2. `document_sections` written to DB
 3. `ContextStore.read(...)` for `L0`, `L1`, `L2`
 4. `RetrievalService.search(...)`
-5. long-doc precision routing through the default `tree` strategy
+5. long-doc precision routing through the default `tree` strategy, with optional `keyword` fallback for low-confidence tree snippets
 6. final result includes:
    - `snippet`
    - `section_id`
-   - `retrieval_strategy == "tree"`
+   - `retrieval_strategy == "tree"` or `retrieval_strategy == "keyword"`
 
 
 ## Common failures
 
-### 1. Missing or invalid API key
+### 1. Missing or invalid LLM configuration
 
 Typical symptom:
 
 - ingestion fails before the long-doc pipeline completes
-- or OpenAI-backed calls fail during ingestion/tree selection
+- or LLM-backed calls fail during ingestion/tree selection
 
 Check:
 
 - `ContextHub/.env` exists
 - `OPENAI_API_KEY` is set correctly
+- `OPENAI_BASE_URL` points to a reachable OpenAI-compatible endpoint
+- `CHAT_MODEL` and `EMBEDDING_MODEL` are valid for that endpoint
+- `EMBEDDING_DIMENSIONS` is large enough for the chosen embedding model output
 
 
 ### 2. PostgreSQL not running
@@ -231,12 +255,14 @@ Typical symptom:
 
 Why this matters:
 
-- default runtime behavior for Task 6 must use `tree`
+- default runtime behavior should try `tree` first
+
+If the final result uses `keyword`, that means tree retrieval ran first but the runtime judged the tree snippet to be low confidence and switched to keyword fallback. This is acceptable as long as the final snippet is focused and non-empty.
 
 
 ## Suggested first run
 
-After you get your API key, this is the recommended first command:
+After your LLM configuration is ready, this is the recommended first command:
 
 ```bash
 python scripts/manual_longdoc_smoke.py

@@ -156,7 +156,7 @@ pip install greenlet
 pip install -e sdk/
 ```
 
-配置 `.env`（从示例文件复制并填入你的 OpenAI API Key）：
+配置 `.env`（从示例文件复制后，填入你的 API Key；如有需要再调整模型配置）：
 
 ```bash
 cp .env.example .env
@@ -165,11 +165,13 @@ cp .env.example .env
 | 变量 | 是否必填 | 默认值 | 用途 |
 |---|---|---|---|
 | `API_KEY` | 是 | `changeme` | 服务端认证——所有 SDK/HTTP 请求需在 `X-API-Key` header 中携带此值 |
-| `OPENAI_API_KEY` | 使用 OpenAI 相关功能时必填 | *（空）* | 启用 `search` 所需的向量 embedding，以及长文档入库时用于构建文档树的 chat-based tree builder；不填则向量搜索不可用，长文档入库会返回 `503` |
-| `EMBEDDING_MODEL` | 否 | `text-embedding-3-small` | OpenAI embedding 模型名称 |
-| `EMBEDDING_DIMENSIONS` | 否 | `1536` | 需与所选模型的输出维度匹配 |
+| `OPENAI_API_KEY` | 使用 LLM 相关功能时必填 | *（空）* | 启用 `search` 所需的向量 embedding，以及长文档入库 / 检索时用到的文档树构建与 tree 选段；不填则向量搜索不可用，长文档入库会返回 `503` |
+| `OPENAI_BASE_URL` | 否 | `https://api.openai.com/v1` | chat 和 embedding 共用的 base URL；也可以指向兼容 OpenAI API 的端点 |
+| `CHAT_MODEL` | 否 | `gpt-4o-mini` | 长文档文档树构建与 tree-based section selection 使用的 chat model |
+| `EMBEDDING_MODEL` | 否 | `text-embedding-3-small` | 检索阶段为 L0/query 生成 embedding 的模型 |
+| `EMBEDDING_DIMENSIONS` | 否 | `1536` | 向量在库中的目标存储维度；与该维度一致时直接写入，更短的兼容 embedding 会自动补零，更长的 embedding 会被拒绝 |
 
-当前版本不需要在 `.env` 中单独配置 chat model：长文档 chat client 使用代码内置的默认模型。
+默认情况下，ContextHub 使用官方 OpenAI 端点，chat model 为 `gpt-4o-mini`，embedding model 为 `text-embedding-3-small`。如果你想切换到其他兼容 OpenAI API 的部署，只需一起调整 `OPENAI_BASE_URL`、`CHAT_MODEL` 和 `EMBEDDING_MODEL`。如果新 provider 返回的 embedding 比配置的 `EMBEDDING_DIMENSIONS` 更短，ContextHub 会在写库和检索前自动在尾部补零，使其仍能适配当前 pgvector 列。
 
 ```bash
 # 执行数据库迁移
@@ -278,7 +280,7 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
   Context store（`ctx://` URI 路由）、记忆 / 技能 / 检索 / 传播服务、ACL + RLS + 团队层级、Python SDK、OpenClaw 插件、数据湖载体、Tier 3 集成测试（P-1~P-8、C-1~C-5、A-1~A-4）
 - [x] **Phase 2 — 显式 ACL 与审计** ✅
   ACL allow/deny/field mask 叠加层、分层审计日志、跨团队 share grant、Admin API + 审计查询、SDK 扩展、Tier 3 集成测试（A-5~A-15）
-- [ ] **Phase 3 — 反馈与生命周期** — 质量信号、自动生命周期转换、长文档检索
+- [x] **Phase 3 — 反馈与生命周期** — 质量信号、自动生命周期转换、长文档检索
 - [ ] **Phase 4 — 量化评估（ECMB）** — SQL 准确率基准测试、L0/L1/L2 vs 平坦 RAG A/B 实验
 - [ ] **Phase 5 — 生产加固** — 多实例（`SKIP LOCKED`）、MCP Server、真实 Catalog 连接器
 

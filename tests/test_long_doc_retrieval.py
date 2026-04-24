@@ -302,6 +302,76 @@ async def test_tree_retriever_falls_back_deterministically(tmp_path: Path, chat_
 
 
 @pytest.mark.asyncio
+async def test_tree_retriever_can_stop_at_parent_when_body_matches_better_than_children(tmp_path: Path):
+    context_id = uuid.uuid4()
+    parent_text = (
+        "The benchmark covers 57 subjects across STEM, the humanities, the social sciences, and more.\n"
+        "It ranges from elementary topics to advanced professional material.\n"
+    )
+    stem_text = "STEM subjects include mathematics, physics, and computer science.\n"
+    humanities_text = "Humanities subjects include philosophy, law, and history.\n"
+    text = "Document overview\n" + parent_text + stem_text + humanities_text
+    parent_start = text.index(parent_text)
+    stem_start = text.index(stem_text)
+    humanities_start = text.index(humanities_text)
+    doc_dir = tmp_path / "doc"
+    doc_dir.mkdir()
+    (doc_dir / "extracted.txt").write_text(text, encoding="utf-8")
+    rows = [
+        _section_row(1, context_id, parent_id=None, title="Document", depth=0, start_offset=0, end_offset=len(text), summary="whole doc", token_count=5000),
+        _section_row(2, context_id, parent_id=1, title="A Multitask Test", depth=1, start_offset=parent_start, end_offset=len(text), summary="benchmark overview", token_count=2600),
+        _section_row(3, context_id, parent_id=2, title="STEM", depth=2, start_offset=stem_start, end_offset=humanities_start, summary="science technology engineering mathematics", token_count=300),
+        _section_row(4, context_id, parent_id=2, title="Humanities", depth=2, start_offset=humanities_start, end_offset=len(text), summary="law philosophy history", token_count=300),
+    ]
+
+    result = (
+        await TreeRetriever(ScriptedChatClient(exc=RuntimeError("llm down"))).retrieve(
+            SectionDB(rows),
+            "57 subjects across STEM humanities social sciences",
+            context_id,
+            "ctx://resources/manuals/mmlu",
+            str(doc_dir),
+        )
+    )[0]
+
+    assert result.section_id == 2
+    assert "57 subjects across STEM" in result.snippet
+
+
+@pytest.mark.asyncio
+async def test_tree_retriever_focuses_snippet_inside_large_selected_section(tmp_path: Path):
+    context_id = uuid.uuid4()
+    prefix = "Intro material.\n" * 80
+    target = (
+        "The benchmark covers 57 subjects across STEM, the humanities, the social sciences, and more.\n"
+    )
+    suffix = "Tail material.\n" * 80
+    text = prefix + target + suffix
+    doc_dir = tmp_path / "doc"
+    doc_dir.mkdir()
+    (doc_dir / "extracted.txt").write_text(text, encoding="utf-8")
+    rows = [
+        _section_row(1, context_id, parent_id=None, title="Document", depth=0, start_offset=0, end_offset=len(text), summary="whole doc", token_count=6000),
+        _section_row(2, context_id, parent_id=1, title="Overview", depth=1, start_offset=0, end_offset=len(text), summary="benchmark overview", token_count=3000),
+    ]
+
+    result = (
+        await TreeRetriever(ScriptedChatClient(exc=RuntimeError("llm down")), max_snippet_chars=220).retrieve(
+            SectionDB(rows),
+            "57 subjects across STEM humanities social sciences",
+            context_id,
+            "ctx://resources/manuals/mmlu-focus",
+            str(doc_dir),
+        )
+    )[0]
+
+    assert result.section_id == 2
+    assert target.strip() in result.snippet
+    assert result.snippet_offset[0] > 0
+    assert result.snippet_offset[0] < text.index(target)
+
+
+@pytest.mark.asyncio
 async def test_tree_retriever_uses_character_offsets_and_clamps_bounds(tmp_path: Path):
     context_id = uuid.uuid4()
     text = "你好abcDEF"
@@ -425,7 +495,7 @@ async def test_keyword_retriever_translates_rg_byte_offsets_to_char_offsets(tmp_
 
 
 @pytest.mark.asyncio
-async def test_keyword_retriever_degrades_when_rg_missing_or_no_hits(tmp_path: Path, monkeypatch):
+async def test_keyword_retriever_falls_back_to_python_scan_when_rg_missing(tmp_path: Path, monkeypatch):
     doc_id = uuid.uuid4()
     doc_dir = tmp_path / "doc"
     doc_dir.mkdir()
@@ -433,7 +503,13 @@ async def test_keyword_retriever_degrades_when_rg_missing_or_no_hits(tmp_path: P
     retriever = KeywordRetriever(ScriptedChatClient())
 
     monkeypatch.setattr(keyword_module.shutil, "which", lambda _: None)
-    assert await retriever.retrieve(SimpleNamespace(), "postgres", [_doc_candidate(doc_id, uri="ctx://resources/manuals/postgres", file_path=str(doc_dir))]) == []
+    results = await retriever.retrieve(
+        SimpleNamespace(),
+        "postgres",
+        [_doc_candidate(doc_id, uri="ctx://resources/manuals/postgres", file_path=str(doc_dir))],
+    )
+    assert len(results) == 1
+    assert "postgres" in results[0].snippet.lower()
 
     async def fake_exec(*args, **kwargs):
         del args, kwargs
@@ -445,7 +521,7 @@ async def test_keyword_retriever_degrades_when_rg_missing_or_no_hits(tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_keyword_retriever_degrades_when_rg_cannot_start(tmp_path: Path, monkeypatch):
+async def test_keyword_retriever_falls_back_when_rg_cannot_start(tmp_path: Path, monkeypatch):
     doc_id = uuid.uuid4()
     doc_dir = tmp_path / "doc"
     doc_dir.mkdir()
@@ -459,11 +535,13 @@ async def test_keyword_retriever_degrades_when_rg_cannot_start(tmp_path: Path, m
     monkeypatch.setattr(keyword_module.shutil, "which", lambda _: "/tmp/fake-rg")
     monkeypatch.setattr(keyword_module.asyncio, "create_subprocess_exec", broken_exec)
 
-    assert await retriever.retrieve(
+    results = await retriever.retrieve(
         SimpleNamespace(),
         "postgres",
         [_doc_candidate(doc_id, uri="ctx://resources/manuals/postgres", file_path=str(doc_dir))],
-    ) == []
+    )
+    assert len(results) == 1
+    assert "postgres" in results[0].snippet.lower()
 
 
 @pytest.mark.asyncio
@@ -672,6 +750,102 @@ async def test_coordinator_triggers_on_any_candidate_with_file_path(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_coordinator_falls_back_to_keyword_when_tree_snippet_has_low_query_coverage():
+    doc_id = uuid.uuid4()
+    candidate = _doc_candidate(doc_id, uri="ctx://resources/manuals/one", file_path="/tmp/doc1", score=1.0)
+    tree_strategy = DummyTreeStrategy(
+        results_by_uri={
+            "ctx://resources/manuals/one": [
+                LongDocRetrievalResult(
+                    context_id=doc_id,
+                    uri="ctx://resources/manuals/one",
+                    strategy="tree",
+                    section_id=4,
+                    snippet="broad benchmark introduction without the target phrase",
+                    snippet_offset=(0, 52),
+                    relevance_score=1.0,
+                )
+            ]
+        }
+    )
+    keyword_strategy = DummyKeywordStrategy(
+        [
+            LongDocRetrievalResult(
+                context_id=doc_id,
+                uri="ctx://resources/manuals/one",
+                strategy="keyword",
+                section_id=None,
+                snippet="The benchmark covers 57 subjects across STEM, the humanities, and the social sciences.",
+                snippet_offset=(10, 96),
+                relevance_score=1.4,
+            )
+        ]
+    )
+    coordinator = LongDocRetrievalCoordinator()
+    coordinator.register_strategy("tree", tree_strategy)
+    coordinator.register_strategy("keyword", keyword_strategy)
+
+    merged = await coordinator.retrieve(
+        SimpleNamespace(),
+        "57 subjects across STEM humanities social sciences",
+        [candidate],
+    )
+
+    assert tree_strategy.calls == [("ctx://resources/manuals/one", 1.0)]
+    assert len(keyword_strategy.calls) == 1
+    assert [doc["uri"] for doc in keyword_strategy.calls[0]] == ["ctx://resources/manuals/one"]
+    assert merged[0]["retrieval_strategy"] == "keyword"
+    assert "57 subjects across STEM" in merged[0]["snippet"]
+
+
+@pytest.mark.asyncio
+async def test_coordinator_skips_keyword_fallback_when_tree_snippet_is_confident():
+    doc_id = uuid.uuid4()
+    candidate = _doc_candidate(doc_id, uri="ctx://resources/manuals/one", file_path="/tmp/doc1", score=1.0)
+    tree_strategy = DummyTreeStrategy(
+        results_by_uri={
+            "ctx://resources/manuals/one": [
+                LongDocRetrievalResult(
+                    context_id=doc_id,
+                    uri="ctx://resources/manuals/one",
+                    strategy="tree",
+                    section_id=4,
+                    snippet="The benchmark covers 57 subjects across STEM, the humanities, and the social sciences.",
+                    snippet_offset=(10, 96),
+                    relevance_score=1.1,
+                )
+            ]
+        }
+    )
+    keyword_strategy = DummyKeywordStrategy(
+        [
+            LongDocRetrievalResult(
+                context_id=doc_id,
+                uri="ctx://resources/manuals/one",
+                strategy="keyword",
+                section_id=None,
+                snippet="keyword fallback snippet",
+                snippet_offset=(0, 24),
+                relevance_score=3.0,
+            )
+        ]
+    )
+    coordinator = LongDocRetrievalCoordinator()
+    coordinator.register_strategy("tree", tree_strategy)
+    coordinator.register_strategy("keyword", keyword_strategy)
+
+    merged = await coordinator.retrieve(
+        SimpleNamespace(),
+        "The benchmark covers 57 subjects across STEM, the humanities, and the social sciences",
+        [candidate],
+    )
+
+    assert keyword_strategy.calls == []
+    assert merged[0]["retrieval_strategy"] == "tree"
+    assert "57 subjects across STEM" in merged[0]["snippet"]
+
+
+@pytest.mark.asyncio
 async def test_coordinator_keeps_candidate_when_tree_has_no_sections(tmp_path: Path):
     doc_id = uuid.uuid4()
     doc_dir = tmp_path / "doc"
@@ -783,8 +957,8 @@ async def test_retrieval_service_default_path_uses_tree_only(monkeypatch):
                     uri="ctx://resources/manuals/one",
                     strategy="tree",
                     section_id=4,
-                    snippet="tree snippet",
-                    snippet_offset=(0, 12),
+                    snippet="postgres replication tree snippet",
+                    snippet_offset=(0, 33),
                     relevance_score=1.0,
                 )
             ]
@@ -828,7 +1002,7 @@ async def test_retrieval_service_default_path_uses_tree_only(monkeypatch):
     assert tree_strategy.calls == [("ctx://resources/manuals/one", 1.0)]
     assert keyword_strategy.calls == []
     assert response.results[0].retrieval_strategy == "tree"
-    assert response.results[0].snippet == "tree snippet"
+    assert response.results[0].snippet == "postgres replication tree snippet"
 
 
 @pytest.mark.asyncio

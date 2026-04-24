@@ -15,7 +15,9 @@ Prerequisites:
 This script does not require the HTTP server. It boots the FastAPI lifespan,
 uses app.state.document_ingester directly, provisions root-team write access
 for the selected agent, ingests one document, reads L0/L1/L2 back, then runs
-RetrievalService.search() to verify the Task 6 long-document retrieval path.
+RetrievalService.search() to verify the long-document precision path.
+The default runtime prefers tree retrieval and may fall back to keyword
+retrieval if tree selection returns a low-confidence snippet.
 """
 
 from __future__ import annotations
@@ -59,6 +61,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=5,
         help="top_k for the retrieval smoke search (default: 5).",
+    )
+    parser.add_argument(
+        "--disable-llm-tree",
+        action="store_true",
+        help="Skip LLM tree construction and force deterministic heading/chunk fallback.",
     )
     return parser.parse_args()
 
@@ -140,6 +147,7 @@ async def main() -> None:
     print(f"  agent_id:   {args.agent_id}")
     print(f"  source:     {source_path}")
     print(f"  uri:        {uri}")
+    print(f"  llm_tree:   {not args.disable_llm_tree}")
 
     async with app.router.lifespan_context(app):
         repo = app.state.repo
@@ -156,6 +164,7 @@ async def main() -> None:
                 str(source_path),
                 ctx,
                 tags=["manual-smoke", "task5"],
+                allow_llm_tree=not args.disable_llm_tree,
             )
             print("\nIngest succeeded:")
             print(f"  context_id:    {response.context_id}")
@@ -226,9 +235,10 @@ async def main() -> None:
                 )
             if not target.snippet:
                 raise RuntimeError("Search returned the document but snippet is empty")
-            if target.retrieval_strategy != "tree":
+            if target.retrieval_strategy not in {"tree", "keyword"}:
                 raise RuntimeError(
-                    f"Expected retrieval_strategy='tree', got {target.retrieval_strategy!r}"
+                    "Expected retrieval_strategy to be 'tree' or 'keyword', "
+                    f"got {target.retrieval_strategy!r}"
                 )
             if target.section_id is None:
                 raise RuntimeError("Expected a non-empty section_id for the tree retrieval path")

@@ -27,6 +27,7 @@ from contexthub.services.audit_service import AuditService
 from contexthub.services.document_ingester import (
     TREE_PROMPT_CHAR_LIMIT,
     LongDocumentIngester,
+    _pdf_to_markdownish_text,
     build_bounded_tree_prompt,
     doc_dir_key,
 )
@@ -202,12 +203,28 @@ def _flatten(node) -> list:
 async def test_create_chat_client_returns_openai_when_api_key_present():
     client = create_chat_client(Settings(openai_api_key="sk-test"))
     assert isinstance(client, OpenAIChatClient)
+    assert client._model == "gpt-4o-mini"
     await client.close()
 
 
 def test_create_chat_client_returns_noop_when_api_key_missing():
     client = create_chat_client(Settings(openai_api_key=""))
     assert isinstance(client, NoOpChatClient)
+
+
+@pytest.mark.asyncio
+async def test_create_chat_client_uses_configured_model_and_base_url():
+    client = create_chat_client(
+        Settings(
+            openai_api_key="sk-test",
+            openai_base_url="https://example.com/v1/",
+            chat_model="custom-chat-model",
+        )
+    )
+    assert isinstance(client, OpenAIChatClient)
+    assert client._model == "custom-chat-model"
+    assert str(client._client.base_url) == "https://example.com/v1/"
+    await client.close()
 
 
 @pytest.mark.asyncio
@@ -536,9 +553,40 @@ async def test_extract_text_supports_pdf(tmp_path: Path):
     plain_text, markdown_text = ingester._extract_text(pdf_path, final_dir)
 
     assert "PDF Hello" in plain_text
-    assert markdown_text == plain_text
+    assert "PDF Hello" in markdown_text
     assert (final_dir / "extracted.txt").exists()
     assert (final_dir / "extracted.md").exists()
+
+
+def test_pdf_to_markdownish_text_recovers_headings_and_drops_repeated_headers():
+    plain_text = "\n".join(
+        [
+            "Published as a conference paper at ICLR 2021",
+            "MEASURING MASSIVE MULTITASK",
+            "LANGUAGE UNDERSTANDING",
+            "UIUC",
+            "",
+            "Published as a conference paper at ICLR 2021",
+            "ABSTRACT",
+            "We propose a new benchmark.",
+            "",
+            "Published as a conference paper at ICLR 2021",
+            "3.1",
+            "HUMANITIES",
+            "Law and philosophy.",
+            "57 subjects across STEM, the humanities, the social sciences, and more.",
+            "7",
+        ]
+    )
+
+    markdownish = _pdf_to_markdownish_text(plain_text)
+
+    assert "# MEASURING MASSIVE MULTITASK LANGUAGE UNDERSTANDING" in markdownish
+    assert "## ABSTRACT" in markdownish
+    assert "### 3.1 HUMANITIES" in markdownish
+    assert "Published as a conference paper at ICLR 2021" not in markdownish
+    assert "## UIUC" not in markdownish
+    assert "## 57 subjects across STEM" not in markdownish
 
 
 @pytest.mark.asyncio
@@ -606,6 +654,76 @@ async def test_invalid_json_uses_heading_fallback(tmp_path: Path):
 
     titles = [node.title for node in _flatten(tree)]
     assert "Intro" in titles or "Details" in titles
+
+
+@pytest.mark.asyncio
+async def test_build_document_tree_can_skip_llm_and_use_deterministic_heading_fallback(tmp_path: Path):
+    chat = ScriptedChatClient(
+        response="""
+        {
+          "sections": [
+            {
+              "node_id": "root",
+              "parent_node_id": null,
+              "title": "Wrong",
+              "start_offset": 0,
+              "end_offset": 5,
+              "summary": "Wrong"
+            }
+          ]
+        }
+        """
+    )
+    ingester = _make_ingester(tmp_path, chat_client=chat)
+
+    tree = await ingester.build_document_tree(
+        "# Intro\n\n## Details\nbody",
+        "# Intro\n\n## Details\nbody",
+        allow_llm=False,
+    )
+
+    titles = [node.title for node in _flatten(tree)]
+    assert chat.prompts == []
+    assert "Intro" in titles
+    assert "Details" in titles
+
+
+@pytest.mark.asyncio
+async def test_build_document_tree_normalizes_root_to_full_document_span(tmp_path: Path):
+    text = "# Intro\nHello world\n"
+    ingester = _make_ingester(
+        tmp_path,
+        chat_client=ScriptedChatClient(
+            response="""
+            {
+              "sections": [
+                {
+                  "node_id": "root",
+                  "parent_node_id": null,
+                  "title": "Document",
+                  "start_offset": 0,
+                  "end_offset": 4,
+                  "summary": "Overview"
+                },
+                {
+                  "node_id": "intro",
+                  "parent_node_id": "root",
+                  "title": "Intro",
+                  "start_offset": 0,
+                  "end_offset": 19,
+                  "summary": "Intro section"
+                }
+              ]
+            }
+            """
+        ),
+    )
+
+    tree = await ingester.build_document_tree(text, text)
+
+    assert tree.start_offset == 0
+    assert tree.end_offset == len(text)
+    assert any(node.title == "Intro" for node in _flatten(tree))
 
 
 @pytest.mark.asyncio

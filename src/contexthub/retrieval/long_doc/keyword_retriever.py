@@ -53,9 +53,6 @@ class KeywordRetriever:
         del db
         if not doc_contexts:
             return []
-        if not self._rg_available():
-            logger.warning("Keyword retriever skipped because ripgrep is unavailable")
-            return []
 
         keyword_groups = await self._extract_keywords(query)
         if not keyword_groups:
@@ -164,22 +161,26 @@ class KeywordRetriever:
         keyword_groups: list[list[str]],
     ) -> list[int]:
         positions: set[int] = set()
+        rg_available = self._rg_available()
         line_offsets = self._line_offsets(text)
         line_byte_offsets = self._line_byte_offsets(text)
         byte_to_char = self._byte_to_char_offsets(text)
         for group in keyword_groups:
-            pattern = "|".join(re.escape(token) for token in group)
-            if not pattern:
-                continue
-            group_positions = await self._run_rg(
-                extracted_path,
-                pattern,
-                line_offsets,
-                line_byte_offsets,
-                byte_to_char,
-                text,
-                group,
-            )
+            if rg_available:
+                pattern = "|".join(re.escape(token) for token in group)
+                if not pattern:
+                    continue
+                group_positions = await self._run_rg(
+                    extracted_path,
+                    pattern,
+                    line_offsets,
+                    line_byte_offsets,
+                    byte_to_char,
+                    text,
+                    group,
+                )
+            else:
+                group_positions = self._scan_text_positions(text, group)
             positions.update(group_positions)
         return sorted(positions)
 
@@ -205,8 +206,8 @@ class KeywordRetriever:
                 stderr=asyncio.subprocess.PIPE,
             )
         except OSError:
-            logger.warning("Keyword retriever skipped because ripgrep is unavailable")
-            return []
+            logger.warning("Keyword retriever falling back to Python scanning")
+            return self._scan_text_positions(text, group)
 
         stdout, _stderr = await proc.communicate()
         if proc.returncode == 1:
@@ -259,6 +260,16 @@ class KeywordRetriever:
 
         bounded_positions = [pos for pos in positions if 0 <= pos < len(text)]
         return bounded_positions
+
+    def _scan_text_positions(self, text: str, group: list[str]) -> list[int]:
+        positions: list[int] = []
+        lowered = text.lower()
+        for token in group:
+            cursor = lowered.find(token.lower())
+            while cursor >= 0:
+                positions.append(cursor)
+                cursor = lowered.find(token.lower(), cursor + 1)
+        return positions
 
     def _line_offsets(self, text: str) -> list[int]:
         offsets: list[int] = []
