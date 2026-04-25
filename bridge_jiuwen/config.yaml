@@ -1,0 +1,9 @@
+enabled: true
+contexthub_url: http://127.0.0.1:8000
+api_key: changeme
+account_id: acme
+agent_id: jiuwenclaw
+top_k: 3
+auto_capture: true
+capture_tags:
+  - auto-capture
