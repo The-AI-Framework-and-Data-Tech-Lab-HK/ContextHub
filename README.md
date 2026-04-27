@@ -21,8 +21,7 @@ English | [中文](README_zh.md)
 
 When multiple AI agents collaborate on the same business entities, their contexts are siloed, unversioned, and disconnected:
 
-> * **79% of multi-agent failures** stem from coordination problems, not technical bugs ([Zylos Research, 2026](https://zylos.ai/research/2026-03-09-multi-agent-memory-architectures-shared-isolated-hierarchical)).
-> * **36.9% of failures** come from inter-agent misalignment — agents ignoring, duplicating, or contradicting each other's work ([Cemri et al., 2025](https://arxiv.org/abs/2503.13657)).
+> * **41–87% of multi-agent LLM systems fail** in production, with failures clustering into system design issues, inter-agent misalignment, and task verification — structural problems, not individual model deficiencies ([Cemri et al., NeurIPS 2025](https://arxiv.org/abs/2503.13657)).
 
 These are structural deficits in system architecture — they cannot be fixed by improving individual model capabilities. ContextHub addresses this by unifying four types of context under one governance layer.
 
@@ -295,7 +294,7 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
 
 ## References 📚
 
-- [AI Agent Memory Architectures](https://zylos.ai/research/2026-03-09-multi-agent-memory-architectures-shared-isolated-hierarchical) — Zylos Research, 2026
+- [Why Do Multi-Agent LLM Systems Fail?](https://arxiv.org/abs/2503.13657) — Cemri et al., NeurIPS 2025: MAST taxonomy of 14 failure modes across 7 MAS frameworks
 - [Multi-Agent Memory Systems for Production](https://mem0.ai/blog/multi-agent-memory-systems) — Mem0, 2026
 - [Governed Memory](https://arxiv.org/abs/2603.17787) — Taheri, 2026
 - [Collaborative Memory](https://arxiv.org/abs/2505.18279) — Multi-user memory sharing with dynamic ACL

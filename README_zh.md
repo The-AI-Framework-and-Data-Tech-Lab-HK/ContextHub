@@ -21,8 +21,7 @@ Agent 通过熟悉的文件操作（`ls`、`read`、`grep`、`stat`）经由 `ct
 
 当多个 AI Agent 协作处理相同的业务实体时，它们的上下文是孤立的、无版本的、互不连通的：
 
-> * **79% 的多 Agent 失败**源于协调问题，而非技术 bug（[Zylos Research, 2026](https://zylos.ai/research/2026-03-09-multi-agent-memory-architectures-shared-isolated-hierarchical)）。
-> * **36.9% 的失败**来自 Agent 间的不一致——忽略、重复或矛盾彼此的工作（[Cemri et al., 2025](https://arxiv.org/abs/2503.13657)）。
+> * **41–87% 的多 Agent LLM 系统在生产中失败**——失败根因聚类为系统设计问题、Agent 间不一致和任务验证缺陷，属于系统架构层面的结构性缺陷，而非单个模型能力不足（[Cemri et al., NeurIPS 2025](https://arxiv.org/abs/2503.13657)）。
 
 这是系统架构层面的结构性缺陷——无法通过提升单个模型的能力来解决。ContextHub 将四类上下文统一在一个治理层下来解决这一问题。
 
@@ -295,7 +294,7 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 
 ## 参考文献 📚
 
-- [AI Agent Memory Architectures](https://zylos.ai/research/2026-03-09-multi-agent-memory-architectures-shared-isolated-hierarchical) — Zylos Research, 2026
+- [Why Do Multi-Agent LLM Systems Fail?](https://arxiv.org/abs/2503.13657) — Cemri et al., NeurIPS 2025：7 个 MAS 框架中 14 种失败模式的 MAST 分类法
 - [Multi-Agent Memory Systems for Production](https://mem0.ai/blog/multi-agent-memory-systems) — Mem0, 2026
 - [Governed Memory](https://arxiv.org/abs/2603.17787) — Taheri, 2026
 - [Collaborative Memory](https://arxiv.org/abs/2505.18279) — 多用户记忆共享 + 动态 ACL
