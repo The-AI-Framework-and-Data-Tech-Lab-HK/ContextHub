@@ -189,3 +189,4 @@ The `plan/` directory contains 15 design documents covering the full system desi
 | `07-feedback-lifecycle` | Feedback loop, quality signals, lifecycle governance |
 | `08-architecture` | System architecture, module responsibilities, data flows |
 | `09-implementation-plan` | MVP claim, verification matrix, tech stack |
+

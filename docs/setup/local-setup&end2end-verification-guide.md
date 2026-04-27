@@ -390,3 +390,4 @@ source .venv/bin/activate
 
 Verify with `which alembic` — it should point to `.venv/bin/alembic`, not
 `/opt/anaconda3/bin/alembic`.
+

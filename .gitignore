@@ -61,6 +61,5 @@ logs/
 .ipynb_checkpoints/
 
 # Project-local planning & prompts (not versioned)
-plan/
 task-prompt/
 data/docs/

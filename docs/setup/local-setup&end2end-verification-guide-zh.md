@@ -385,3 +385,4 @@ source .venv/bin/activate
 ```
 
 用 `which alembic` 验证——应指向 `.venv/bin/alembic`，而非 `/opt/anaconda3/bin/alembic`。
+

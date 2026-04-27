@@ -194,3 +194,4 @@ python scripts/benchmark_workflow.py
 - **本 benchmark**：面向「治理场景」的**长流程、多 API 组合**，并输出**分类通过率 + 延迟表**，便于对外说明与人工回归。
 
 二者互补；本脚本**不替代** pytest。
+

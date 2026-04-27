@@ -560,3 +560,4 @@ ContextHub/
 ├── alembic/                 # 数据库迁移
 └── docker-compose.yml       # PostgreSQL 容器（可选，上面用 Homebrew 替代）
 ```
+

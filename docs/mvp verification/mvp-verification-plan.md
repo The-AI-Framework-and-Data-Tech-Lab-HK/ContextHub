@@ -56,7 +56,7 @@
 ## 核心原则
 
 1. **证功能独特性，不证 token 数量**：ContextHub 的差异化是治理层（隔离、
-   传播、版本管理），不是 RAG 优化。token 量化留给 Post-MVP 的 ECMB。
+   传播、版本管理），不是 RAG 优化。量化评估留给 Post-MVP 的三层 Benchmark（详见 `plan/15-benchmark-plan.md`）。
 2. **单 OpenClaw 实例足够**：所有协作机制都在 Server 端状态机完成，通过
    `agent_id` 切换身份即可验证全部协作特性。
 3. **三层证据递进**：自动化测试 → API 闭环 demo → 运行时合同验证。
@@ -965,7 +965,7 @@ curl "http://localhost:8000/api/v1/admin/audit?limit=20" \
 | Phase 1 回归 | A-1~A-4, P-*, C-* 全部仍 pass | 0 regressions |
 
 > **不采集**：token 节省率、EX/accuracy benchmark、统计显著性收益
->（属于 ECMB 后续工作）。
+>（属于 Phase 4 三层 Benchmark 后续工作，详见 `plan/15-benchmark-plan.md`）。
 
 ---
 
@@ -998,3 +998,4 @@ curl "http://localhost:8000/api/v1/admin/audit?limit=20" \
 > ContextHub 已验证其作为企业多 Agent 协作的上下文治理中间件核心能力，
 > 包括隔离、共享晋升、版本治理、变更传播、运行时集成（Phase 1），
 > 以及显式 ACL 读控制、关键字遮蔽、分层审计、免复制跨团队共享（Phase 2）。
+

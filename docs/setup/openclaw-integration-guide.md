@@ -464,3 +464,4 @@ ContextHub/
 ├── alembic/                 # Database migrations
 └── docker-compose.yml       # PostgreSQL container (optional, Homebrew alternative above)
 ```
+

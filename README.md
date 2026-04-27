@@ -21,8 +21,7 @@ English | [中文](README_zh.md)
 
 When multiple AI agents collaborate on the same business entities, their contexts are siloed, unversioned, and disconnected:
 
-> * **79% of multi-agent failures** stem from coordination problems, not technical bugs ([Zylos Research, 2026](https://zylos.ai/research/2026-03-09-multi-agent-memory-architectures-shared-isolated-hierarchical)).
-> * **36.9% of failures** come from inter-agent misalignment — agents ignoring, duplicating, or contradicting each other's work ([Cemri et al., 2025](https://arxiv.org/abs/2503.13657)).
+> * **41–87% of multi-agent LLM systems fail** in production, with failures clustering into system design issues, inter-agent misalignment, and task verification — structural problems, not individual model deficiencies ([Cemri et al., NeurIPS 2025](https://arxiv.org/abs/2503.13657)).
 
 These are structural deficits in system architecture — they cannot be fixed by improving individual model capabilities. ContextHub addresses this by unifying four types of context under one governance layer.
 
@@ -276,13 +275,31 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
 
 ## Roadmap 🗺️
 
-- [x] **Phase 1 — MVP Core** ✅
-  Context store (`ctx://` URI routing), memory / skill / retrieval / propagation services, ACL with RLS + team hierarchy, Python SDK, OpenClaw context-engine plugin, data lake carrier, Tier 3 integration tests (P-1~P-8, C-1~C-5, A-1~A-4)
-- [x] **Phase 2 — Explicit ACL & Audit** ✅
-  ACL allow/deny/field mask overlay, tiered audit logging, cross-team share grants, Admin API + audit query, SDK extensions, Tier 3 integration tests (A-5~A-15)
-- [x] **Phase 3 — Feedback & Lifecycle** — Quality signals, automatic lifecycle transitions, long doc retrieval
-- [ ] **Phase 4 — Quantitative Evaluation (ECMB)** — SQL accuracy benchmarks, L0/L1/L2 vs. flat RAG A/B experiments
-- [ ] **Phase 5 — Production Hardening** — Multi-instance (`SKIP LOCKED`), MCP Server, real catalog connectors
+- [x] **Phase 1 — Core Engine** ✅
+  - The foundation: unified `ctx://` address scheme for all context types, core services for memory storage & sharing, skill versioning & subscription, semantic search, and automatic change propagation. 
+  - Team-hierarchy visibility with PostgreSQL row-level tenant isolation. 
+  - Python SDK and OpenClaw context-engine plugin. 
+  - 17 integration tests covering propagation correctness, multi-agent collaboration, and access isolation.
+- [x] **Phase 2 — Fine-Grained Access Control & Audit** ✅
+  - Explicit permission rules beyond default team visibility: 
+    - administrators can block access to specific resources (deny always overrides allow)
+    - auto-mask sensitive fields (e.g., salary → `[MASKED]`)
+    - allow specific agents to access another team's context
+  - Audit logging (critical operations guaranteed durable) with Admin API for querying access records by resource, agent, or time range. 
+  - 11 additional integration tests.
+- [x] **Phase 3 — Feedback & Lifecycle** ✅
+  - Quality feedback loop — tracking whether agents actually use, ignore, or get corrected on retrieved context. 
+  - Automatic content lifecycle (unused context gradually deprioritized: active → stale → archived). 
+  - Tree-navigation retrieval for long documents (100+ page financial reports, technical manuals).
+- [ ] **Phase 4 — Three-Layer Quantitative Benchmark**
+  - Systematic evaluation across three domains using public benchmarks and self-built datasets. 
+    - **Layer 1** (headline): context retrieval quality — long-document retrieval (FinanceBench), memory recall (LoCoMo), and mixed-context retrieval (self-built)
+    - **Layer 2**: collaboration governance metrics unique to ContextHub — change propagation accuracy, cross-agent knowledge transfer effectiveness
+    - **Layer 3** (supporting): downstream task accuracy (SQL generation, document QA) as indirect validation
+- [ ] **Phase 5 — Production Hardening**
+  - Multi-instance deployment: propagation engine runs concurrently across nodes (PostgreSQL `SKIP LOCKED`)
+  - MCP Server for broader agent framework integration
+  - Connectors for enterprise data catalogs (e.g., Hive Metastore), replacing the current mock connector.
 
 ## Documentation 📄
 
@@ -295,7 +312,7 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
 
 ## References 📚
 
-- [AI Agent Memory Architectures](https://zylos.ai/research/2026-03-09-multi-agent-memory-architectures-shared-isolated-hierarchical) — Zylos Research, 2026
+- [Why Do Multi-Agent LLM Systems Fail?](https://arxiv.org/abs/2503.13657) — Cemri et al., NeurIPS 2025: MAST taxonomy of 14 failure modes across 7 MAS frameworks
 - [Multi-Agent Memory Systems for Production](https://mem0.ai/blog/multi-agent-memory-systems) — Mem0, 2026
 - [Governed Memory](https://arxiv.org/abs/2603.17787) — Taheri, 2026
 - [Collaborative Memory](https://arxiv.org/abs/2505.18279) — Multi-user memory sharing with dynamic ACL

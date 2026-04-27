@@ -534,4 +534,3 @@ curl "http://localhost:8000/api/v1/admin/audit?limit=20" \
 > 调用 `read` 工具，可以更直接地说：
 > "请调用 read 工具，URI 是 ctx://team/engineering/docs/supplier-costs"。
 > curl 步骤是确定性的，TUI 步骤是演示性的——两者互补。
-
