@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from integrations.entcollabbench.online_s2_pilot import (
+    _markdown_report,
     ensure_fixed_case_specs,
     run_pilot,
 )
@@ -139,6 +140,109 @@ async def test_run_pilot_blocks_timeout_missing_update_knowledge(tmp_path: Path)
     )
 
 
+@pytest.mark.asyncio
+async def test_run_pilot_summary_and_report_show_identity_mismatch(tmp_path: Path) -> None:
+    _write_artifacts(
+        tmp_path,
+        case="mcp_single_146",
+        passed=True,
+        timeout=False,
+        ground_truth=[
+            {
+                "mcp_server_name": "csm",
+                "tool_name": "update_case",
+                "agent": "customer_support_specialist",
+                "arguments": {"case_id": "CS-1"},
+            }
+        ],
+        events=[
+            _tool_call(
+                "customer_support_specialist",
+                "mcp_csm_call_tool",
+                "update_case",
+                '{"case_id": "CS-2"}',
+                "call-1",
+                1.0,
+            ),
+            _tool_result("customer_support_specialist", "call-1", 2.0),
+        ],
+    )
+
+    summary = await run_pilot(
+        cases=("mcp_single_146",),
+        baseline_dir=tmp_path,
+        spec_dir=tmp_path,
+        endpoint_config_path=None,
+        schema_provider=_schema_provider,
+    )
+
+    payload = summary["cases"][0]["closure"]["payload"]
+    assert payload["missing_actions"] == []
+    assert payload["alignment_misaligned_actions"] == [
+        "customer_support_specialist.update_case"
+    ]
+    assert payload["alignment_argument_diff_count"] == 1
+    assert payload["alignment_identity_mismatch_count"] == 1
+    assert payload["alignment_soft_identity_diff_count"] == 0
+    assert payload["open_questions"] == [
+        "argument_mismatch: customer_support_specialist.update_case case_id 'CS-1' != 'CS-2'"
+    ]
+
+    report = _markdown_report(summary)
+    assert "misaligned_actions=['customer_support_specialist.update_case']" in report
+    assert "argument_diffs=1; identity_mismatches=1; soft_identity_diffs=0" in report
+
+
+@pytest.mark.asyncio
+async def test_run_pilot_summary_and_report_show_soft_identity_without_open_question(
+    tmp_path: Path,
+) -> None:
+    _write_artifacts(
+        tmp_path,
+        case="mcp_single_146",
+        passed=True,
+        timeout=False,
+        ground_truth=[
+            {
+                "mcp_server_name": "teams",
+                "tool_name": "send_chat_message",
+                "agent": "collaboration_ops_specialist",
+                "arguments": {"userId": "me", "content": "please review"},
+            }
+        ],
+        events=[
+            _tool_call(
+                "collaboration_ops_specialist",
+                "mcp_teams_call_tool",
+                "send_chat_message",
+                '{"userId": "alice@example.com", "content": "please review"}',
+                "call-1",
+                1.0,
+            ),
+            _tool_result("collaboration_ops_specialist", "call-1", 2.0),
+        ],
+    )
+
+    summary = await run_pilot(
+        cases=("mcp_single_146",),
+        baseline_dir=tmp_path,
+        spec_dir=tmp_path,
+        endpoint_config_path=None,
+        schema_provider=_schema_provider,
+    )
+
+    payload = summary["cases"][0]["closure"]["payload"]
+    assert payload["alignment_misaligned_actions"] == []
+    assert payload["alignment_argument_diff_count"] == 1
+    assert payload["alignment_identity_mismatch_count"] == 0
+    assert payload["alignment_soft_identity_diff_count"] == 1
+    assert payload["open_questions"] == []
+
+    report = _markdown_report(summary)
+    assert "misaligned_actions=[]" in report
+    assert "argument_diffs=1; identity_mismatches=0; soft_identity_diffs=1" in report
+
+
 def _write_artifacts(
     root: Path,
     *,
@@ -239,6 +343,18 @@ def _schema_provider(server: str, tool_name: str) -> dict:
                     "body": {"type": ["object", "null"]},
                 },
                 "required": ["teamId", "body"],
+            },
+        }
+    if server == "teams" and tool_name == "send_chat_message":
+        return {
+            "name": tool_name,
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "userId": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["userId", "content"],
             },
         }
     return {

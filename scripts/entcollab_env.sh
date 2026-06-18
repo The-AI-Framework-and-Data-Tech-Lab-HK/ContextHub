@@ -77,6 +77,7 @@ export JUDGE_MODELS="${ENTCOLLAB_JUDGE_MODELS}"
 
 export TASK_TIMEOUT_SECONDS="${ENTCOLLAB_TASK_TIMEOUT_SECONDS:-1000}"
 export AGENT_HTTP_TIMEOUT_SECONDS="${ENTCOLLAB_AGENT_HTTP_TIMEOUT_SECONDS:-400}"
+export JUDGE_TIMEOUT_SECONDS="${ENTCOLLAB_JUDGE_TIMEOUT_SECONDS:-500}"
 
 # urllib-based MCP probes otherwise may route localhost traffic through a proxy.
 export NO_PROXY="${NO_PROXY:+${NO_PROXY},}127.0.0.1,localhost"
@@ -89,5 +90,8 @@ echo "  AGENT_SUMMARY_MODEL=${AGENT_SUMMARY_MODEL}"
 echo "  OPENAI_BASE_URL=${OPENAI_BASE_URL}"
 echo "  JUDGE_MODELS=${JUDGE_MODELS}"
 echo "  JUDGE_OPENAI_BASE_URL=${JUDGE_OPENAI_BASE_URL}"
+echo "  TASK_TIMEOUT_SECONDS=${TASK_TIMEOUT_SECONDS}"
+echo "  AGENT_HTTP_TIMEOUT_SECONDS=${AGENT_HTTP_TIMEOUT_SECONDS}"
+echo "  JUDGE_TIMEOUT_SECONDS=${JUDGE_TIMEOUT_SECONDS}"
 
 unset _entcollab_profile _entcollab_profile_upper _entcollab_root _entcollab_secrets _entcollab_agent_model _entcollab_missing _entcollab_script

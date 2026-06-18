@@ -1,0 +1,260 @@
+{
+  "manifest_id": "contexthub_entcollab_fixed_cases_12_v1",
+  "created_at": "2026-06-17",
+  "purpose": "First fixed-case suite for fresh S0 benchmark plus near-online/post-run S2 diagnostic. This is not a full online S2 run.",
+  "source_baseline": {
+    "report_path": "/Users/sherrylin/Documents/PythonProjects/research/EntCollabBench/scripts/result/contexthub_baseline_cases/BASELINE_20_REPORT.md",
+    "summary_path": "/Users/sherrylin/Documents/PythonProjects/research/EntCollabBench/scripts/result/contexthub_baseline_cases/analysis_summary_20.json",
+    "profile": "strong",
+    "timeouts": {
+      "TASK_TIMEOUT_SECONDS": 1000,
+      "AGENT_HTTP_TIMEOUT_SECONDS": 400,
+      "JUDGE_TIMEOUT_SECONDS": 500
+    },
+    "batch_concurrency": 1
+  },
+  "selection_constraints": {
+    "case_count": 12,
+    "sampling": "fixed, deterministic; no random sampling",
+    "coverage": [
+      "pass controls",
+      "closure failures",
+      "tool args/object failures",
+      "token-heavy controls",
+      "Drive/Gitea/ITSM",
+      "CSM/ITSM/Teams",
+      "HR/ITSM/Calendar/Email"
+    ],
+    "high_cost_threshold_run_tokens": 900000
+  },
+  "cases": [
+    {
+      "case_id": "mcp_single_146",
+      "task_id": "task_146",
+      "description": "Teams bridge checkpoint: Dell PowerEdge R750 (Config 38)",
+      "stratum": "prior_5_csm_itsm_teams",
+      "baseline_status": "passed",
+      "baseline_task_passed": true,
+      "baseline_run_total_tokens": 257073,
+      "baseline_duration_seconds": 82.624,
+      "active_servers": ["csm", "itsm", "teams"],
+      "selection_reason": "Low-cost pass control from the prior 5-case CSM/ITSM/Teams set; useful for false-block checks.",
+      "expected_observation_points": [
+        "S0 remains a clean pass under the frozen runner settings.",
+        "S2 closure should allow with no missing actions.",
+        "S2 tool_state should not repair or block normalized Teams/CSM/ITSM calls."
+      ],
+      "s2_focus": ["false_block_control"],
+      "high_cost": false
+    },
+    {
+      "case_id": "mcp_single_115",
+      "task_id": "task_115",
+      "description": "Post-release support preparation: invoice export null-guard",
+      "stratum": "Gitea/ITSM/Teams",
+      "baseline_status": "passed",
+      "baseline_task_passed": true,
+      "baseline_run_total_tokens": 178636,
+      "baseline_duration_seconds": 138.676,
+      "active_servers": ["gitea", "itsm", "teams"],
+      "selection_reason": "Lowest-token pass control in the baseline report, covering Gitea/ITSM/Teams without Drive.",
+      "expected_observation_points": [
+        "S0 pass establishes a low-cost control for Gitea/ITSM/Teams.",
+        "S2 tool_state should tolerate valid Gitea and ITSM calls without false repairs.",
+        "S2 closure should not mark post-release support evidence missing if S0 passes cleanly."
+      ],
+      "s2_focus": ["false_block_control", "gitea_tool_state"],
+      "high_cost": false
+    },
+    {
+      "case_id": "mcp_single_72",
+      "task_id": "task_72",
+      "description": "CSM and internal guidance alignment: SQL Server Patchset 27 diagnostics",
+      "stratum": "HR/ITSM/Teams-like",
+      "baseline_status": "passed",
+      "baseline_task_passed": true,
+      "baseline_run_total_tokens": 950218,
+      "baseline_duration_seconds": 154.855,
+      "active_servers": ["csm", "hr", "itsm", "teams"],
+      "selection_reason": "Passing token-heavy control that exercises HR/ITSM/Teams-like delegation.",
+      "expected_observation_points": [
+        "S0 may pass while still consuming very high tokens; treat this as an efficiency warning, not a ContextHub correctness win.",
+        "S2 should avoid false blocks on high-volume valid traces.",
+        "Report token and duration separately from correctness."
+      ],
+      "s2_focus": ["token_heavy_control", "false_block_control"],
+      "high_cost": true
+    },
+    {
+      "case_id": "mcp_single_137",
+      "task_id": "task_137",
+      "description": "HR and ITSM routing checkpoint: IT Security Best Practices",
+      "stratum": "HR/ITSM/Teams-like",
+      "baseline_status": "passed",
+      "baseline_task_passed": true,
+      "baseline_run_total_tokens": 1102659,
+      "baseline_duration_seconds": 166.185,
+      "active_servers": ["csm", "hr", "itsm", "teams"],
+      "selection_reason": "Highest-token passing control; guards against overstating S2 on token-heavy but correct S0 behavior.",
+      "expected_observation_points": [
+        "S0 pass should be preserved as a pass control.",
+        "S2 should not claim raw token reduction unless a separate budget guardrail is explicitly measured.",
+        "Any S2 repair/block here is a high-priority false-positive review."
+      ],
+      "s2_focus": ["token_heavy_control", "false_block_control"],
+      "high_cost": true
+    },
+    {
+      "case_id": "mcp_single_145",
+      "task_id": "task_145",
+      "description": "Teams bridge checkpoint: Palo Alto Networks PA-3220",
+      "stratum": "prior_5_csm_itsm_teams",
+      "baseline_status": "timeout",
+      "baseline_task_passed": false,
+      "baseline_run_total_tokens": 904473,
+      "baseline_duration_seconds": 300.002,
+      "active_servers": ["csm", "itsm", "teams"],
+      "selection_reason": "Prior timeout case already validated by the near-online S2 pilot as a closure block for missing KB update.",
+      "expected_observation_points": [
+        "S0 timeout should be recorded as runtime/model behavior unless closure converts the partial trace into explicit unmet obligations.",
+        "S2 closure should identify missing workflow evidence such as knowledge_base_specialist.update_knowledge when applicable.",
+        "Tool_state is expected to mostly allow normalized calls; closure is the primary S2 signal."
+      ],
+      "s2_focus": ["closure", "handoff_partial", "timeout_boundary"],
+      "high_cost": true
+    },
+    {
+      "case_id": "mcp_single_143",
+      "task_id": "task_143",
+      "description": "Teams bridge checkpoint: Premium Support SLA (24x7, Tier 25)",
+      "stratum": "prior_5_csm_itsm_teams",
+      "baseline_status": "timeout",
+      "baseline_task_passed": false,
+      "baseline_run_total_tokens": 400605,
+      "baseline_duration_seconds": 300.002,
+      "active_servers": ["csm", "itsm", "teams"],
+      "selection_reason": "Second timeout from the prior 5-case set; gives a non-token-anomaly timeout contrast to mcp_single_145.",
+      "expected_observation_points": [
+        "S0 timeout and memory-clear behavior should be reported without attributing raw latency to ContextHub.",
+        "S2 closure should convert partial trace boundaries into missing action/evidence findings where supported.",
+        "Handoff remains partial and should not be described as full online interception."
+      ],
+      "s2_focus": ["closure", "handoff_partial", "timeout_boundary"],
+      "high_cost": false
+    },
+    {
+      "case_id": "mcp_single_52",
+      "task_id": "task_52",
+      "description": "Premium support SLA risk: Premium Support SLA (24x7, Tier 25)",
+      "stratum": "CSM/ITSM expansion",
+      "baseline_status": "failed",
+      "baseline_task_passed": false,
+      "baseline_run_total_tokens": 1324111,
+      "baseline_duration_seconds": 132.03,
+      "active_servers": ["calendar", "csm", "email", "itsm"],
+      "selection_reason": "High-token closure failure with repeated tool/planning loop; strong candidate for closure plus tool_state diagnostics.",
+      "expected_observation_points": [
+        "S0 failure should be classified by missing closure evidence and loop behavior, not by timeout.",
+        "S2 closure should surface unmet KB/CSM obligations if they are absent from the trace.",
+        "S2 tool_state should be reviewed for repeated valid calls versus schema/object failures."
+      ],
+      "s2_focus": ["closure", "tool_state", "loop_boundary"],
+      "high_cost": true
+    },
+    {
+      "case_id": "mcp_single_61",
+      "task_id": "task_61",
+      "description": "Customer communications with internal bridge: Juniper EX4300 Variant 19",
+      "stratum": "CSM/ITSM expansion",
+      "baseline_status": "failed",
+      "baseline_task_passed": false,
+      "baseline_run_total_tokens": 1604948,
+      "baseline_duration_seconds": 250.202,
+      "active_servers": ["calendar", "csm", "email", "itsm"],
+      "selection_reason": "Highest-token failed case; combines closure, wrong/missing tool args, and repeated loop signals.",
+      "expected_observation_points": [
+        "S0 distribution should show this as a high-cost failure outlier.",
+        "S2 closure should identify missing evidence separately from tool argument/state violations.",
+        "Any S2 claim must be tied to concrete unmet obligations or validated tool_state findings."
+      ],
+      "s2_focus": ["closure", "tool_state", "token_heavy_failure"],
+      "high_cost": true
+    },
+    {
+      "case_id": "mcp_single_64",
+      "task_id": "task_64",
+      "description": "Case-to-knowledge reuse and closure prep: Juniper EX4300 Variant 19",
+      "stratum": "CSM/ITSM expansion",
+      "baseline_status": "failed",
+      "baseline_task_passed": false,
+      "baseline_run_total_tokens": 194456,
+      "baseline_duration_seconds": 76.447,
+      "active_servers": ["calendar", "csm", "email", "itsm"],
+      "selection_reason": "Low-cost closure/tool_state failure, useful for debugging without the cost profile of mcp_single_52 or mcp_single_61.",
+      "expected_observation_points": [
+        "S0 failure should localize missing closure evidence versus wrong/missing tool args.",
+        "S2 closure and tool_state should produce interpretable findings at low runtime cost.",
+        "Useful early canary before running high-cost closure cases."
+      ],
+      "s2_focus": ["closure", "tool_state", "low_cost_failure"],
+      "high_cost": false
+    },
+    {
+      "case_id": "mcp_single_67",
+      "task_id": "task_67",
+      "description": "Case-to-knowledge reuse and closure prep: NGINX Plus Variant 51",
+      "stratum": "CSM/ITSM expansion",
+      "baseline_status": "failed",
+      "baseline_task_passed": false,
+      "baseline_run_total_tokens": 209736,
+      "baseline_duration_seconds": 104.768,
+      "active_servers": ["calendar", "csm", "email", "itsm"],
+      "selection_reason": "Clear wrong/missing tool args case with only one failed agent; good focused tool_state candidate.",
+      "expected_observation_points": [
+        "S0 failure should be tied to ITSM tool argument or object-state mismatch.",
+        "S2 tool_state should report schema/object findings with live-schema normalization.",
+        "Closure should not be overstated if the primary observable is tool args/object state."
+      ],
+      "s2_focus": ["tool_state", "object_state"],
+      "high_cost": false
+    },
+    {
+      "case_id": "mcp_single_151",
+      "task_id": "task_151",
+      "description": "Drive runbook checkpoint: invoice export null-guard",
+      "stratum": "Drive/Gitea/ITSM",
+      "baseline_status": "failed",
+      "baseline_task_passed": false,
+      "baseline_run_total_tokens": 299567,
+      "baseline_duration_seconds": 275.384,
+      "active_servers": ["drive", "gitea", "itsm"],
+      "selection_reason": "Drive/Gitea/ITSM failure with wrong/missing ITSM tool args; covers the Drive/Gitea path requested for the first suite.",
+      "expected_observation_points": [
+        "S0 failure should identify the IT service desk tool/object mismatch.",
+        "S2 tool_state should validate Drive, Gitea, and ITSM calls against live schemas.",
+        "Report Drive/Gitea coverage separately from CSM/ITSM/Teams coverage."
+      ],
+      "s2_focus": ["tool_state", "drive_gitea_itsm"],
+      "high_cost": false
+    },
+    {
+      "case_id": "mcp_single_87",
+      "task_id": "task_87",
+      "description": "War-room email and calendar coordination: Hr Database Service Failure",
+      "stratum": "HR/ITSM/Calendar/Email",
+      "baseline_status": "failed",
+      "baseline_task_passed": false,
+      "baseline_run_total_tokens": 398833,
+      "baseline_duration_seconds": 101.993,
+      "active_servers": ["calendar", "email", "hr", "itsm"],
+      "selection_reason": "Wrong/missing HR tool args case that broadens tool_state coverage to HR plus calendar/email coordination.",
+      "expected_observation_points": [
+        "S0 failure should localize HR tool argument/object-state mismatch.",
+        "S2 tool_state should separate HR tool findings from calendar/email coordination calls.",
+        "Closure claims should remain secondary unless explicit missing evidence is produced."
+      ],
+      "s2_focus": ["tool_state", "hr_calendar_email"],
+      "high_cost": false
+    }
+  ]
+}

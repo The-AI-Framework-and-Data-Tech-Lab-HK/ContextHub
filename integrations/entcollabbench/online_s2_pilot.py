@@ -155,13 +155,7 @@ async def run_pilot(
                 "s0": status,
                 "ground_truth_required_actions": closure_payload["anchor"]["required_actions"],
                 "closure": {
-                    "payload": {
-                        "completed_actions": closure_payload["completed_actions"],
-                        "missing_actions": closure_payload["diagnostics"]["missing_actions"],
-                        "open_questions": closure_payload["open_questions"],
-                        "runtime": closure_payload["diagnostics"]["runtime"],
-                        "uncertainty": closure_payload["diagnostics"]["uncertainty"],
-                    },
+                    "payload": _closure_payload_summary(closure_payload),
                     "decision": _decision_json(closure_decision),
                 },
                 "tool_state": {
@@ -351,6 +345,29 @@ def _decision_counts(records: list[dict[str, Any]]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def _closure_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = payload.get("diagnostics") or {}
+    alignment = diagnostics.get("alignment") or {}
+    argument_diffs = list(alignment.get("argument_diffs") or [])
+    identity_mismatch_count = sum(
+        len(diff.get("identity_mismatches") or []) for diff in argument_diffs
+    )
+    soft_identity_diff_count = sum(
+        len(diff.get("soft_identity_diffs") or []) for diff in argument_diffs
+    )
+    return {
+        "completed_actions": payload["completed_actions"],
+        "missing_actions": diagnostics.get("missing_actions") or [],
+        "alignment_misaligned_actions": list(alignment.get("misaligned_actions") or []),
+        "alignment_argument_diff_count": len(argument_diffs),
+        "alignment_soft_identity_diff_count": soft_identity_diff_count,
+        "alignment_identity_mismatch_count": identity_mismatch_count,
+        "open_questions": payload["open_questions"],
+        "runtime": diagnostics.get("runtime") or {},
+        "uncertainty": diagnostics.get("uncertainty") or [],
+    }
+
+
 def _markdown_report(summary: dict[str, Any]) -> str:
     lines = [
         "# ContextHub × EntCollabBench Online S2 Pilot",
@@ -368,16 +385,26 @@ def _markdown_report(summary: dict[str, Any]) -> str:
         "",
     ]
     by_case = {case["case"]: case for case in summary["cases"]}
-    for case_name in DEFAULT_CASES:
+    ordered_case_names = [case_name for case_name in DEFAULT_CASES if case_name in by_case]
+    ordered_case_names.extend(
+        case_name for case_name in by_case if case_name not in ordered_case_names
+    )
+    for case_name in ordered_case_names:
         case = by_case[case_name]
         closure = case["closure"]
         tool_state = case["tool_state"]
         missing = closure["payload"]["missing_actions"]
+        misaligned = closure["payload"].get("alignment_misaligned_actions") or []
         lines.extend(
             [
                 f"### {case_name}",
                 f"- S0 status: {case['s0']['status']}; passed={case['s0']['task_passed']}; tokens={case['s0']['tokens']['run_total']}",
                 f"- Closure decision: `{closure['decision']['verdict']}`; missing_actions={missing or []}",
+                "- Closure alignment: "
+                f"misaligned_actions={misaligned or []}; "
+                f"argument_diffs={closure['payload'].get('alignment_argument_diff_count', 0)}; "
+                f"identity_mismatches={closure['payload'].get('alignment_identity_mismatch_count', 0)}; "
+                f"soft_identity_diffs={closure['payload'].get('alignment_soft_identity_diff_count', 0)}",
                 f"- Tool-state decisions: {tool_state['decision_counts']}; repair_or_block_count={tool_state['repair_or_block_count']}",
             ]
         )

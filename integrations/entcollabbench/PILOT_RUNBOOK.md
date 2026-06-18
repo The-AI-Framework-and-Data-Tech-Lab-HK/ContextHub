@@ -156,10 +156,29 @@ Therefore:
 
 - Use deterministic fixed task specs, not random `--sample-k`, for early pilots.
 - Keep `--batch-concurrency 1`.
-- Keep short timeouts while debugging, e.g. `TASK_TIMEOUT_SECONDS=240`.
+- For comparable pilot runs, use the EntCollabBench paper/repo timeout profile:
+  `TASK_TIMEOUT_SECONDS=1000`, `AGENT_HTTP_TIMEOUT_SECONDS=400`, and
+  `JUDGE_TIMEOUT_SECONDS=500`.
+- Shorter timeouts are only for smoke/debug runs and should not be mixed into
+  formal failure-distribution analysis.
 - Start with one subset and one model profile.
 - Treat timeout as runtime/agent behavior evidence, not an environment failure,
   if MCP, agent health, model calls, and tool calls are visible in logs.
+
+First fixed-case boundary:
+
+- Use `experiments/fixed12/FIXED_CASES_MANIFEST_12.json` for the first frozen
+  12-case suite.
+- Use `experiments/fixed12/FIXED_CASES_RUNNER_PROMPT.md` when delegating the run
+  to another agent.
+- Use `experiments/fixed12/FIXED_CASES_REPORT_TEMPLATE.md` for the final
+  fixed-suite report.
+- The intended execution is fresh S0 benchmark plus near-online/post-run S2
+  diagnostic over saved artifacts, not full online S2.
+- Do not randomize, expand, or reorder the fixed cases without explicitly
+  updating the manifest and report boundary.
+- Write all generated reports and raw benchmark artifacts under a timestamped
+  `integrations/entcollabbench/runs/` directory, not the package root.
 
 Example fixed-task run:
 
@@ -169,8 +188,9 @@ source scripts/entcollab_env.sh strong
 
 cd /Users/sherrylin/Documents/PythonProjects/research/EntCollabBench
 MCP_ENDPOINTS_FILE=/Users/sherrylin/Documents/PythonProjects/research/EntCollabBench/config/mcp_endpoints_export.json \
-TASK_TIMEOUT_SECONDS=240 \
-AGENT_HTTP_TIMEOUT_SECONDS=260 \
+TASK_TIMEOUT_SECONDS=1000 \
+AGENT_HTTP_TIMEOUT_SECONDS=400 \
+JUDGE_TIMEOUT_SECONDS=500 \
 .venv/bin/python scripts/benchmark.py \
   --tasks-spec-file scripts/result/contexthub_smoke_mcp_single_144.json \
   --batch-concurrency 1 \

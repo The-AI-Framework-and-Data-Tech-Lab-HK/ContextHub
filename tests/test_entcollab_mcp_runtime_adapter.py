@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from urllib import error as urlerror
 
+import integrations.entcollabbench.mcp_runtime_adapter as adapter
 from integrations.entcollabbench.mcp_runtime_adapter import (
     McpEndpointConfig,
     export_state,
@@ -13,8 +14,9 @@ from integrations.entcollabbench.mcp_runtime_adapter import (
 
 
 class FakeResponse:
-    def __init__(self, payload: dict):
+    def __init__(self, payload: dict, headers: dict[str, str] | None = None):
         self.payload = payload
+        self.headers = headers or {}
 
     def __enter__(self):
         return self
@@ -110,3 +112,61 @@ def test_get_tool_schema_uses_jsonrpc_tools_list_and_normalizes_shape() -> None:
     assert [call["method"] for call in calls] == ["initialize", "tools/list"]
     assert schema["tool_name"] == "send_channel_message"
     assert schema["inputSchema"]["required"] == ["teamId"]
+
+
+def test_loopback_endpoint_default_opener_disables_system_proxy(monkeypatch) -> None:
+    calls = []
+
+    def proxy_handler(proxies):
+        calls.append(("proxy", proxies))
+        return ("proxy", proxies)
+
+    class FakeOpener:
+        def open(self, request, timeout):
+            raise AssertionError("network should not be called")
+
+    def build_opener(*handlers):
+        calls.append(("build", handlers))
+        return FakeOpener()
+
+    monkeypatch.setattr(adapter.urlrequest, "ProxyHandler", proxy_handler)
+    monkeypatch.setattr(adapter.urlrequest, "build_opener", build_opener)
+
+    open_http = adapter._opener_for_endpoint("http://localhost:8002/mcp")
+
+    assert open_http.__self__.__class__ is FakeOpener
+    assert calls == [
+        ("proxy", {}),
+        ("build", (("proxy", {}),)),
+    ]
+
+
+def test_initialize_response_header_session_id_is_sent_to_tools_list() -> None:
+    config = McpEndpointConfig.from_mapping({"teams": "http://127.0.0.1:8002/mcp"})
+    request_headers = []
+
+    def opener(request, timeout):
+        request_headers.append(_headers(request))
+        payload = json.loads(request.data.decode("utf-8"))
+        if payload["method"] == "initialize":
+            return FakeResponse(
+                {"result": {"protocolVersion": "2024-11-05"}},
+                headers={"Mcp-Session-Id": "session-from-header"},
+            )
+        return FakeResponse(
+            {
+                "result": {
+                    "tools": [
+                        {
+                            "name": "send_channel_message",
+                            "inputSchema": {"type": "object", "properties": {}, "required": []},
+                        }
+                    ]
+                }
+            }
+        )
+
+    get_tool_schema(config, "teams", "send_channel_message", opener=opener)
+
+    assert "mcp-session-id" not in request_headers[0]
+    assert request_headers[1]["mcp-session-id"] == "session-from-header"

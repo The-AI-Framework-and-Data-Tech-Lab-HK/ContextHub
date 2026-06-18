@@ -69,6 +69,7 @@ export AGENT_LLM_MODEL=<model>
 export AGENT_SUMMARY_MODEL=<model>
 export TASK_TIMEOUT_SECONDS=1000
 export AGENT_HTTP_TIMEOUT_SECONDS=400
+export JUDGE_TIMEOUT_SECONDS=500
 
 docker compose -f agent/docker-compose.yml build
 docker compose -f agent/docker-compose.yml up -d --force-recreate

@@ -1,0 +1,5 @@
+# Generated EntCollabBench pilot artifacts live under timestamped run dirs.
+# Keep the ignore policy itself, but do not version per-run specs, traces,
+# summaries, reports, or benchmark logs.
+*
+!.gitignore

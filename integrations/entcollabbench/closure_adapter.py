@@ -9,6 +9,8 @@ from collections import Counter, defaultdict, deque
 import json
 from typing import Any
 
+from integrations.entcollabbench import closure_alignment
+
 
 TIMEOUT_MARKERS = ("timeout", "timed out", "deadline", "cancelled")
 FAILED_STATUSES = {"error", "failed", "failure", "timeout", "cancelled"}
@@ -18,7 +20,18 @@ def ground_truth_steps(dataset_task: dict[str, Any] | list[dict[str, Any]]) -> l
     """Return EntCollabBench ground-truth steps from a task or subtask payload."""
 
     if isinstance(dataset_task, list):
-        return list(dataset_task)
+        if all(_looks_like_ground_truth_step(item) for item in dataset_task):
+            return list(dataset_task)
+        steps: list[dict[str, Any]] = []
+        for item in dataset_task:
+            steps.extend(_ground_truth_steps_from_task(item))
+        return steps
+    if not isinstance(dataset_task, dict):
+        return []
+    return _ground_truth_steps_from_task(dataset_task)
+
+
+def _ground_truth_steps_from_task(dataset_task: Any) -> list[dict[str, Any]]:
     if not isinstance(dataset_task, dict):
         return []
     if isinstance(dataset_task.get("ground_truth"), list):
@@ -26,7 +39,17 @@ def ground_truth_steps(dataset_task: dict[str, Any] | list[dict[str, Any]]) -> l
     subtasks = dataset_task.get("sub_task_list") or []
     if not subtasks:
         return []
-    return list((subtasks[0] or {}).get("ground_truth") or [])
+    steps: list[dict[str, Any]] = []
+    for subtask in subtasks:
+        if isinstance(subtask, dict):
+            steps.extend(subtask.get("ground_truth") or [])
+    return steps
+
+
+def _looks_like_ground_truth_step(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    return bool({"agent", "tool_name", "mcp_server_name"} & item.keys())
 
 
 def required_actions_from_ground_truth(
@@ -144,6 +167,12 @@ def build_workflow_closure_payload(
     runtime = summarize_runtime_boundary(runtime_summary or {}, events)
     required_actions = required_actions_from_ground_truth(gt_steps)
     completed_actions, evidence, trace_diagnostics = extract_completed_actions(events)
+    alignment_diagnostics = closure_alignment.align_ground_truth_to_trace(
+        gt_steps,
+        events,
+        actual_tool_call=actual_tool_call,
+    )
+    evidence.update(alignment_diagnostics["evidence"])
 
     completed_counts = Counter(completed_actions)
     missing_actions: list[str] = []
@@ -160,6 +189,13 @@ def build_workflow_closure_payload(
         )
     for action in missing_actions:
         open_questions.append(f"missing_required_action: {action}")
+    for diff in alignment_diagnostics["argument_diffs"]:
+        action = diff["action"]
+        for mismatch in diff["identity_mismatches"]:
+            open_questions.append(
+                "argument_mismatch: "
+                f"{action} {mismatch['field']} {mismatch['expected']!r} != {mismatch['actual']!r}"
+            )
 
     uncertainty: list[str] = []
     if runtime["timeout"]:
@@ -168,6 +204,8 @@ def build_workflow_closure_payload(
         uncertainty.append("failed tool_result events were not counted as completed actions")
     if trace_diagnostics["unmatched_tool_call_count"]:
         uncertainty.append("some tool_call events had no matching successful tool_result")
+    if alignment_diagnostics["misaligned_actions"]:
+        uncertainty.append("some successful actions targeted different identity/object arguments")
 
     return {
         "anchor": {
@@ -183,6 +221,7 @@ def build_workflow_closure_payload(
         "rule_citations": list(rule_citations) if rule_citations is not None else None,
         "diagnostics": {
             "missing_actions": missing_actions,
+            "alignment": alignment_diagnostics,
             "runtime": runtime,
             "trace": trace_diagnostics,
             "uncertainty": uncertainty,

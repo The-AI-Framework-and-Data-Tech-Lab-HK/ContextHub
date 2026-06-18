@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 from urllib import error as urlerror
+from urllib import parse as urlparse
 from urllib import request as urlrequest
 
 
@@ -135,9 +136,10 @@ def get_tool_schema(
     if not target:
         raise McpRuntimeAdapterError("tool_name is required")
 
+    endpoint = config.endpoint(server)
     tools = _list_tools_jsonrpc(
-        config.endpoint(server),
-        opener=opener or urlrequest.urlopen,
+        endpoint,
+        opener=_opener_for_endpoint(endpoint, opener=opener),
         timeout=timeout,
     )
     for item in tools:
@@ -238,12 +240,74 @@ def _read_json_response(response: Any, url: str) -> dict[str, Any]:
     return payload
 
 
+def _read_json_response_with_headers(response: Any, url: str) -> tuple[dict[str, Any], Any]:
+    with response as resp:
+        raw = resp.read().decode("utf-8")
+        headers = getattr(resp, "headers", None)
+        if headers is None and hasattr(resp, "info"):
+            headers = resp.info()
+    payload = json.loads(raw) if raw else {}
+    if not isinstance(payload, dict):
+        raise McpRuntimeAdapterError(f"{url} returned a non-object JSON payload")
+    return payload, headers
+
+
+def _post_json_with_headers(
+    url: str,
+    payload: Mapping[str, Any],
+    *,
+    headers: Mapping[str, str],
+    opener: HttpOpen,
+    timeout: int,
+) -> tuple[dict[str, Any], Any]:
+    req = urlrequest.Request(
+        url=url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=dict(headers),
+        method="POST",
+    )
+    return _read_json_response_with_headers(opener(req, timeout=timeout), url)
+
+
+def _opener_for_endpoint(endpoint: str, *, opener: HttpOpen | None = None) -> HttpOpen:
+    if opener is not None:
+        return opener
+    if _is_loopback_endpoint(endpoint):
+        return urlrequest.build_opener(urlrequest.ProxyHandler({})).open
+    return urlrequest.urlopen
+
+
+def _is_loopback_endpoint(endpoint: str) -> bool:
+    try:
+        host = urlparse.urlparse(endpoint).hostname
+    except ValueError:
+        return False
+    return (host or "").lower() in {"localhost", "127.0.0.1", "::1"}
+
+
+def _header_value(headers: Any, name: str) -> str | None:
+    if headers is None:
+        return None
+    if isinstance(headers, Mapping):
+        lower_name = name.lower()
+        for key, value in headers.items():
+            if str(key).lower() == lower_name and isinstance(value, str):
+                return value
+        return None
+    if hasattr(headers, "get"):
+        value = headers.get(name)
+        if value is None:
+            value = headers.get(name.lower())
+        return value if isinstance(value, str) else None
+    return None
+
+
 def _list_tools_jsonrpc(endpoint: str, *, opener: HttpOpen, timeout: int) -> list[dict[str, Any]]:
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
     }
-    init = _post_json(
+    init, init_headers = _post_json_with_headers(
         endpoint,
         {
             "jsonrpc": "2.0",
@@ -259,7 +323,7 @@ def _list_tools_jsonrpc(endpoint: str, *, opener: HttpOpen, timeout: int) -> lis
         opener=opener,
         timeout=timeout,
     )
-    session_id = init.get("mcp-session-id")
+    session_id = _header_value(init_headers, "mcp-session-id") or init.get("mcp-session-id")
     if isinstance(session_id, str) and session_id.strip():
         headers["mcp-session-id"] = session_id.strip()
 
