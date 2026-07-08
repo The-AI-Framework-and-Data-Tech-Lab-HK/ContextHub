@@ -39,6 +39,7 @@ dmypy.json
 .env
 .env.*
 !.env.example
+model_providers.local.json
 *.pem
 secrets/
 
@@ -65,3 +66,6 @@ task-prompt/
 data/docs/
 plan/
 roadmap/
+
+# Run logs
+integrations/agentleak/runs/
