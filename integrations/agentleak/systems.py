@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any, Callable
 
-from integrations.agentleak.generic_redaction import GenericRedactor, RedactionResult
+from contexthub.redaction.generic import GenericRedactor, RedactionResult
 from integrations.agentleak.trace_schema import AgentLeakTraceEvent, CompiledAgentLeakPolicy
 
 

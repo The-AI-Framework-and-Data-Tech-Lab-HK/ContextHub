@@ -17,6 +17,13 @@ from integrations.agentleak.flow_runtime import (
     AgentLeakFlowRuntime,
     PolicyBackedAgentLeakACL,
 )
+from integrations.agentleak.freeze import (
+    collect_git_state,
+    freeze_formal_run,
+    load_freeze_bundle,
+    record_realized_subset,
+    verify_freeze,
+)
 from integrations.agentleak.mapping import (
     channel_to_boundary,
     event_to_flow_payload,
@@ -65,8 +72,13 @@ __all__ = [
     "build_agentleak_system",
     "build_system_manifest_entry",
     "channel_to_boundary",
+    "collect_git_state",
     "compile_policy",
     "event_to_flow_payload",
+    "freeze_formal_run",
+    "load_freeze_bundle",
+    "record_realized_subset",
+    "verify_freeze",
     "get_system_spec",
     "list_system_specs",
     "load_secondary_trace_json",

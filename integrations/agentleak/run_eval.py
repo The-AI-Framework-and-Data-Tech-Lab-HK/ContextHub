@@ -16,6 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from integrations.agentleak.flow_runtime import AgentLeakFlowRuntime
+from integrations.agentleak.freeze import (
+    collect_git_state,
+    record_realized_subset,
+    verify_freeze,
+)
 from integrations.agentleak.loader import normalize_trace_record
 from integrations.agentleak.metrics import compute_metrics
 from integrations.agentleak.policy_compiler import compile_policy
@@ -381,6 +386,9 @@ async def run_offline_real_traces(
     judge_provider_label: str = "deepseek",
     judge_model: str = "deepseek-v4-flash",
     judge: Any | None = None,
+    run_class: str = "qualification",
+    frozen_bundle_dir: str | Path | None = None,
+    contexthub_repo: str | Path | None = None,
 ) -> dict[str, Any]:
     """Evaluate ContextHub systems offline against EXISTING real AgentLeak traces.
 
@@ -570,6 +578,38 @@ async def run_offline_real_traces(
         {"env_var": name, "present": bool(os.environ.get(name))}
         for name in API_ENV_VARS
     ]
+
+    # Formal-run gating (paper-eligible track). A formal run must carry a verified
+    # freeze bundle; git state is collected READ ONLY (never committed here).
+    is_formal = str(run_class).lower() == "formal"
+    observed_scenario_ids = sorted(
+        {str(record["scenario"]["scenario_id"]) for record in records}
+    )
+    ch_git = collect_git_state(contexthub_repo)
+    al_git = collect_git_state(agentleak_repo_path)
+    freeze_result: dict[str, Any] = {"verified": False, "failures": ["no freeze bundle"]}
+    freeze_meta: dict[str, Any] = {}
+    if is_formal and frozen_bundle_dir is not None:
+        # Lock the realized subset on first sight; every mode is then checked
+        # equal to it (all compared systems must share the same subset).
+        record_realized_subset(frozen_bundle_dir, observed_scenario_ids)
+        # Model stability is checked against the model recorded IN the traces,
+        # not the offline alias in `model` (which defaults to "real-offline").
+        observed_models = sorted({m for m in trace_models if m})
+        # Single model → verify it; a mix (or none) must fail loudly, not skip
+        # the check — so pass a non-matching joined value rather than None.
+        observed_model = (
+            observed_models[0] if len(observed_models) == 1 else "+".join(observed_models) or "unknown"
+        )
+        freeze_result = verify_freeze(
+            bundle_dir=frozen_bundle_dir,
+            protocol_path=PROTOCOL_PATH,
+            observed_scenario_ids=observed_scenario_ids,
+            observed_model=observed_model,
+        )
+        freeze_meta = freeze_result.get("frozen_meta") or {}
+    freeze_verified = bool(freeze_result.get("verified"))
+
     manifest = build_manifest(
         run_id=run_id,
         system=",".join(normalized_systems),
@@ -598,6 +638,20 @@ async def run_offline_real_traces(
         metrics_path=str(aggregate_metrics_path),
         mode="real-offline",
         protocol_snapshot_path=str(protocol_snapshot_path),
+        run_class=run_class,
+        git_commit=ch_git.get("commit"),
+        dirty_worktree=bool(ch_git.get("dirty", True)),
+        agentleak_source={
+            "repo_url": "https://github.com/Privatris/AgentLeak",
+            "local_path": al_git.get("path") or agentleak_repo_path,
+            "commit": al_git.get("commit") or agentleak_commit,
+            "dirty": al_git.get("dirty"),
+        },
+        freeze_verified=freeze_verified,
+        # Online-generated traces ARE real AgentLeak benchmark output; only the
+        # legacy offline paths set this true. A verified formal freeze means the
+        # traces were generated under the frozen protocol for this run.
+        no_real_agentleak_benchmark=not (is_formal and freeze_verified),
         paper_inputs={
             "raw_trace_available": True,
             "normalized_trace_available": True,
@@ -606,14 +660,21 @@ async def run_offline_real_traces(
             "coverage_separated": True,
             "structured_semantic_separated": True,
             "no_manual_trace_edits": True,
-            # model_provider_probed / protocol_frozen for this path stay false.
+            # For a verified formal run these are satisfied by the freeze bundle;
+            # otherwise they stay false and the run cannot be paper-eligible.
+            "protocol_frozen": bool(is_formal and freeze_verified),
+            "scenario_subset_fixed": bool(is_formal and freeze_verified),
+            "detection_mode_fixed": True,
+            "model_provider_probed": bool(
+                is_formal and str(freeze_meta.get("probe_status")) == "passed"
+            ),
         },
     )
     manifest.update(
         {
             "manifest_path": str(manifest_path),
             "trace_source": "agentleak_real_offline_traces",
-            "no_real_agentleak_benchmark": True,
+            "no_real_agentleak_benchmark": not (is_formal and freeze_verified),
             "real_benchmark_started": False,
             "offline_eval": True,
             "offline_eval_detector": (
@@ -634,14 +695,22 @@ async def run_offline_real_traces(
                 "metrics_by_system": metrics_paths,
             },
             "channels_detail": {
-                "included": list(normalized_channels),
+                "included": [c for c in normalized_channels if c not in ("C1",)],
+                "audit_only": [c for c in normalized_channels if c == "C1"],
                 "excluded": [c7],
+            },
+            "freeze": {
+                "run_class": run_class,
+                "frozen_bundle_dir": str(frozen_bundle_dir) if frozen_bundle_dir else None,
+                "verified": freeze_verified,
+                "failures": freeze_result.get("failures", []),
+                "protocol_snapshot_sha256": freeze_meta.get("protocol_snapshot_sha256"),
             },
             "model_protocol": {
                 "alias": "real-offline",
                 "slug": model,
                 "provider": provider,
-                "probe_status": "not_run",
+                "probe_status": str(freeze_meta.get("probe_status") or "not_run"),
                 "agentleak_slug_supported": "unknown",
                 "observed_trace_models": sorted({m for m in trace_models if m}),
                 "api_env_present": env_presence,
@@ -657,13 +726,23 @@ async def run_offline_real_traces(
             },
         }
     )
-    manifest["paper_eligible"] = False
-    manifest["paper_eligibility_reason"] = (
-        "offline structured-only evaluation of pre-existing traces; semantic LLM "
-        "judge not run, model/provider not probed for this path, and trace "
-        "datasets may predate the frozen protocol; not paper-eligible without "
-        "explicit promotion"
-    )
+    if is_formal:
+        # A verified formal run defers to the eligibility gate (which build_manifest
+        # already evaluated from the fields above). Do NOT stamp a hard verdict.
+        if not freeze_verified:
+            manifest["paper_eligible"] = False
+            failures = "; ".join(freeze_result.get("failures", [])) or "freeze not verified"
+            manifest["paper_eligibility_reason"] = (
+                f"formal run but freeze bundle not verified: {failures}"
+            )
+    else:
+        # Smoke / qualification: never paper-eligible regardless of contents.
+        manifest["paper_eligible"] = False
+        manifest["paper_eligibility_reason"] = (
+            "offline structured-only evaluation of pre-existing traces; run_class "
+            f"is '{run_class}' (not formal), so not paper-eligible without an "
+            "explicit formal freeze"
+        )
     write_manifest(manifest_path, manifest)
     write_summary(summary_path, manifest=manifest, metrics=aggregate_metrics)
     if append_to_registry:
@@ -760,11 +839,73 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--judge-provider-label", default="deepseek")
     parser.add_argument("--judge-model", default="deepseek-v4-flash")
+    parser.add_argument(
+        "--run-class",
+        choices=["smoke", "qualification", "formal"],
+        default="qualification",
+        help=(
+            "real-offline only: run class. Only 'formal' with a verified "
+            "--frozen-bundle can become paper-eligible."
+        ),
+    )
+    parser.add_argument(
+        "--frozen-bundle",
+        type=Path,
+        default=None,
+        help="real-offline formal: path to the freeze bundle dir written by --freeze.",
+    )
+    parser.add_argument(
+        "--contexthub-repo",
+        default=None,
+        help="repo path for read-only git_commit/dirty capture (never committed).",
+    )
+    # `--freeze` writes the pre-execution freeze bundle then exits (zero key).
+    parser.add_argument(
+        "--freeze",
+        action="store_true",
+        help="write the formal freeze bundle for --run-id then exit (no eval, no key).",
+    )
+    parser.add_argument("--freeze-selection-rule", default=None)
+    parser.add_argument("--freeze-guard-modes", nargs="+", default=None)
+    parser.add_argument("--freeze-generator-commit", default=None)
+    parser.add_argument("--freeze-probe-status", default="not_run")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+
+    # Pre-execution freeze entry: write the bundle and exit. Zero key, read-only
+    # git; the actual generation (spends key) happens separately in the AgentLeak
+    # venv, then eval is run with --run-class formal --frozen-bundle <dir>.
+    if args.freeze:
+        from integrations.agentleak.freeze import freeze_formal_run
+
+        if args.freeze_selection_rule is None:
+            raise SystemExit("--freeze-selection-rule is required with --freeze")
+        if args.freeze_guard_modes is None:
+            raise SystemExit("--freeze-guard-modes is required with --freeze")
+        meta = freeze_formal_run(
+            run_id=args.run_id,
+            runs_dir=args.runs_dir,
+            seed=args.seed,
+            n=args.n,
+            selection_rule=args.freeze_selection_rule,
+            model=args.model,
+            provider=args.provider,
+            guard_modes=args.freeze_guard_modes,
+            protocol_path=PROTOCOL_PATH,
+            contexthub_repo=args.contexthub_repo,
+            agentleak_repo=args.agentleak_repo,
+            generator_commit=args.freeze_generator_commit,
+            probe_status=args.freeze_probe_status,
+        )
+        print(f"wrote freeze bundle: {Path(args.runs_dir) / args.run_id}")
+        print(f"protocol_snapshot_sha256: {meta['protocol_snapshot_sha256']}")
+        print(f"contexthub dirty: {meta['contexthub_git'].get('dirty')}")
+        print(f"agentleak dirty: {meta['agentleak_source'].get('dirty')}")
+        return 0
+
     if not args.mock_only:
         raise SystemExit("--mock-only is required; this runner does not start real AgentLeak")
     if args.mode == "mock":
@@ -801,6 +942,9 @@ def main(argv: list[str] | None = None) -> int:
                 judge_utility=args.judge_utility,
                 judge_provider_label=args.judge_provider_label,
                 judge_model=args.judge_model,
+                run_class=args.run_class,
+                frozen_bundle_dir=args.frozen_bundle,
+                contexthub_repo=args.contexthub_repo,
             )
         )
     else:
@@ -822,7 +966,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"wrote decisions: {result.get('decision_log_path') or args.decisions}")
     print(f"wrote metrics: {result['metrics_path']}")
     print(f"wrote summary: {result['summary_path']}")
-    print("paper_eligible: false")
+    eligible = bool(result.get("manifest", {}).get("paper_eligible"))
+    print(f"paper_eligible: {str(eligible).lower()}")
     return 0
 
 

@@ -3,13 +3,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 import copy
 from dataclasses import dataclass, replace
-import re
 from typing import Any
 
 from contexthub.enforcement.context import Boundary, EnforcementContext
 from contexthub.enforcement.decision import GuardrailDecision, Verdict
 from contexthub.enforcement.guardrails.flow import FlowGuardrail
 from contexthub.models.request import RequestContext
+from contexthub.redaction import MASK_TOKEN, redact_value_tree, redact_values
 from contexthub.services.access_decision import AccessDecision
 from integrations.agentleak.decision_log import build_decision_log_record, summarize_flow_payload
 from integrations.agentleak.mapping import channel_to_boundary
@@ -19,7 +19,7 @@ from integrations.agentleak.trace_schema import (
     CompiledAgentLeakPolicy,
 )
 
-_MASK_TOKEN = "[REDACTED]"
+_MASK_TOKEN = MASK_TOKEN
 _SUPPORTED_CHANNELS = {
     AgentLeakChannel.C2,
     AgentLeakChannel.C3,
@@ -346,27 +346,13 @@ def _redact_text(text: str, policy: CompiledAgentLeakPolicy) -> str:
     metric lowercases both sides before comparing.
     """
 
-    values = sorted(
-        {str(policy.field_values[field]) for field in _unauthorized_value_fields(policy)},
-        key=len,
-        reverse=True,
-    )
-    redacted = text
-    for value in values:
-        if not value:
-            continue
-        redacted = re.sub(re.escape(value), _MASK_TOKEN, redacted, flags=re.IGNORECASE)
-    return redacted
+    values = [str(policy.field_values[field]) for field in _unauthorized_value_fields(policy)]
+    return redact_values(text, values)
 
 
 def _redact_value(value: Any, policy: CompiledAgentLeakPolicy) -> Any:
-    if isinstance(value, str):
-        return _redact_text(value, policy)
-    if isinstance(value, Mapping):
-        return {key: _redact_value(item, policy) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_redact_value(item, policy) for item in value]
-    return value
+    values = [str(policy.field_values[field]) for field in _unauthorized_value_fields(policy)]
+    return redact_value_tree(value, values)
 
 
 def _repair_event_text(

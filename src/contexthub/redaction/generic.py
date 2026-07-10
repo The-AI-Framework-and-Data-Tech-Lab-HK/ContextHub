@@ -1,10 +1,11 @@
-"""Generic AgentLeak redaction baseline for AL-S2.
+"""Policy-blind generic PII/canary redaction.
 
-This module is intentionally policy-blind: it does not read AgentLeak
-``allowed_set`` annotations, ContextHub ownership/provenance, AgentLeak
-detectors, or an LLM judge. It only applies generic text patterns to channel
-payloads so AL-S2 remains comparable with AL-S3 without borrowing AL-S3's field
-policy.
+Applies generic text patterns (canary/SSN/email/credit-card+Luhn/phone) without
+reading any ownership/allowed-set policy. Used as the AL-S2 baseline in the
+AgentLeak integration, but the logic itself is dataset-agnostic.
+
+Stdlib-only so it can be imported from any consumer, including the AgentLeak
+benchmark process.
 """
 from __future__ import annotations
 
@@ -86,7 +87,7 @@ DEFAULT_RULES: tuple[RedactionRule, ...] = (
 
 
 class GenericRedactor:
-    """Policy-blind recursive sanitizer for AL-S2 channel payloads."""
+    """Policy-blind recursive sanitizer for generic PII/canary patterns."""
 
     def __init__(self, rules: tuple[RedactionRule, ...] = DEFAULT_RULES):
         self.rules = tuple(rules)
@@ -234,5 +235,6 @@ __all__ = [
     "GenericRedactor",
     "RedactionMatch",
     "RedactionResult",
+    "RedactionRule",
     "redact_generic",
 ]

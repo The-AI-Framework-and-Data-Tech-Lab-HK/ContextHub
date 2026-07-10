@@ -1,4 +1,4 @@
-from integrations.agentleak.generic_redaction import redact_generic
+from contexthub.redaction.generic import redact_generic
 
 
 def test_generic_redaction_masks_canary_ssn_email_phone_and_card() -> None:
