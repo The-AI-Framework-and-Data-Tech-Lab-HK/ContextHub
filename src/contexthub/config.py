@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     propagation_enabled: bool = True
     propagation_sweep_interval: int = 30    # 秒，周期补扫间隔
     propagation_lease_timeout: int = 300    # 秒，processing 超时后回收
+    # 放行 marked_stale 事件的传播，使失效沿 derived_from 边级联到多 hop。
+    # 默认关闭以保持现有生产行为与测试不变；失效传播实验开启。
+    propagation_cascade_on_stale: bool = False
     lifecycle_enabled: bool = True
     lifecycle_sweep_interval: int = 3600
     openai_api_key: str = ""

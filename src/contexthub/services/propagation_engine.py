@@ -39,6 +39,7 @@ class PropagationEngine:
         indexer: IndexerService,
         sweep_interval: int = 30,
         lease_timeout: int = 300,
+        cascade_on_stale: bool = False,
     ):
         self._repo = repo
         self._pool = pool
@@ -48,6 +49,8 @@ class PropagationEngine:
         self._indexer = indexer
         self._sweep_interval = sweep_interval
         self._lease_timeout = lease_timeout
+        # 放行 marked_stale 传播以支持 derived_from 多 hop 级联（默认关闭）。
+        self._cascade_on_stale = cascade_on_stale
         self._listen_conn: asyncpg.Connection | None = None
         self._drain_task: asyncio.Task | None = None
         self._ticker_task: asyncio.Task | None = None
@@ -231,8 +234,14 @@ class PropagationEngine:
         event_id = event["event_id"]
         change_type = event.get("change_type", "")
 
-        # 不对 marked_stale / deleted 事件做传播（防止循环）
-        if change_type in ("marked_stale", "deleted"):
+        # deleted 事件不传播。marked_stale 默认也不传播（防止循环）；
+        # 仅当 cascade_on_stale 开启时放行，使失效沿 derived_from 边级联到多 hop。
+        # 终止性由 mark_stale 幂等保证：节点已 stale 时 UPDATE 0、不再发事件，
+        # 故每节点一生最多发一次 marked_stale，级联在 DAG（乃至有环图）上必然终止。
+        if change_type == "deleted":
+            await self._finish_event(event_id, success=True)
+            return
+        if change_type == "marked_stale" and not self._cascade_on_stale:
             await self._finish_event(event_id, success=True)
             return
 
@@ -250,6 +259,10 @@ class PropagationEngine:
 
         for dep in dependents:
             try:
+                # 级联（marked_stale 放行）只作用于 derived_from 边，避免误触发
+                # 其它 dep_type 的规则（如 table_schema 无条件 auto_update）。
+                if change_type == "marked_stale" and dep["dep_type"] != "derived_from":
+                    continue
                 rule = self._registry.get_dep_rule(dep["dep_type"])
                 if rule is None:
                     logger.warning("No rule for dep_type=%s", dep["dep_type"])

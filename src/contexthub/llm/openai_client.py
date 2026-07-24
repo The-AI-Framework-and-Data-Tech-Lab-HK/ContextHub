@@ -20,21 +20,32 @@ class OpenAIEmbeddingClient:
         base_url: str = "https://api.openai.com/v1",
         model: str = "text-embedding-3-small",
         expected_dimensions: int | None = None,
+        dimensions: int | None = None,
+        timeout: float = 30.0,
     ):
         self._api_key = api_key
         self._model = model
         self._expected_dimensions = expected_dimensions
+        # Optional API-side output dimension (e.g. aliyun text-embedding-v4 supports
+        # dimensions=1536). When None, the model's native dimension is returned.
+        self._dimensions = dimensions
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             headers={"Authorization": f"Bearer {api_key}"},
-            timeout=30.0,
+            timeout=timeout,
         )
+
+    def _payload(self, input_value) -> dict:
+        body = {"input": input_value, "model": self._model}
+        if self._dimensions is not None:
+            body["dimensions"] = self._dimensions
+        return body
 
     async def embed(self, text: str) -> list[float] | None:
         try:
             resp = await self._client.post(
                 "/embeddings",
-                json={"input": text, "model": self._model},
+                json=self._payload(text),
             )
             resp.raise_for_status()
             data = resp.json().get("data") or []
@@ -54,7 +65,7 @@ class OpenAIEmbeddingClient:
         try:
             resp = await self._client.post(
                 "/embeddings",
-                json={"input": texts, "model": self._model},
+                json=self._payload(texts),
             )
             resp.raise_for_status()
             data = resp.json().get("data") or []

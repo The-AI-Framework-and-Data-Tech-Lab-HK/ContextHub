@@ -11,6 +11,14 @@ from contexthub.models.memory import AddMemoryRequest, PromoteRequest
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
+from contexthub.services.change_detection_service import ChangeDetectionService
+from contexthub.services.conversation_extraction_service import (
+    ConversationExtractionService,
+)
+from contexthub.services.dependency_discovery_service import (
+    CandidateFact,
+    DependencyDiscoveryService,
+)
 from contexthub.services.indexer_service import IndexerService
 from contexthub.services.masking_service import MaskingService
 
@@ -19,11 +27,24 @@ class MemoryService:
     def __init__(
         self, indexer: IndexerService, acl: ACLService,
         masking: MaskingService, audit: AuditService | None = None,
+        discovery: DependencyDiscoveryService | None = None,
+        discovery_candidate_k: int = 8,
+        detection: ChangeDetectionService | None = None,
+        extractor: ConversationExtractionService | None = None,
     ):
         self._indexer = indexer
         self._acl = acl
         self._masking = masking
         self._audit = audit
+        # Optional: discover semantic derived_from edges at write time. When None
+        # (default), add_memory behaves exactly as before — no discovery, no edges.
+        self._discovery = discovery
+        self._discovery_candidate_k = discovery_candidate_k
+        # Optional: zero-oracle change detection at write time. When None
+        # (default), add_memory fires no supersede events — behaviour unchanged.
+        self._detection = detection
+        # Optional: extract facts from a raw conversation. Enables add_conversation.
+        self._extractor = extractor
 
     async def add_memory(
         self, db: ScopedRepo, body: AddMemoryRequest, ctx: RequestContext
@@ -68,6 +89,16 @@ class MemoryService:
         if generated.l0:
             await self._indexer.update_embedding(db, row["id"], generated.l0)
 
+        # Optional: discover semantic derived_from edges from existing memories.
+        if self._discovery is not None:
+            await self._discover_edges(db, row["id"], body.content)
+
+        # Optional: detect which existing memories this new fact supersedes and
+        # fire a `modified` change_event on each — propagation then marks their
+        # derived_from dependents stale. No detection injected => no events.
+        if self._detection is not None:
+            await self._detect_superseded(db, row["id"], body.content, ctx.agent_id)
+
         result = _row_to_context(row)
 
         if self._audit:
@@ -76,6 +107,105 @@ class MemoryService:
                 metadata={"context_type": "memory", "scope": "agent"},
             )
         return result
+
+    async def _discover_edges(
+        self, db: ScopedRepo, new_id: uuid.UUID, new_text: str
+    ) -> None:
+        """Discover derived_from sources for the new memory and persist edges.
+
+        Candidates are the account's other active memories (most recent first).
+        Uses the injected discovery service to decide which the new fact is
+        derived from, then writes derived_from edges (idempotent).
+        """
+        rows = await db.fetch(
+            """
+            SELECT id, COALESCE(l2_content, l1_content, l0_content) AS text
+            FROM contexts
+            WHERE context_type = 'memory'
+              AND status = 'active'
+              AND id != $1
+            ORDER BY updated_at DESC
+            LIMIT $2
+            """,
+            new_id,
+            self._discovery_candidate_k,
+        )
+        candidates = [
+            CandidateFact(id=r["id"], text=r["text"]) for r in rows if r["text"]
+        ]
+        source_ids = await self._discovery.discover_sources(new_text, candidates)
+        for src_id in source_ids:
+            await db.execute(
+                """
+                INSERT INTO dependencies (dependent_id, dependency_id, dep_type)
+                VALUES ($1, $2, 'derived_from')
+                ON CONFLICT (dependent_id, dependency_id, dep_type) DO NOTHING
+                """,
+                new_id,
+                src_id,
+            )
+
+    async def _detect_superseded(
+        self, db: ScopedRepo, new_id: uuid.UUID, new_text: str, agent_id: str
+    ) -> None:
+        """Detect which existing memories new_text supersedes; fire `modified`.
+
+        Candidate set = the account's other active memories (most recent first),
+        same shape as _discover_edges. For each superseded node, emit one
+        `modified` change_event; the propagation engine then marks its
+        derived_from dependents stale.
+        """
+        rows = await db.fetch(
+            """
+            SELECT id, COALESCE(l2_content, l1_content, l0_content) AS text
+            FROM contexts
+            WHERE context_type = 'memory'
+              AND status = 'active'
+              AND id != $1
+            ORDER BY updated_at DESC
+            LIMIT $2
+            """,
+            new_id,
+            self._discovery_candidate_k,
+        )
+        candidates = [
+            CandidateFact(id=r["id"], text=r["text"]) for r in rows if r["text"]
+        ]
+        superseded = await self._detection.detect_superseded(new_text, candidates)
+        for old_id in superseded:
+            await db.execute(
+                """
+                INSERT INTO change_events
+                    (context_id, account_id, change_type, actor, diff_summary)
+                VALUES ($1, current_setting('app.account_id'), 'modified', $2, $3)
+                """,
+                old_id,
+                agent_id,
+                "superseded by new memory",
+            )
+
+    async def add_conversation(
+        self, db: ScopedRepo, raw_text: str, ctx: RequestContext
+    ) -> list[Context]:
+        """Extract facts from a raw conversation, store each as a memory.
+
+        Requires an injected ConversationExtractionService. Each extracted fact
+        goes through the normal add_memory write path in order, so discovery and
+        change detection (when injected) apply to every fact, and the timeline-
+        incremental semantics are preserved (an earlier fact is stored before a
+        later one can supersede it).
+        """
+        if self._extractor is None:
+            raise BadRequestError("Conversation extraction is not configured")
+        facts = await self._extractor.extract(raw_text)
+        out: list[Context] = []
+        for fact in facts:
+            if not fact.text or not fact.text.strip():
+                continue
+            out.append(
+                await self.add_memory(db, AddMemoryRequest(content=fact.text), ctx)
+            )
+        return out
 
     async def list_memories(
         self, db: ScopedRepo, ctx: RequestContext

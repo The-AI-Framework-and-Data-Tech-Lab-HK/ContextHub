@@ -20,7 +20,11 @@ async def keyword_search(
     if not keywords:
         return []
 
-    conditions = ["status NOT IN ('archived', 'deleted')"]
+    conditions = [
+        # Explicit tenant filter: don't rely on RLS alone (bypassed for superuser roles).
+        "account_id = current_setting('app.account_id')",
+        "status NOT IN ('archived', 'deleted')",
+    ]
     params: list = []
     idx = 1
 

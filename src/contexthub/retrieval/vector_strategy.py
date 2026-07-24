@@ -17,6 +17,8 @@ async def vector_search(
     embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
 
     conditions = [
+        # Explicit tenant filter: don't rely on RLS alone (bypassed for superuser roles).
+        "account_id = current_setting('app.account_id')",
         "l0_embedding IS NOT NULL",
         "status NOT IN ('archived', 'deleted')",
     ]
