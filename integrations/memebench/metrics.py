@@ -23,6 +23,66 @@ MEME_BASELINE = {
     "mdflat_opus47_cost_multiple": 70,       # ~70x baseline cost
 }
 
+# gpt-4.1-mini public per-token rate, MEME p12 (USD per 1M tokens, in/out).
+# Same rate for all stages since our main runs use one backbone for every role.
+PRICE_IN_PER_1M = 0.40
+PRICE_OUT_PER_1M = 1.60
+
+
+def _usd(prompt_tokens: int, completion_tokens: int,
+         price_in: float, price_out: float) -> float:
+    return prompt_tokens / 1e6 * price_in + completion_tokens / 1e6 * price_out
+
+
+def cost_per_episode(buckets: dict, n_ok: int, *,
+                     price_in: float = PRICE_IN_PER_1M,
+                     price_out: float = PRICE_OUT_PER_1M) -> dict:
+    """Per-episode token & USD cost under MEME's accounting, two scopes.
+
+    Buckets map ContextHub roles onto MEME's Ingest/Retrieve/Answer stages:
+      - extract_llm  (raw-dialogue -> facts, write path)  -> Ingest
+      - ingest_llm   (dependency discovery, write path)    -> Ingest
+      - inference_llm (final answer)                       -> Answer
+      - retrieval: no LLM call (embedding only)            -> Retrieve = 0
+    Excluded from both scopes, matching MEME: embedding, GPT-4o judge.
+
+    Two scopes are reported so no information is hidden:
+      - ``meme_aligned``: Ingest + Answer only. Strictly MEME-comparable;
+        this is the "no 70x tax" headline number.
+      - ``full``: adds ``oracle_llm`` (semantic staleness propagation), a
+        stage MEME has no analogue for. Shows ContextHub's true total cost.
+    """
+    def stage(*names: str) -> tuple[int, int]:
+        pin = sum(buckets[k].get("prompt_tokens", 0) for k in names if buckets.get(k))
+        pout = sum(buckets[k].get("completion_tokens", 0) for k in names if buckets.get(k))
+        return pin, pout
+
+    def scope(pin: int, pout: int) -> dict:
+        tot = pin + pout
+        return {
+            "prompt_tokens": pin,
+            "completion_tokens": pout,
+            "total_tokens": tot,
+            "tokens_per_episode": (tot / n_ok) if n_ok else None,
+            "usd_per_episode": (_usd(pin, pout, price_in, price_out) / n_ok) if n_ok else None,
+        }
+
+    ingest_in, ingest_out = stage("extract_llm", "ingest_llm")
+    answer_in, answer_out = stage("inference_llm")
+    oracle_in, oracle_out = stage("oracle_llm")
+
+    aligned = scope(ingest_in + answer_in, ingest_out + answer_out)
+    full = scope(ingest_in + answer_in + oracle_in,
+                 ingest_out + answer_out + oracle_out)
+    return {
+        "price_in_per_1m": price_in,
+        "price_out_per_1m": price_out,
+        "stage_map": "Ingest=extract+discovery, Answer=inference, Retrieve=0 (embedding only)",
+        "excluded": ["embedding", "judge"],
+        "meme_aligned": aligned,   # Ingest + Answer; MEME-comparable headline
+        "full": full,              # + oracle (propagation), no MEME analogue
+    }
+
 
 def _acc(results, key, hop=None):
     rs = [r for r in results if r.error is None and (hop is None or r.hop == hop)]
@@ -80,6 +140,15 @@ def summarize(results, answer_snap, oracle_snap, discovery_snap, *,
         }
 
     total_oracle_calls = sum(r.oracle_calls for r in results if r.error is None)
+    buckets = {
+        # token buckets: ingest (discovery) / inference (answer) / oracle /
+        # extract (raw-dialogue fact extraction, mode B only) / judge.
+        "ingest_llm": discovery_snap,
+        "inference_llm": answer_snap,
+        "oracle_llm": oracle_snap,
+        "extract_llm": extract_snap,
+        "judge_llm": judge_snap,
+    }
     return {
         "model": model,
         "edge_mode": edge_mode,
@@ -98,13 +167,9 @@ def summarize(results, answer_snap, oracle_snap, discovery_snap, *,
         "cost": {
             "total_oracle_calls": total_oracle_calls,
             "oracle_calls_per_case": (total_oracle_calls / n_ok) if n_ok else None,
-            # token buckets: ingest (discovery) / inference (answer) / oracle /
-            # extract (raw-dialogue fact extraction, mode B only) / judge.
-            "ingest_llm": discovery_snap,
-            "inference_llm": answer_snap,
-            "oracle_llm": oracle_snap,
-            "extract_llm": extract_snap,
-            "judge_llm": judge_snap,
+            **buckets,
+            # MEME-aligned per-episode token & USD (two scopes: aligned / full).
+            "per_episode": cost_per_episode(buckets, n_ok),
         },
         "meme_baseline_static": MEME_BASELINE,
     }
@@ -150,6 +215,13 @@ def print_summary(s: dict) -> None:
         print(f"extract   LLM (raw-B):     {_tok(c['extract_llm'])}")
     if c.get("judge_llm"):
         print(f"judge     LLM (grading):   {_tok(c['judge_llm'])}")
+    pe = c.get("per_episode")
+    if pe:
+        a, f = pe["meme_aligned"], pe["full"]
+        print(f"per-episode (MEME-aligned, ingest+answer): "
+              f"{a['tokens_per_episode']:,.0f} tok, ${a['usd_per_episode']:.5f}")
+        print(f"per-episode (full, +oracle):               "
+              f"{f['tokens_per_episode']:,.0f} tok, ${f['usd_per_episode']:.5f}")
     m = s["meme_baseline_static"]
     print("-" * 62)
     print(f"MEME baseline (cited): 6-sys Cascade avg={m['six_systems_cascade_avg_acc']}, "
