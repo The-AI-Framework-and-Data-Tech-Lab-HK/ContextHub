@@ -36,7 +36,7 @@ Agent 通过熟悉的文件操作（`ls`、`read`、`grep`、`stat`）经由 `ct
 
 四者统一在 `ctx://` URI 命名空间下，共享相同的版本控制、可见性和变更传播语义。
 
-> 各上下文类型的研究空白详细分析，请参阅 [Research Positioning](docs/research/research-positioning.md)。
+> ContextHub 同时是一条「代价受限的变更传播」研究主线的运行时载体，详见下文 [研究](#研究-)。
 
 ## 核心能力 ✨
 
@@ -291,15 +291,22 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
   - 质量反馈闭环：追踪 Agent 是否实际使用了检索到的上下文、忽略了它、还是被用户纠正。
   - 自动内容生命周期管理（长期未使用的上下文逐步降权：活跃 → 过时 → 归档）。
   - 面向长文档（百页以上财报、技术手册）的树导航检索策略。
-- [ ] **Phase 4 — 三层量化 Benchmark**
-  - 基于公开基准数据集和自建数据集，在三个领域进行系统性量化评估。
-    - **第一层**（核心指标）：上下文检索质量——长文档检索（FinanceBench）、记忆召回（LoCoMo）、混合上下文检索（自建）。
-    - **第二层**：ContextHub 独有的协作治理指标——变更传播精度、跨 Agent 知识迁移效果。
-    - **第三层**（辅助验证）：以下游任务准确率（SQL 生成、文档问答）作为间接证据。
+- [ ] **Phase 4 — 量化 Benchmark**
+  - 将外部基准映射到 ContextHub 的上下文模型上以度量其治理行为，而非把 ContextHub 当作又一个检索基线来刷分。
+    - 级联更新下的派生记忆过时判定，成本核算对齐该基准自身的协议（见 [`integrations/memebench`](integrations/memebench/)）。
+    - 面向跨 Agent 隐私与企业协作任务的其它 harness 位于 [`integrations/`](integrations/)，详见 [研究](#研究-)。
 - [ ] **Phase 5 — 生产加固**
   - 多实例部署：变更传播引擎可多节点并发处理事件（基于 PostgreSQL `SKIP LOCKED`）；
   - MCP Server 以接入更广泛的 Agent 框架；
   - 对接企业数据目录（如 Hive Metastore），替换当前的模拟连接器。
+
+## 研究 🔬
+
+除引擎本身外，ContextHub 还是一条研究主线的运行时载体：**代价受限、保 soundness 的物化派生数据失效传播。** 当一个上游事实发生变更，那些从它派生、却并不字面包含它的下游产物哪些会过时——而判断"是否过时"的检测器既昂贵又可能漏判？与假设变更检测精确且免费的增量视图维护（IVM）不同，这里把检测器的代价当作一等公民。
+
+[`integrations/memebench`](integrations/memebench/) harness 把一个级联式派生记忆基准映射到 ContextHub 的上下文模型上来研究这一问题：在抽取出的记忆之上建立依赖图，把一次上游变更沿派生链向下传播，并同时度量过时判定准确率与对齐该基准自身协议的单集成本。此处 ContextHub 是评测载体，而非排行榜里的竞品系统。
+
+> 该 harness 只是把外部工作映射到 ContextHub 上以便度量，并不内置上游数据集。数据请按各 harness 的说明单独获取。
 
 ## 文档 📄
 

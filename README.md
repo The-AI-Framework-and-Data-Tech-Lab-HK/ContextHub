@@ -36,7 +36,7 @@ These are structural deficits in system architecture — they cannot be fixed by
 
 All four are managed under a unified `ctx://` URI namespace with the same versioning, visibility, and propagation semantics.
 
-> For a detailed analysis of research gaps in each context type, see [Research Positioning](docs/research/research-positioning.md).
+> ContextHub is also the runtime substrate for an ongoing research line on cost-bounded change propagation — see [Research](#research-) below.
 
 ## Core Capabilities ✨
 
@@ -291,15 +291,22 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
   - Quality feedback loop — tracking whether agents actually use, ignore, or get corrected on retrieved context. 
   - Automatic content lifecycle (unused context gradually deprioritized: active → stale → archived). 
   - Tree-navigation retrieval for long documents (100+ page financial reports, technical manuals).
-- [ ] **Phase 4 — Three-Layer Quantitative Benchmark**
-  - Systematic evaluation across three domains using public benchmarks and self-built datasets. 
-    - **Layer 1** (headline): context retrieval quality — long-document retrieval (FinanceBench), memory recall (LoCoMo), and mixed-context retrieval (self-built)
-    - **Layer 2**: collaboration governance metrics unique to ContextHub — change propagation accuracy, cross-agent knowledge transfer effectiveness
-    - **Layer 3** (supporting): downstream task accuracy (SQL generation, document QA) as indirect validation
+- [ ] **Phase 4 — Quantitative Benchmarking**
+  - Mapping external benchmarks onto ContextHub's context model to measure governance behavior, rather than treating ContextHub as another retrieval baseline.
+    - Derived-memory staleness under cascading updates, with cost accounting aligned to the benchmark's own protocol (via [`integrations/memebench`](integrations/memebench/)).
+    - Additional harnesses for cross-agent privacy and enterprise-collaboration tasks live under [`integrations/`](integrations/); see [Research](#research-).
 - [ ] **Phase 5 — Production Hardening**
   - Multi-instance deployment: propagation engine runs concurrently across nodes (PostgreSQL `SKIP LOCKED`)
   - MCP Server for broader agent framework integration
   - Connectors for enterprise data catalogs (e.g., Hive Metastore), replacing the current mock connector.
+
+## Research 🔬
+
+Beyond the engine, ContextHub is the runtime substrate for an ongoing research line: **cost-bounded, sound invalidation propagation over graphs of materialized derived state.** When an upstream fact changes, which downstream artifacts — derived from it, but not literally containing it — go stale, when the staleness detector is expensive and can miss? Unlike incremental view maintenance, which assumes change detection is exact and free, this treats the detector as a first-class cost.
+
+The [`integrations/memebench`](integrations/memebench/) harness maps a cascade-style derived-memory benchmark onto ContextHub's context model to study this: it builds a dependency graph over extracted memories, propagates an upstream change down the derived chain, and measures both staleness accuracy and per-episode cost aligned to the benchmark's own protocol. ContextHub here is the evaluation substrate, not a competitor system in a leaderboard.
+
+> The harness maps external work onto ContextHub for measurement; it does not vendor upstream datasets. Fetch those separately per each harness's notes.
 
 ## Documentation 📄
 
