@@ -46,7 +46,7 @@ All four are managed under a unified `ctx://` URI namespace with the same versio
 | **LLM-native Commands** | Agents use `ls`, `read`, `grep`, `stat` — LLMs already understand file operations, no custom API needed |
 | **Multi-Agent Collaboration** | Team hierarchy with visibility inheritance (child reads parent, parent doesn't see child); memory promotion `private → team → org` with `derived_from` lineage |
 | **Version Management** | Pin agents to stable versions; `is_breaking` flag prevents silent breakage; immutable published versions |
-| **Change Propagation** | Upstream changes auto-notify all downstream dependents — no polling, no "latest version wins" |
+| **Change Propagation** | Upstream changes auto-notify all downstream dependents — no polling, no "latest version wins". A cost-controlled propagation model, where the staleness check spends only as much compute as each edge warrants, is an active research direction (see [Research](#research-)) |
 | **L0/L1/L2 Layered Retrieval** | Vector search → BM25 rerank → on-demand full content; **60–80% token reduction** vs. flat retrieval |
 | **Tenant Isolation** | Row-Level Security on all tables; request-scoped tenant binding |
 | **PostgreSQL-centric Single DB** | ACID + RLS + LISTEN/NOTIFY + pgvector in one database; no dual-write, no message queue |
@@ -302,9 +302,9 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
 
 ## Research 🔬
 
-Beyond the engine, ContextHub is the runtime substrate for an ongoing research line: **cost-bounded, sound invalidation propagation over graphs of materialized derived state.** When an upstream fact changes, which downstream artifacts — derived from it, but not literally containing it — go stale, when the staleness detector is expensive and can miss? Unlike incremental view maintenance, which assumes change detection is exact and free, this treats the detector as a first-class cost.
+Beyond the engine, ContextHub is the runtime substrate for an ongoing research line on **keeping derived knowledge fresh at controlled cost.** When an upstream fact changes, some downstream artifacts — derived from it, but not literally containing it — silently go stale. Deciding which ones is the hard part: a cheap check (a rule, an embedding) is fast but misses; a strong LLM catches them but is expensive. The research question is how to spend only as much compute as each dependency edge actually warrants, while keeping a bound on what gets missed. Unlike incremental view maintenance, which assumes change detection is exact and free, this treats the detector as a first-class cost.
 
-The [`integrations/memebench`](integrations/memebench/) harness maps a cascade-style derived-memory benchmark onto ContextHub's context model to study this: it builds a dependency graph over extracted memories, propagates an upstream change down the derived chain, and measures both staleness accuracy and per-episode cost aligned to the benchmark's own protocol. ContextHub here is the evaluation substrate, not a competitor system in a leaderboard.
+The [`integrations/memebench`](integrations/memebench/) harness maps a cascade-style derived-memory benchmark onto ContextHub's context model to study this: it builds a dependency graph over extracted memories, propagates an upstream change down the derived chain, and measures both staleness accuracy and per-episode cost aligned to the benchmark's own protocol — so a cheap-first, escalate-only-when-needed policy can be compared against always paying for the strong model. ContextHub here is the evaluation substrate, not a competitor system in a leaderboard.
 
 > The harness maps external work onto ContextHub for measurement; it does not vendor upstream datasets. Fetch those separately per each harness's notes.
 
