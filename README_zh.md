@@ -46,7 +46,7 @@ Agent 通过熟悉的文件操作（`ls`、`read`、`grep`、`stat`）经由 `ct
 | **LLM 原生命令** | Agent 使用 `ls`、`read`、`grep`、`stat` 操作上下文——LLM 天然理解文件操作，无需学习自定义 API |
 | **多 Agent 协作** | 团队层级可见性继承（子读父、父不见子）；记忆晋升 `私有 → 团队 → 组织`，`derived_from` 血缘追踪 |
 | **版本管理** | 将 Agent 锁定在稳定版本；`is_breaking` 标记防止静默破坏；已发布版本不可变 |
-| **变更传播** | 上游变更自动通知所有下游依赖方——无需轮询，不是"最新版覆盖一切"。一个**代价可控**的传播模型（让"是否过时"的判断在每条依赖边上只花该花的算力）是我们正在推进的研究方向（见 [研究](#研究-)） |
+| **变更传播** | 上游变更自动通知所有下游依赖方——无需轮询，不是"最新版覆盖一切"。我们正在研究**代价可控**的变更传播问题（见 [研究](#研究-)）：写入时用置信度级联"先便宜档后升级"地发现 `derived_from` 依赖边，失效再沿这些边多跳级联。成本/代价可控的思路在于进一步调优"是否过时"的判断、让它在每条边上只花该花的算力。 |
 | **L0/L1/L2 分层检索** | 向量检索 → BM25 精排 → 按需加载完整内容；相比平坦检索**节省 60–80% token** |
 | **租户隔离** | 所有表启用行级安全（RLS）；请求级租户绑定 |
 | **PostgreSQL 单库架构** | ACID + RLS + LISTEN/NOTIFY + pgvector 集于一库；无双写、无消息队列 |
@@ -295,6 +295,9 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
   - 将外部基准映射到 ContextHub 的上下文模型上以度量其治理行为，而非把 ContextHub 当作又一个检索基线来刷分。
     - 级联更新下的派生记忆过时判定，成本核算对齐该基准自身的协议（见 [`integrations/memebench`](integrations/memebench/)）。
     - 面向跨 Agent 隐私与企业协作任务的其它 harness 位于 [`integrations/`](integrations/)，详见 [研究](#研究-)。
+- [ ] **代价可控的变更传播**（研究线，横跨各阶段）
+  - 建图侧（已落地，opt-in）：写入时用置信度级联"先便宜档后升级"地发现 `derived_from` 依赖边，失效再沿这些边多跳级联。
+  - 传播侧（进行中）：把"是否过时"的判断本身也接入传播引擎内的同一套"便宜档先行 / 不确定再升级"级联，让每条边只花该花的算力——并对"会漏掉多少"给出可控上界。见 [研究](#研究-)。
 - [ ] **Phase 5 — 生产加固**
   - 多实例部署：变更传播引擎可多节点并发处理事件（基于 PostgreSQL `SKIP LOCKED`）；
   - MCP Server 以接入更广泛的 Agent 框架；
@@ -304,7 +307,7 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 
 除引擎本身外，ContextHub 还是一条研究主线的运行时载体：**如何以可控的代价，让派生出来的知识保持新鲜。** 当一个上游事实发生变更时，一些从它派生、却并不字面包含它的下游产物会悄悄过时。难点在于判断"哪些过时了"：便宜的判断方式（一条规则、一次向量相似度）快，但会漏判；强力的大模型能抓住，却很贵。研究要回答的是——如何让每条依赖边上只花它真正值得花的算力，同时对"会漏掉多少"给出可控的上界。这与增量视图维护（IVM）不同：IVM 假设变更检测既精确又免费，而这里把"检测本身有代价、且会漏判"当作首要问题。
 
-[`integrations/memebench`](integrations/memebench/) harness 把一个级联式派生记忆基准映射到 ContextHub 的上下文模型上来研究这一问题：在抽取出的记忆之上建立依赖图，把一次上游变更沿派生链向下传播，并同时度量过时判定的准确率、以及对齐该基准自身协议的单集成本——从而可以把"先用便宜档、仅在必要时才升级到强模型"的策略，与"无脑全程使用强模型"作对比。此处 ContextHub 是评测载体，而非排行榜里的竞品系统。
+"先用便宜档、仅在必要时才升级到强模型"这一策略已作为置信度级联进入核心（[`cascade_router`](src/contexthub/services/cascade_router.py)），在写入时发现 `derived_from` 依赖边（[`dependency_discovery_service`](src/contexthub/services/dependency_discovery_service.py)，经 [`memory_service`](src/contexthub/services/memory_service.py) 以 opt-in 方式接线）；[`integrations/memebench`](integrations/memebench/) harness 则把一个级联式派生记忆基准映射到该模型上来度量它：在抽取出的记忆之上建立依赖图，把一次上游变更沿派生链向下传播，并同时报告过时判定的准确率、以及对齐该基准自身协议的单集成本——从而把该级联策略与"无脑全程使用强模型"作对比。此处 ContextHub 是评测载体，而非排行榜里的竞品系统。
 
 > 该 harness 只是把外部工作映射到 ContextHub 上以便度量，并不内置上游数据集。数据请按各 harness 的说明单独获取。
 

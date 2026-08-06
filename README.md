@@ -46,7 +46,7 @@ All four are managed under a unified `ctx://` URI namespace with the same versio
 | **LLM-native Commands** | Agents use `ls`, `read`, `grep`, `stat` — LLMs already understand file operations, no custom API needed |
 | **Multi-Agent Collaboration** | Team hierarchy with visibility inheritance (child reads parent, parent doesn't see child); memory promotion `private → team → org` with `derived_from` lineage |
 | **Version Management** | Pin agents to stable versions; `is_breaking` flag prevents silent breakage; immutable published versions |
-| **Change Propagation** | Upstream changes auto-notify all downstream dependents — no polling, no "latest version wins". A cost-controlled propagation model, where the staleness check spends only as much compute as each edge warrants, is an active research direction (see [Research](#research-)) |
+| **Change Propagation** | Upstream changes auto-notify all downstream dependents — no polling, no "latest version wins". An opt-in cost-controlled path lands in core: a confidence cascade discovers `derived_from` edges cheapest-tier-first at write time, and staleness cascades along those edges multi-hop. Tuning the staleness check itself to spend only as much as each edge warrants is the active research frontier (see [Research](#research-)) |
 | **L0/L1/L2 Layered Retrieval** | Vector search → BM25 rerank → on-demand full content; **60–80% token reduction** vs. flat retrieval |
 | **Tenant Isolation** | Row-Level Security on all tables; request-scoped tenant binding |
 | **PostgreSQL-centric Single DB** | ACID + RLS + LISTEN/NOTIFY + pgvector in one database; no dual-write, no message queue |
@@ -295,6 +295,9 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
   - Mapping external benchmarks onto ContextHub's context model to measure governance behavior, rather than treating ContextHub as another retrieval baseline.
     - Derived-memory staleness under cascading updates, with cost accounting aligned to the benchmark's own protocol (via [`integrations/memebench`](integrations/memebench/)).
     - Additional harnesses for cross-agent privacy and enterprise-collaboration tasks live under [`integrations/`](integrations/); see [Research](#research-).
+- [ ] **Cost-Aware Propagation** (research track, cuts across phases)
+  - Build side (landed, opt-in): a confidence cascade discovers `derived_from` edges cheapest-tier-first at write time, and staleness cascades along those edges multi-hop.
+  - Propagation side (in progress): route the staleness check itself through the same cheap-first / escalate-when-uncertain cascade inside the propagation engine, so each edge spends only as much compute as it warrants — with a bound on what gets missed. See [Research](#research-).
 - [ ] **Phase 5 — Production Hardening**
   - Multi-instance deployment: propagation engine runs concurrently across nodes (PostgreSQL `SKIP LOCKED`)
   - MCP Server for broader agent framework integration
@@ -304,7 +307,7 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
 
 Beyond the engine, ContextHub is the runtime substrate for an ongoing research line on **keeping derived knowledge fresh at controlled cost.** When an upstream fact changes, some downstream artifacts — derived from it, but not literally containing it — silently go stale. Deciding which ones is the hard part: a cheap check (a rule, an embedding) is fast but misses; a strong LLM catches them but is expensive. The research question is how to spend only as much compute as each dependency edge actually warrants, while keeping a bound on what gets missed. Unlike incremental view maintenance, which assumes change detection is exact and free, this treats the detector as a first-class cost.
 
-The [`integrations/memebench`](integrations/memebench/) harness maps a cascade-style derived-memory benchmark onto ContextHub's context model to study this: it builds a dependency graph over extracted memories, propagates an upstream change down the derived chain, and measures both staleness accuracy and per-episode cost aligned to the benchmark's own protocol — so a cheap-first, escalate-only-when-needed policy can be compared against always paying for the strong model. ContextHub here is the evaluation substrate, not a competitor system in a leaderboard.
+The cheap-first, escalate-only-when-needed policy lives in core as a confidence cascade ([`cascade_router`](src/contexthub/services/cascade_router.py)) that discovers `derived_from` edges at write time ([`dependency_discovery_service`](src/contexthub/services/dependency_discovery_service.py), wired opt-in through [`memory_service`](src/contexthub/services/memory_service.py)); the [`integrations/memebench`](integrations/memebench/) harness maps a cascade-style derived-memory benchmark onto this model to measure it. It builds the dependency graph over extracted memories, propagates an upstream change down the derived chain, and reports both staleness accuracy and per-episode cost aligned to the benchmark's own protocol — so the cascade can be compared against always paying for the strong model. ContextHub here is the evaluation substrate, not a competitor system in a leaderboard.
 
 > The harness maps external work onto ContextHub for measurement; it does not vendor upstream datasets. Fetch those separately per each harness's notes.
 
