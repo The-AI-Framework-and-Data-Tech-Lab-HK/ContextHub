@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "contexthub": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "${CONTEXTHUB_REPO_PATH:-path to ContextHub}/bridge_claude/src/server.py"
+      ],
+      "env": {
+        "CONTEXTHUB_URL": "${CONTEXTHUB_URL:-http://127.0.0.1:8000}",
+        "CONTEXTHUB_API_KEY": "${CONTEXTHUB_API_KEY:-changeme}",
+        "CONTEXTHUB_ACCOUNT_ID": "${CONTEXTHUB_ACCOUNT_ID:-acme}",
+        "CONTEXTHUB_AGENT_ID": "${CONTEXTHUB_AGENT_ID:-query-agent}"
+      }
+    }
+  }
+}
+

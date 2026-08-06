@@ -1,0 +1,32 @@
+id: contexthub_jiuwen
+name: ContextHub Jiuwen Bridge
+version: 0.2.0
+description: ContextHub integration for JiuwenClaw with OpenClaw-style sidecar contract.
+author: OpenAI Codex
+min_jiuwenclaw_version: 0.1.0
+dependencies:
+  httpx: ">=0.27"
+config_schema:
+  type: object
+  additionalProperties: false
+  properties:
+    enabled:
+      type: boolean
+      default: true
+    contexthub_url:
+      type: string
+      default: http://127.0.0.1:8000
+    api_key:
+      type: string
+    account_id:
+      type: string
+      default: acme
+    agent_id:
+      type: string
+      default: jiuwenclaw
+    top_k:
+      type: integer
+      default: 3
+    auto_capture:
+      type: boolean
+      default: true
