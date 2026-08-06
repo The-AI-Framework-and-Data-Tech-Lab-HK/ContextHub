@@ -29,6 +29,7 @@ class MemoryService:
         masking: MaskingService, audit: AuditService | None = None,
         discovery: DependencyDiscoveryService | None = None,
         discovery_candidate_k: int = 8,
+        discovery_candidate_strategy: str = "recent_k",
         detection: ChangeDetectionService | None = None,
         extractor: ConversationExtractionService | None = None,
     ):
@@ -40,6 +41,12 @@ class MemoryService:
         # (default), add_memory behaves exactly as before — no discovery, no edges.
         self._discovery = discovery
         self._discovery_candidate_k = discovery_candidate_k
+        # Candidate-selection strategy for _discover_edges. "recent_k" (default)
+        # is the original recency-ordered query — byte-for-byte unchanged. Set
+        # "embed_topk" to select candidates by pgvector cosine to the new memory
+        # (variable-4 cascade's escalation target); opt-in, no behaviour change
+        # unless explicitly chosen.
+        self._discovery_candidate_strategy = discovery_candidate_strategy
         # Optional: zero-oracle change detection at write time. When None
         # (default), add_memory fires no supersede events — behaviour unchanged.
         self._detection = detection
@@ -117,19 +124,40 @@ class MemoryService:
         Uses the injected discovery service to decide which the new fact is
         derived from, then writes derived_from edges (idempotent).
         """
-        rows = await db.fetch(
-            """
-            SELECT id, COALESCE(l2_content, l1_content, l0_content) AS text
-            FROM contexts
-            WHERE context_type = 'memory'
-              AND status = 'active'
-              AND id != $1
-            ORDER BY updated_at DESC
-            LIMIT $2
-            """,
-            new_id,
-            self._discovery_candidate_k,
-        )
+        if self._discovery_candidate_strategy == "embed_topk":
+            # Select candidates by pgvector cosine to the new memory's embedding
+            # (variable-4 cascade escalation target). Falls back to recency if the
+            # new memory has no embedding yet.
+            rows = await db.fetch(
+                """
+                SELECT id, COALESCE(l2_content, l1_content, l0_content) AS text
+                FROM contexts
+                WHERE context_type = 'memory'
+                  AND status = 'active'
+                  AND id != $1
+                  AND l0_embedding IS NOT NULL
+                ORDER BY l0_embedding <=> (
+                    SELECT l0_embedding FROM contexts WHERE id = $1
+                )
+                LIMIT $2
+                """,
+                new_id,
+                self._discovery_candidate_k,
+            )
+        else:  # "recent_k" — original recency-ordered query, unchanged.
+            rows = await db.fetch(
+                """
+                SELECT id, COALESCE(l2_content, l1_content, l0_content) AS text
+                FROM contexts
+                WHERE context_type = 'memory'
+                  AND status = 'active'
+                  AND id != $1
+                ORDER BY updated_at DESC
+                LIMIT $2
+                """,
+                new_id,
+                self._discovery_candidate_k,
+            )
         candidates = [
             CandidateFact(id=r["id"], text=r["text"]) for r in rows if r["text"]
         ]

@@ -214,7 +214,7 @@ class _FakeRow(dict):
         return self[k]
 
 
-def _make_memory_service(discovery=None):
+def _make_memory_service(discovery=None, discovery_candidate_strategy="recent_k"):
     from contexthub.generation.base import ContentGenerator
     from contexthub.llm.base import NoOpEmbeddingClient
     from contexthub.services.acl_service import ACLService
@@ -223,7 +223,10 @@ def _make_memory_service(discovery=None):
     from contexthub.services.memory_service import MemoryService
 
     indexer = IndexerService(ContentGenerator(), NoOpEmbeddingClient())
-    return MemoryService(indexer, ACLService(), MaskingService(), discovery=discovery)
+    return MemoryService(
+        indexer, ACLService(), MaskingService(), discovery=discovery,
+        discovery_candidate_strategy=discovery_candidate_strategy,
+    )
 
 
 @pytest.mark.asyncio
@@ -241,6 +244,47 @@ async def test_add_memory_without_discovery_runs_no_candidate_query():
     assert not any("status = 'active'" in s and "ORDER BY updated_at DESC" in s and "LIMIT" in s
                    for s in repo.sql), "candidate query should not run without discovery"
     assert not any("dependencies" in s for s in repo.sql), "no edges without discovery"
+
+
+# --------------------------------------------------------------------------- #
+# _discover_edges candidate strategy: default recent_k is unchanged; embed_topk
+# opt-in switches the candidate SELECT to pgvector cosine ordering.
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_discover_edges_default_uses_recency_query():
+    from contexthub.models.memory import AddMemoryRequest
+    from contexthub.models.request import RequestContext
+
+    repo = RecordingRepo(uuid.uuid4())
+    svc = _make_memory_service(DependencyDiscoveryService(FakeChat(["NONE"])))
+    await svc.add_memory(repo, AddMemoryRequest(content="a fact"),
+                         RequestContext(account_id="acct", agent_id="a"))
+
+    # Default strategy => the recency-ordered candidate query runs; no cosine.
+    assert any("ORDER BY updated_at DESC" in s for s in repo.sql), \
+        "default strategy must use the recency candidate query"
+    assert not any("<=>" in s for s in repo.sql), "default must not use pgvector cosine"
+
+
+@pytest.mark.asyncio
+async def test_discover_edges_embed_topk_uses_cosine_query():
+    from contexthub.models.memory import AddMemoryRequest
+    from contexthub.models.request import RequestContext
+
+    repo = RecordingRepo(uuid.uuid4())
+    svc = _make_memory_service(
+        DependencyDiscoveryService(FakeChat(["NONE"])),
+        discovery_candidate_strategy="embed_topk",
+    )
+    await svc.add_memory(repo, AddMemoryRequest(content="a fact"),
+                         RequestContext(account_id="acct", agent_id="a"))
+
+    # embed_topk => the candidate SELECT orders by pgvector cosine distance.
+    assert any("<=>" in s for s in repo.sql), \
+        "embed_topk strategy must use the pgvector cosine candidate query"
+    assert not any("ORDER BY updated_at DESC" in s for s in repo.sql), \
+        "embed_topk must not fall back to the recency query"
 
 
 @pytest.mark.asyncio

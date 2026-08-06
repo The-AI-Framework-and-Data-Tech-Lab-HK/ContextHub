@@ -34,10 +34,17 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CandidateFact:
-    """An already-stored fact the new fact might be derived from."""
+    """An already-stored fact the new fact might be derived from.
+
+    ``embedding`` is optional: the edge judge does not use it, but the build-side
+    cascade router's candidate-selection step ranks candidates by cosine to the
+    new fact, so callers that route through the cascade populate it. Left None on
+    the plain discovery path (byte-for-byte unchanged behaviour there).
+    """
 
     id: uuid.UUID
     text: str
+    embedding: list[float] | None = None
 
 
 _DISCOVERY_PROMPT = """A new fact is being stored. Decide which of the existing \
