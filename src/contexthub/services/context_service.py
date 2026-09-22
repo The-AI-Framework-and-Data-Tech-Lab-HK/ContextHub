@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from contexthub.db.repository import ScopedRepo
 from contexthub.errors import (
     BadRequestError,
@@ -22,6 +24,7 @@ from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
 from contexthub.services.indexer_service import IndexerService
+from contexthub.services.semantic_identity import semantic_identity
 from contexthub.store.context_store import ContextStore
 
 
@@ -35,6 +38,161 @@ class ContextService:
         self._acl = acl
         self._indexer = indexer
         self._audit = audit
+
+    @staticmethod
+    async def apply_system_content_change(
+        db: ScopedRepo,
+        *,
+        context_id,
+        expected_version: int,
+        l0_content: str,
+        l1_content: str,
+        l2_content: str,
+        actor: str,
+        diff_summary: str,
+        metadata: dict,
+        idempotency_key: str,
+        graph_scope: str | None = None,
+        resolve_invalidation_causes: tuple[tuple[str, int | None], ...] | None = None,
+    ) -> dict:
+        """Apply a semantic content change without bypassing invalidation barriers.
+
+        An invalidated context stays fail-closed unless the caller supplies the
+        exact unresolved ``(cause_event_id, source_version)`` set.  Resolution
+        and the version/content CAS commit in this transaction.
+        """
+        current = await db.fetchrow(
+            """
+            SELECT id, version, status, validity_status, semantic_identity,
+                   l0_content, l1_content, l2_content
+              FROM contexts
+             WHERE id = $1 AND status != 'deleted'
+             FOR UPDATE
+            """,
+            context_id,
+        )
+        if current is None or int(current["version"]) != expected_version:
+            raise ConflictError("Context version changed before system update")
+        old_identity = current.get("semantic_identity") or semantic_identity(
+            current.get("l0_content"),
+            current.get("l1_content"),
+            current.get("l2_content"),
+        )
+        new_identity = semantic_identity(l0_content, l1_content, l2_content)
+        if new_identity == old_identity:
+            raise ConflictError("System content change must change semantic identity")
+        unresolved_rows = await db.fetch(
+            """
+            SELECT cause_event_id::text, source_version
+              FROM context_invalidations
+             WHERE context_id = $1 AND resolved_at IS NULL
+             ORDER BY cause_event_id, source_version
+            """,
+            context_id,
+        )
+        unresolved = {
+            (str(row["cause_event_id"]), row.get("source_version"))
+            for row in unresolved_rows
+        }
+        provided = set(resolve_invalidation_causes or ())
+        if unresolved and provided != unresolved:
+            raise ConflictError(
+                "Unresolved invalidations require the exact cause/version set"
+            )
+        if provided and provided != unresolved:
+            raise ConflictError("Invalidation resolution evidence is stale or extraneous")
+        for cause_event_id, source_version in sorted(
+            provided, key=lambda item: (item[0], -1 if item[1] is None else item[1])
+        ):
+            result = await db.execute(
+                """
+                UPDATE context_invalidations
+                   SET resolved_at = NOW()
+                 WHERE context_id = $1
+                   AND cause_event_id = $2::uuid
+                   AND source_version IS NOT DISTINCT FROM $3
+                   AND resolved_at IS NULL
+                """,
+                context_id,
+                cause_event_id,
+                source_version,
+            )
+            if result != "UPDATE 1":
+                raise ConflictError("Invalidation cause/version resolution CAS failed")
+        row = await db.fetchrow(
+            """
+            UPDATE contexts
+               SET l0_content = $2,
+                   l1_content = $3,
+                   l2_content = $4,
+                   version = version + 1,
+                   status = 'active',
+                   validity_status = 'fresh',
+                   validity_reason = NULL,
+                   semantic_identity = $6,
+                   stale_at = NULL,
+                   updated_at = NOW()
+             WHERE id = $1 AND version = $5 AND status != 'deleted'
+            RETURNING id, version
+            """,
+            context_id,
+            l0_content,
+            l1_content,
+            l2_content,
+            expected_version,
+            new_identity,
+        )
+        if row is None:
+            raise ConflictError("Context version changed before system update")
+        resolution_audit = [
+            {"cause_event_id": cause, "source_version": version}
+            for cause, version in sorted(
+                provided,
+                key=lambda item: (
+                    item[0],
+                    -1 if item[1] is None else item[1],
+                ),
+            )
+        ]
+        event_metadata = {
+            **metadata,
+            "system_content_change": {
+                "old_semantic_identity": old_identity,
+                "new_semantic_identity": new_identity,
+                "resolved_invalidation_causes": resolution_audit,
+            },
+        }
+        event_id = await db.fetchval(
+            """
+            INSERT INTO change_events (
+              context_id, account_id, change_type, actor, diff_summary,
+              previous_version, new_version, idempotency_key, source_version,
+              graph_scope, metadata
+            )
+            VALUES (
+              $1, current_setting('app.account_id'), 'modified', $2, $3,
+              $4::int::text, $5::int::text, $6, $5, $7, $8::jsonb
+            )
+            ON CONFLICT (account_id, idempotency_key) DO UPDATE
+              SET updated_at = NOW()
+            RETURNING event_id
+            """,
+            context_id,
+            actor,
+            diff_summary,
+            expected_version,
+            int(row["version"]),
+            idempotency_key,
+            graph_scope,
+            json.dumps(event_metadata, sort_keys=True),
+        )
+        return {
+            "context_id": str(context_id),
+            "old_version": expected_version,
+            "new_version": int(row["version"]),
+            "event_id": str(event_id),
+            "resolved_invalidation_causes": resolution_audit,
+        }
 
     # ---- create ----
 

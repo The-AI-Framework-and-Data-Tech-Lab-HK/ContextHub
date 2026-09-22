@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from contexthub.api.deps import get_db, get_memory_service, get_request_context
 from contexthub.db.repository import ScopedRepo
@@ -26,11 +26,12 @@ async def add_memory(
 
 @router.get("/memories")
 async def list_memories(
+    include_stale: bool = Query(False),
     ctx: RequestContext = Depends(get_request_context),
     db: ScopedRepo = Depends(get_db),
     svc: MemoryService = Depends(get_memory_service),
 ):
-    return await svc.list_memories(db, ctx)
+    return await svc.list_memories(db, ctx, include_stale=include_stale)
 
 
 @router.post("/memories/promote", status_code=201)

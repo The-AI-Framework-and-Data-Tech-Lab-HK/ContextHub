@@ -153,10 +153,26 @@ class SearchResult(BaseModel):
     retrieval_strategy: str | None = None
 
 
+class StaleNotice(BaseModel):
+    """Why a matching node was withheld, so the caller can say so.
+
+    ``stale_content`` is a superseded prior value, never a servable one.
+    """
+
+    uri: str
+    validity_status: str
+    reason: str | None = None
+    stale_content: str | None = None
+    version: int | None = None
+    source_uri: str | None = None
+    source_content: str | None = None
+
+
 class SearchResponse(BaseModel):
     results: list[SearchResult]
     total: int
     retrieval_id: str = Field(min_length=1)
+    stale_notices: list[StaleNotice] = Field(default_factory=list)
 
 
 # ── Feedback / quality models (Phase 3) ─────────────────────────────────

@@ -585,13 +585,15 @@ class ContextHubClient:
         context_type: list[ContextType] | None = None,
         top_k: int = 10,
         level: ContextLevel = ContextLevel.L1,
-        include_stale: bool = True,
+        include_stale: bool = False,
+        include_stale_notices: bool = False,
     ) -> SearchResponse:
         body: dict[str, Any] = {
             "query": query,
             "top_k": top_k,
             "level": level.value,
             "include_stale": include_stale,
+            "include_stale_notices": include_stale_notices,
         }
         if scope is not None:
             body["scope"] = [s.value for s in scope]

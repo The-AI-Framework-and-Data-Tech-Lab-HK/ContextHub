@@ -141,6 +141,97 @@ def test_loopback_endpoint_default_opener_disables_system_proxy(monkeypatch) -> 
     ]
 
 
+def _tools_list_opener(tools: list[dict], calls: list[str] | None = None):
+    def opener(request, timeout):
+        payload = json.loads(request.data.decode("utf-8"))
+        if calls is not None:
+            calls.append(payload["method"])
+        if payload["method"] == "initialize":
+            return FakeResponse({"result": {"protocolVersion": "2024-11-05"}})
+        return FakeResponse({"result": {"tools": tools}})
+
+    return opener
+
+
+def test_list_tool_schemas_returns_all_tools_normalized() -> None:
+    config = McpEndpointConfig.from_mapping({"teams": "http://127.0.0.1:8002/mcp"})
+    tools = [
+        {
+            "name": "send_channel_message",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"teamId": {"type": "string"}},
+                "required": ["teamId"],
+            },
+        },
+        {"name": "list_teams", "inputSchema": {"type": "object", "properties": {}, "required": []}},
+        {"inputSchema": {"type": "object"}},  # nameless entries are dropped
+    ]
+
+    schemas = adapter.list_tool_schemas(config, "teams", opener=_tools_list_opener(tools))
+
+    assert set(schemas) == {"send_channel_message", "list_teams"}
+    assert schemas["send_channel_message"]["inputSchema"]["required"] == ["teamId"]
+
+
+def test_tool_schema_cache_amortizes_tools_list_per_server() -> None:
+    config = McpEndpointConfig.from_mapping({"teams": "http://127.0.0.1:8002/mcp"})
+    calls: list[str] = []
+    tools = [
+        {
+            "name": "send_channel_message",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"teamId": {"type": "string"}},
+                "required": ["teamId"],
+            },
+        },
+        {"name": "list_teams", "inputSchema": {"type": "object", "properties": {}, "required": []}},
+    ]
+    cache = adapter.ToolSchemaCache(config, opener=_tools_list_opener(tools, calls))
+
+    record, source = cache.get("teams", "send_channel_message")
+    assert source == "live-mcp-schema"
+    assert record["tool_name"] == "send_channel_message"
+
+    # A second tool on the same server is served from cache: no extra tools/list.
+    _, source2 = cache.get("teams", "list_teams")
+    assert source2 == "live-mcp-schema"
+    assert calls.count("tools/list") == 1
+
+    # A tool the server never listed degrades to a name-only schema, still no refetch.
+    fallback, source3 = cache.get("teams", "not_a_real_tool")
+    assert source3 == "schema-unavailable:tool-not-listed"
+    assert fallback["tool_name"] == "not_a_real_tool"
+    assert calls.count("tools/list") == 1
+
+
+def test_tool_schema_cache_fetch_error_is_uncached_and_self_heals() -> None:
+    config = McpEndpointConfig.from_mapping({"teams": "http://127.0.0.1:8002/mcp"})
+    state = {"fail": True}
+    tools = [{"name": "t1", "inputSchema": {"type": "object", "properties": {}, "required": []}}]
+
+    def opener(request, timeout):
+        if state["fail"]:
+            raise OSError("mcp unreachable")
+        payload = json.loads(request.data.decode("utf-8"))
+        if payload["method"] == "initialize":
+            return FakeResponse({"result": {"protocolVersion": "2024-11-05"}})
+        return FakeResponse({"result": {"tools": tools}})
+
+    cache = adapter.ToolSchemaCache(config, opener=opener)
+
+    fallback, source = cache.get("teams", "t1")
+    assert source == "schema-unavailable:OSError"
+    assert fallback["tool_name"] == "t1"
+
+    # Failure was not cached, so a later healthy lookup recovers.
+    state["fail"] = False
+    record, source2 = cache.get("teams", "t1")
+    assert source2 == "live-mcp-schema"
+    assert record["tool_name"] == "t1"
+
+
 def test_initialize_response_header_session_id_is_sent_to_tools_list() -> None:
     config = McpEndpointConfig.from_mapping({"teams": "http://127.0.0.1:8002/mcp"})
     request_headers = []

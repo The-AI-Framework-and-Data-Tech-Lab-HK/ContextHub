@@ -19,7 +19,7 @@ from integrations.entcollabbench import closure_adapter, mapping
 
 
 DEFAULT_ARTIFACT_DIR = Path(
-    "/Users/sherrylin/Documents/PythonProjects/research/EntCollabBench/"
+    "/Users/sherrylin/Documents/PythonProjects/public/EntCollabBench/"
     "scripts/result/contexthub_baseline_cases"
 )
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent

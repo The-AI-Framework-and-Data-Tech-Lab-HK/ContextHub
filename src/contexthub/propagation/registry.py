@@ -16,15 +16,21 @@ class PropagationRuleRegistry:
         self._subscription_rule = SkillSubscriptionNotifyRule()
 
     @classmethod
-    def default(cls, chat_client=None, repo=None) -> "PropagationRuleRegistry":
+    def default(cls, chat_client=None, repo=None, cheap_chat=None,
+                gate_event_sink=None) -> "PropagationRuleRegistry":
         """默认注册表。
 
         chat_client + repo 都提供时，derived_from 用真语义 oracle
         (DerivedMemoryOracleRule)；否则保留旧的 no-op DerivedMemoryRule，
         不改变现有调用方（main.py / 测试）的行为。
+
+        额外传 cheap_chat 时，oracle 启用做法乙 soundness 方向的两级级联
+        （便宜档先判、判 fresh 才升贵档复核）；不传 = 单档回归。
         """
         if chat_client is not None and repo is not None:
-            derived_rule: PropagationRule = DerivedMemoryOracleRule(chat_client, repo)
+            derived_rule: PropagationRule = DerivedMemoryOracleRule(
+                chat_client, repo, cheap_chat=cheap_chat, event_sink=gate_event_sink
+            )
         else:
             derived_rule = DerivedMemoryRule()
         return cls(

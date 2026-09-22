@@ -54,7 +54,6 @@ async def _make_engine(repo, db_pool, services, cascade_on_stale: bool):
         dsn="postgresql://contexthub:contexthub@localhost:5432/contexthub",
         rule_registry=registry,
         lifecycle=services.lifecycle,
-        indexer=services.indexer,
         sweep_interval=9999,
         lease_timeout=5,
         cascade_on_stale=cascade_on_stale,

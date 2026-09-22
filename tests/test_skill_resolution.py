@@ -11,7 +11,7 @@ from contexthub.api.routers.contexts import read_context, update_context
 from contexthub.api.routers.tools import tool_read
 from contexthub.api.routers.contexts import router as contexts_router
 from contexthub.api.routers.tools import router as tools_router
-from contexthub.errors import BadRequestError, ForbiddenError, NotFoundError
+from contexthub.errors import BadRequestError, ConflictError, ForbiddenError, NotFoundError
 from contexthub.models.context import ContextLevel, UpdateContextRequest
 from contexthub.generation.base import ContentGenerator
 from contexthub.llm.base import NoOpEmbeddingClient
@@ -200,13 +200,23 @@ class RouteSkillReadDB:
 
     async def fetchrow(self, sql, *args):
         if "SELECT id, context_type, status" in sql and "WHERE uri" in sql:
-            return FakeRecord(id=_SKILL_ID, context_type="skill", status=self.status)
+            return FakeRecord(
+                id=_SKILL_ID,
+                context_type="skill",
+                status=self.status,
+                validity_status="fresh",
+            )
         if "SELECT id, uri, status" in sql and "FROM contexts" in sql:
             return FakeRecord(
                 id=_SKILL_ID,
                 uri="ctx://team/engineering/skills/sql-generator",
                 status=self.status,
             )
+        raise AssertionError(sql)
+
+    async def fetchval(self, sql, *args):
+        if "FROM context_invalidations" in sql:
+            return None
         raise AssertionError(sql)
 
     async def execute(self, sql, *args):
@@ -217,6 +227,8 @@ class RouteSkillReadDB:
         if "last_accessed_at" in sql:
             self.last_accessed_updates.append(args[0])
             return "UPDATE 1"
+        if "UPDATE context_invalidations" in sql:
+            return "UPDATE 0"
         raise AssertionError(sql)
 
 
@@ -521,31 +533,30 @@ async def test_skill_read_route_updates_last_accessed_at():
 
 
 @pytest.mark.asyncio
-async def test_skill_read_route_recovers_stale_status():
+async def test_skill_read_route_rejects_stale_status_by_default():
     db = RouteSkillReadDB(status="stale")
     ctx = RequestContext(account_id="acme", agent_id="query-agent")
 
-    result = await read_context(
-        uri="ctx://team/engineering/skills/sql-generator",
-        level=ContextLevel.L1,
-        version=None,
-        ctx=ctx,
-        db=db,
-        store=None,
-        acl=AllowReadACL(),
-        skill_svc=StubSkillService(),
-        masking=MaskingService(),
-        audit=None,
-        lifecycle=LifecycleService(),
-    )
-
-    assert result["version"] == 2
-    assert db.stale_recoveries == [_SKILL_ID]
-    assert db.last_accessed_updates == []
+    with pytest.raises(ConflictError):
+        await read_context(
+            uri="ctx://team/engineering/skills/sql-generator",
+            level=ContextLevel.L1,
+            version=None,
+            include_stale=False,
+            ctx=ctx,
+            db=db,
+            store=None,
+            acl=AllowReadACL(),
+            skill_svc=StubSkillService(),
+            masking=MaskingService(),
+            audit=None,
+            lifecycle=LifecycleService(),
+        )
+    assert db.stale_recoveries == []
 
 
 @pytest.mark.asyncio
-async def test_skill_tool_read_recovers_stale_status():
+async def test_skill_tool_debug_read_requires_explicit_include_stale():
     db = RouteSkillReadDB(status="stale")
     ctx = RequestContext(account_id="acme", agent_id="query-agent")
 
@@ -553,6 +564,7 @@ async def test_skill_tool_read_recovers_stale_status():
         body=ToolReadRequest(
             uri="ctx://team/engineering/skills/sql-generator",
             level=ContextLevel.L1,
+            include_stale=True,
         ),
         ctx=ctx,
         db=db,
@@ -565,12 +577,13 @@ async def test_skill_tool_read_recovers_stale_status():
     )
 
     assert result["version"] == 2
-    assert db.stale_recoveries == [_SKILL_ID]
+    assert result["validity_status"] == "fresh"
+    assert db.stale_recoveries == []
     assert db.last_accessed_updates == []
 
 
 @pytest.mark.asyncio
-async def test_skill_http_read_route_recovers_stale_status():
+async def test_skill_http_read_route_rejects_stale_status():
     db = RouteSkillReadDB(status="stale")
     app = _make_skill_http_app(db)
 
@@ -583,14 +596,13 @@ async def test_skill_http_read_route_recovers_stale_status():
             headers={"X-Account-Id": "acme", "X-Agent-Id": "query-agent"},
         )
 
-    assert response.status_code == 200
-    assert response.json()["version"] == 2
-    assert db.stale_recoveries == [_SKILL_ID]
+    assert response.status_code == 409
+    assert db.stale_recoveries == []
     assert db.last_accessed_updates == []
 
 
 @pytest.mark.asyncio
-async def test_skill_http_tool_read_recovers_stale_status():
+async def test_skill_http_tool_debug_read_is_explicit():
     db = RouteSkillReadDB(status="stale")
     app = _make_skill_http_app(db)
 
@@ -604,12 +616,14 @@ async def test_skill_http_tool_read_recovers_stale_status():
             json={
                 "uri": "ctx://team/engineering/skills/sql-generator",
                 "level": "L1",
+                "include_stale": True,
             },
         )
 
     assert response.status_code == 200
     assert response.json()["version"] == 2
-    assert db.stale_recoveries == [_SKILL_ID]
+    assert response.json()["validity_status"] == "fresh"
+    assert db.stale_recoveries == []
     assert db.last_accessed_updates == []
 
 

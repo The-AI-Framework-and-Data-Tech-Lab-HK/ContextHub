@@ -30,12 +30,13 @@ from integrations.entcollabbench.mcp_runtime_adapter import (
 )
 
 
-DEFAULT_EXTERNAL_ROOT = Path("/Users/sherrylin/Documents/PythonProjects/research/EntCollabBench")
+DEFAULT_EXTERNAL_ROOT = Path("/Users/sherrylin/Documents/PythonProjects/public/EntCollabBench")
 DEFAULT_BASELINE_DIR = DEFAULT_EXTERNAL_ROOT / "scripts/result/contexthub_baseline_cases"
-DEFAULT_SPEC_DIR = DEFAULT_EXTERNAL_ROOT / "scripts/result/contexthub_online_s2_cases"
 DEFAULT_DATASET = DEFAULT_EXTERNAL_ROOT / "scripts/dataset/mcp_tasks_160.json"
 DEFAULT_ENDPOINTS = DEFAULT_EXTERNAL_ROOT / "config/mcp_endpoints_export.json"
-DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent
+DEFAULT_RUN_ROOT = Path(__file__).resolve().parent / "runs/online_s2_pilot_default"
+DEFAULT_SPEC_DIR = DEFAULT_RUN_ROOT / "specs"
+DEFAULT_OUTPUT_DIR = DEFAULT_RUN_ROOT / "s2"
 DEFAULT_CASES = ("mcp_single_146", "mcp_single_145")
 
 SchemaProvider = Callable[[str, str], dict[str, Any]]

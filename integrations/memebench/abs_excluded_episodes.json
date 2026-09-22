@@ -1,0 +1,97 @@
+{
+  "_doc": "Abs episodes excluded from the task-4 evaluation set (130 -> 119). Each entry carries the reason and the verification evidence, not a bare id list. See ContextHub-research-plan/research/proposal/WORKING-NOTES-p2-semantic-recompute.md task 4 and the plan at ~/.claude/plans/abs-eval-task4.md.",
+  "excluded": [
+    {
+      "episode_id": "pl_009",
+      "hop": 1,
+      "target_entity": "exercise_routine",
+      "cascade_source": "health_condition",
+      "reason": "predeclaration_never_stales",
+      "evidence": "gold_facts for exercise_routine has exactly 1 is_if_then fact whose value ('yoga 2x/week') equals the new value the Abs gold says to withhold. Predeclaration (pre-) nodes get zero in-edges in both gold and v3 modes (ingest.py:184-186, _gold_edges only targets materialized nodes), so they never go stale. The system correctly reads the conditional and answers the new value; gold demands 'Uncertain'. Confirmed unreachable-by-design in both gold and v3-frozen graphs."
+    },
+    {
+      "episode_id": "pl_041",
+      "hop": 1,
+      "target_entity": "exercise_routine",
+      "cascade_source": "health_condition",
+      "reason": "predeclaration_never_stales",
+      "evidence": "gold_facts for exercise_routine has exactly 1 is_if_then fact whose value ('yoga 2x/week') equals the new value the Abs gold says to withhold. Same mechanism as pl_009."
+    },
+    {
+      "episode_id": "pl_044",
+      "hop": 1,
+      "target_entity": "exercise_routine",
+      "cascade_source": "health_condition",
+      "reason": "predeclaration_never_stales",
+      "evidence": "gold_facts for exercise_routine has exactly 1 is_if_then fact whose value ('yoga 2x/week') equals the new value the Abs gold says to withhold. Same mechanism as pl_009."
+    },
+    {
+      "episode_id": "pl_047",
+      "hop": 1,
+      "target_entity": "work_location",
+      "cascade_source": "employer",
+      "reason": "predeclaration_never_stales",
+      "evidence": "gold_facts for work_location has exactly 1 is_if_then fact whose value ('Quivira Springs') equals the new value the Abs gold says to withhold. Same mechanism as pl_009."
+    },
+    {
+      "episode_id": "sw_013",
+      "hop": 1,
+      "target_entity": "auth_method",
+      "cascade_source": "auth_provider",
+      "reason": "predeclaration_never_stales",
+      "evidence": "gold_facts for auth_method has exactly 1 is_if_then fact whose value ('mTLS Client Cert') equals the new value the Abs gold says to withhold. Same mechanism as pl_009. This is the case the user asked about directly ('If we switch auth providers, our authentication method will be mTLS Client Cert')."
+    },
+    {
+      "episode_id": "sw_016",
+      "hop": 1,
+      "target_entity": "build_tool",
+      "cascade_source": "framework",
+      "reason": "predeclaration_never_stales",
+      "evidence": "gold_facts for build_tool has exactly 1 is_if_then fact whose value ('Tarvex CLI') equals the new value the Abs gold says to withhold. Same mechanism as pl_009."
+    },
+    {
+      "episode_id": "sw_020",
+      "hop": 1,
+      "target_entity": "docker_image",
+      "cascade_source": "deploy_target",
+      "reason": "predeclaration_never_stales",
+      "evidence": "gold_facts for docker_image has exactly 1 is_if_then fact whose value ('korinth-repo/aurora:stable') equals the new value the Abs gold says to withhold. Same mechanism as pl_009."
+    },
+    {
+      "episode_id": "sw_026",
+      "hop": 1,
+      "target_entity": "build_tool",
+      "cascade_source": "framework",
+      "reason": "predeclaration_never_stales",
+      "evidence": "gold_facts for build_tool has exactly 1 is_if_then fact whose value ('Karnex Bundler') equals the new value the Abs gold says to withhold. Same mechanism as pl_009."
+    },
+    {
+      "episode_id": "sw_040",
+      "hop": 1,
+      "target_entity": "auth_method",
+      "cascade_source": "auth_provider",
+      "reason": "predeclaration_never_stales",
+      "evidence": "gold_facts for auth_method has exactly 1 is_if_then fact whose value ('mTLS Client Cert') equals the new value the Abs gold says to withhold. Same mechanism as pl_009."
+    },
+    {
+      "episode_id": "sw_048",
+      "hop": 1,
+      "target_entity": "auth_method",
+      "cascade_source": "auth_provider",
+      "reason": "predeclaration_never_stales",
+      "evidence": "gold_facts for auth_method has exactly 1 is_if_then fact whose value ('OAuth 2.0 + PKCE') equals the new value the Abs gold says to withhold. Same mechanism as pl_009."
+    },
+    {
+      "episode_id": "pl_030",
+      "hop": 2,
+      "target_entity": "commute_method",
+      "cascade_source": "residence_location",
+      "reason": "target_fact_never_uttered",
+      "evidence": "commute_method has zero gold_facts across all sessions in this episode -- the fact was never stated in dialogue, so extraction cannot produce a node for it regardless of system quality. Unreachable in both gold and v3-frozen graphs. This is a genuine dataset gap, not a system limitation."
+    }
+  ],
+  "note_on_kept_hop2_edge_gap": {
+    "_doc": "These 8 hop2 episodes are NOT excluded. Their dependency chain is real (present in the dataset's own per-fact dependency_source field, 6/8 also in dependency_edges_used) but the v3-frozen graph fails to discover the connecting edge. This is P1 recall failure on the system under test, not a dataset defect, so it stays in the denominator as an expected-failure case. See memory abs-hop2-strict-reachability-21-8-1.",
+    "episode_ids": ["sw_001", "sw_009", "sw_010", "sw_019", "sw_028", "sw_036", "sw_044", "sw_046"]
+  }
+}

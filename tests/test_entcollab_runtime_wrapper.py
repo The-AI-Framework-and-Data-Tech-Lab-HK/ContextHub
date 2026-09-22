@@ -6,10 +6,43 @@ import pytest
 
 from contexthub.enforcement.context import Boundary
 from contexthub.enforcement.decision import GuardrailDecision, Verdict
+from integrations.entcollabbench.mcp_runtime_adapter import McpEndpointConfig, ToolSchemaCache
 from integrations.entcollabbench.runtime_wrapper import ContextHubRuntimeWrapper
 
 
 pytestmark = pytest.mark.asyncio
+
+
+class _FakeResponse:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self) -> bytes:
+        import json
+
+        return json.dumps(self._payload).encode("utf-8")
+
+
+def _live_schema_cache(tools: list[dict], calls: list[str] | None = None) -> ToolSchemaCache:
+    import json
+
+    config = McpEndpointConfig.from_mapping({"teams": "http://127.0.0.1:8002/mcp"})
+
+    def opener(request, timeout):
+        method = json.loads(request.data.decode("utf-8"))["method"]
+        if calls is not None:
+            calls.append(method)
+        if method == "initialize":
+            return _FakeResponse({"result": {"protocolVersion": "2024-11-05"}})
+        return _FakeResponse({"result": {"tools": tools}})
+
+    return ToolSchemaCache(config, opener=opener)
 
 
 class FakeRepo:
@@ -87,6 +120,55 @@ async def test_invalid_enum_repairs_before_execute() -> None:
     assert result.decision.verdict == Verdict.REPAIR
     assert result.action.action == "retry_with_patch"
     assert result.action.patch == {"content": "approved"}
+
+
+async def test_live_schema_cache_repairs_enum_and_amortizes_tools_list() -> None:
+    calls: list[str] = []
+    cache = _live_schema_cache(
+        [
+            {
+                "name": "send_channel_message",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "teamId": {"type": "string"},
+                        "channelId": {"type": "string"},
+                        "content": {"type": "string", "enum": ["approved"]},
+                    },
+                    "required": ["teamId", "channelId", "content"],
+                },
+            },
+            {"name": "list_teams", "inputSchema": {"type": "object", "properties": {}, "required": []}},
+        ],
+        calls,
+    )
+    wrapper = ContextHubRuntimeWrapper(schema_cache=cache)
+
+    repaired = await wrapper.enforce_tool_call_before_execute(
+        agent_id="collaboration_ops_specialist",
+        server="teams",
+        tool_name="send_channel_message",
+        raw_args={"teamId": "t", "channelId": "c", "content": "not-approved"},
+    )
+    assert repaired.schema_source == "live-mcp-schema"
+    assert repaired.action.action == "retry_with_patch"
+    assert repaired.action.patch == {"content": "approved"}
+
+    # A second tool on the same server is served from cache (one tools/list total).
+    await wrapper.enforce_tool_call_before_execute(
+        agent_id="collaboration_ops_specialist",
+        server="teams",
+        tool_name="list_teams",
+        raw_args={},
+    )
+    assert calls.count("tools/list") == 1
+
+
+async def test_endpoint_config_auto_builds_schema_cache() -> None:
+    wrapper = ContextHubRuntimeWrapper(
+        endpoint_config=McpEndpointConfig.from_mapping({"teams": "http://127.0.0.1:8002/mcp"})
+    )
+    assert wrapper._schema_cache is not None
 
 
 async def test_wrong_role_blocks_before_execute() -> None:

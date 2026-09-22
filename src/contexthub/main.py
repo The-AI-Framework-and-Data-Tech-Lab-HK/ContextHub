@@ -184,7 +184,6 @@ async def lifespan(app: FastAPI):
             dsn=settings.asyncpg_database_url,
             rule_registry=rule_registry,
             lifecycle=lifecycle_service,
-            indexer=indexer_service,
             sweep_interval=settings.propagation_sweep_interval,
             lease_timeout=settings.propagation_lease_timeout,
         )

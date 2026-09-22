@@ -303,3 +303,137 @@ J2 embedding needs a low threshold (0.3) to reach ~0.91–0.93 recall.
 - FET / stage-A JSONs carry an internal `by_hop` split; the "hop1 file" vs "hop2
   file" distinction is the case-set of the run, not a clean per-hop partition.
 - `runs/` is gitignored; regenerate any table with the command shown in its section.
+
+---
+
+## 10. Abs formal run (MEME official criterion, propagation Problem 2)
+
+**What**: offline re-judging of the frozen `Abs` hop-1 and hop-2 runs under MEME's
+**published** judge criterion (Figure 24 for Absence, Figure 18 for the
+before-question). This is a second reading of answers already on disk; generation
+was never re-run and the frozen artifacts are byte-identical before/after (verified).
+
+**Why**: our three-part Abs criterion asks three things (abstain, cite withheld
+value, name changed upstream), but MEME's Figure 24 asks **one** (express
+uncertainty). Requirements ② and ③ are ours, not the paper's, so scoring the
+three-part way produces numbers that cannot be set beside MEME's. This rejudge
+scores the same answers under the paper's own criterion so both readings can be
+reported side by side.
+
+**Method**: the two prompts were transcribed from the paper PDF and are
+mechanically asserted to be **verbatim spans** of
+`public/MEME/meme-paper-fulltext.txt` (whitespace-flattened). A test proves the
+verbatim check bites: reword one substantive phrase and the check fails. This
+makes "tuned the prompt until the score improved" mechanically impossible — the
+prompt is pinned to the paper's bytes, not merely frozen at whatever we first typed.
+The judge contract is JSON `{"correct": true/false, "reason": "..."}` (MEME's own),
+parsed by a dedicated module that fails closed on unparseable replies. The paper
+pins GPT-4o at temperature 0 (§D.5, p22); ours sends temperature 0 (a kwarg added
+to `OpenAIChatClient` so the paper's setting could actually be transmitted).
+
+**Artifacts**:
+`runs/abs_official_rejudge_20260902/` (report.json / cases.json / cost.json /
+identity.json / checkpoint.jsonl).
+
+**Config**: judge = `gpt-4o` temp 0, provider = `openlux`, 357 gradings (90 hop-1
+episodes × 3 stages + 29 hop-2 episodes × 3 stages), $0.2747, 0 parse failures,
+159s. Frozen artifacts byte-identical before/after (content hashes checked).
+
+### hop 1 (90 episodes)
+
+| stratum | n | before (Fig18) | OFF raw | OFF +trivial | ON raw | ON +trivial | ours (3-part) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **all** | 90 | 88/90 (97.8%) | 3/90 (3.3%) | 2/90 (2.2%) | 71/90 (78.9%) | 70/90 (77.8%) | 35/90 (38.9%) |
+| signal_on | 87 | 85/87 (97.7%) | 3/87 (3.4%) | 2/87 (2.3%) | 71/87 (81.6%) | 70/87 (80.5%) | 35/87 (40.2%) |
+| no_signal_on | 3 | 3/3 (100%) | 0/3 (0%) | 0/3 (0%) | 0/3 (0%) | 0/3 (0%) | 0/3 (0%) |
+| domain: pl | 46 | 45/46 (97.8%) | 1/46 (2.2%) | 1/46 (2.2%) | 42/46 (91.3%) | 41/46 (89.1%) | 16/46 (34.8%) |
+| domain: sw | 44 | 43/44 (97.7%) | 2/44 (4.5%) | 1/44 (2.3%) | 29/44 (65.9%) | 29/44 (65.9%) | 19/44 (43.2%) |
+
+### hop 2 (29 episodes)
+
+| stratum | n | before (Fig18) | OFF raw | OFF +trivial | ON raw | ON +trivial | ours (3-part) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **all** | 29 | 29/29 (100%) | 0/29 (0%) | 0/29 (0%) | 21/29 (72.4%) | 21/29 (72.4%) | 8/29 (27.6%) |
+| root_reachable | 21 | 21/21 (100%) | 0/21 (0%) | 0/21 (0%) | 21/21 (100%) | 21/21 (100%) | 8/21 (38.1%) |
+| missing_edge | 8 | 8/8 (100%) | 0/8 (0%) | 0/8 (0%) | 0/8 (0%) | 0/8 (0%) | 0/8 (0%) |
+| domain: pl | 8 | 8/8 (100%) | 0/8 (0%) | 0/8 (0%) | 8/8 (100%) | 8/8 (100%) | 5/8 (62.5%) |
+| domain: sw | 21 | 21/21 (100%) | 0/21 (0%) | 0/21 (0%) | 13/21 (61.9%) | 13/21 (61.9%) | 3/21 (14.3%) |
+
+**Stratification notes**:
+- `signal_on` / `no_signal_on`: episodes whose ON arm got ≥1 vs 0 stale notices.
+  ON is defined by those notices; with zero it degenerates into a copy of OFF and
+  cannot exhibit propagation. Derived from `stale_notices == []` (not hardcoded),
+  so a rerun that fixes them reclassifies automatically. This is sharper than
+  `p1_path_status == "p1-system-miss"`: on hop-1, 13 episodes miss the path but
+  only 3 end up with no notice at all.
+- `root_reachable` / `missing_edge`: episodes whose dependency chain is (present /
+  absent) in the frozen v3 graph. Reused from `abs_report.py` so both reports
+  partition hop-2 identically. They stay in the denominator on purpose: a P1 recall
+  hole, not a dataset defect.
+- `domain`: `pl` vs `sw`, which the original benchmark design expected to differ.
+- **hop-1 and hop-2 overlap** by 25 episodes (94 distinct ids vs 119 run×episode
+  pairs), so they are not independent samples and must never be pooled.
+
+**Reading**:
+- **Structural finding 1**: our three-part criterion is **strictly nested** inside
+  MEME's criterion — every case that passes the three-part test also passes MEME,
+  with **zero violations** (checked across all four arm×hop cells). Disagreements
+  are 100% one-directional (MEME-only passes). So "ours is stricter" is now an
+  auditable fact, not an assertion.
+- **Structural finding 2**: OFF's 3 passes (pl_042 `'none'`, sw_029 `'Unknown'`,
+  sw_027 empty string) are a **false-positive channel from the criterion itself**,
+  not genuine propagation. MEME's rule says "I don't know" / "Unknown" / "None" →
+  YES. Two of the three are degenerate answers (retrieval found nothing, so the
+  agent defaulted to None and was marked right). The trivial-pass filter catches
+  sw_027 (before-question failed), leaving 2. This is why OFF ≠ 0% despite no
+  actual propagation signal.
+- **Structural finding 3**: ON's 92 passes are **all substantive hedges** (all
+  contain "Uncertain"), zero came from the vacuous-answer channel. So ON numbers
+  are clean, and the positive result is real.
+- **Structural finding 4**: the official judge's **actual behavior is stricter than
+  its prompt text**. Four ON answers (pl_029, pl_034, pl_048, sw_037) hedge
+  correctly and cite the prior value, yet were marked WRONG for **misattributing
+  which upstream source changed** (e.g., answered "work hours" when the gold says
+  "school"). The prompt (Fig 24) only requires expressing uncertainty, but GPT-4o
+  penalizes wrong upstream attribution in practice. This is inconsistent: most
+  answers that name the wrong upstream still pass, but 4/90 do not. This partial
+  penalty makes the judge's effective criterion closer to our requirement ③ (name
+  the changed upstream) than the paper's literal text suggests.
+- **Domain split**: on hop-1 ON (+trivial), pl hits 89.1% and sw hits 65.9%. The
+  pl result is an **exact match** to the approximate detector's prediction from the
+  prior session; hop-2's 72.4% and reachable-subset 100% are also exact. This
+  confirms the approximate numbers were sound.
+- **Trivial-pass gating**: before-question failures cost one ON case (hop-1), but
+  overall the gate barely affects the result (88→87 on hop-1, 29→29 on hop-2).
+- **hop-2 reachable = 100%**: all 21 graph-reachable episodes abstain correctly
+  under the official criterion, confirming the propagation mechanism works when the
+  dependency path is present in P1. The 8 missing-edge cases score 0% under both
+  criteria (no propagation without a path).
+
+**Comparison to plan approximations**:
+- hop-1 ON raw: 78.9% actual vs 75.6% planned (+3.3pp).
+- hop-1 ON +trivial: 77.8% actual vs ~75.6% planned (+2.2pp).
+- hop-2 ON raw: 72.4% actual vs 72.4% planned (**exact**).
+- hop-2 reachable: 100% actual vs 100% planned (**exact**).
+- hop-2 missing_edge: 0% actual vs 0% planned (**exact**).
+- hop-1 pl ON +trivial: 89.1% actual vs 89.1% planned (**exact**).
+- hop-1 sw ON +trivial: 65.9% actual vs 61.4% planned (+4.5pp).
+
+All diffs are small and in the positive direction, consistent with the approximate
+detector (a string matcher) being conservative. No implementation hunt was warranted.
+
+**Code**: `meme_official_judge.py` (the two verbatim prompts + JSON parser),
+`abs_official_rejudge.py` (pure logic: planning, stratification, aggregation),
+`run_abs_official_rejudge.py` (preflight / smoke / run CLI; no model/provider
+defaults). 51 new tests, all green, zero API.
+
+**Concurrency bug found and fixed**: initial smoke reported $0.0307 for 9 calls,
+extrapolating to ~$1.22 for 357 (6–10× the plan's $0.1–0.2). Root cause:
+`CountingChatClient` accumulates into shared mutable counters, so a before/after
+delta around an `await` only attributes correctly when nothing else is using that
+client concurrently. The runner shared one client across 4 concurrent calls, so
+each call's "after" snapshot absorbed its neighbors' tokens. Fixed by giving each
+concurrency slot its own client, plus a `usage_attribution_audit` that fails the
+run closed on recurrence. Corrected smoke: $0.0069 for 9 calls; verdict and reason
+byte-identical across both. This is now a documented pattern for the repo.
+

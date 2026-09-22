@@ -6,6 +6,7 @@
 #   $EDITOR secrets/entcollab_models.env
 #   source scripts/entcollab_env.sh weak
 #   source scripts/entcollab_env.sh strong
+#   source scripts/entcollab_env.sh strong --compose-env secrets/entcollab.compose.strong.env
 
 if [[ -n "${BASH_VERSION:-}" ]]; then
   _entcollab_script="${BASH_SOURCE[0]}"
@@ -26,8 +27,39 @@ else
 fi
 
 _entcollab_profile="${1:-weak}"
+shift || true
 _entcollab_root="$(cd "$(dirname "${_entcollab_script}")/.." && pwd)"
 _entcollab_secrets="${ENTCOLLAB_SECRETS_FILE:-${_entcollab_root}/secrets/entcollab_models.env}"
+_entcollab_compose_env=""
+_entcollab_quiet=0
+
+_entcollab_dotenv_quote() {
+  local _value="${1}"
+  _value="${_value//\\/\\\\}"
+  _value="${_value//\"/\\\"}"
+  printf '"%s"' "${_value}"
+}
+
+while (( $# > 0 )); do
+  case "${1}" in
+    --compose-env)
+      if [[ -z "${2:-}" ]]; then
+        echo "--compose-env requires a path" >&2
+        return 2
+      fi
+      _entcollab_compose_env="${2}"
+      shift 2
+      ;;
+    --quiet)
+      _entcollab_quiet=1
+      shift
+      ;;
+    *)
+      echo "Unknown entcollab_env option: ${1}" >&2
+      return 2
+      ;;
+  esac
+done
 
 if [[ ! -f "${_entcollab_secrets}" ]]; then
   echo "Missing secrets file: ${_entcollab_secrets}" >&2
@@ -83,15 +115,40 @@ export JUDGE_TIMEOUT_SECONDS="${ENTCOLLAB_JUDGE_TIMEOUT_SECONDS:-500}"
 export NO_PROXY="${NO_PROXY:+${NO_PROXY},}127.0.0.1,localhost"
 export no_proxy="${no_proxy:+${no_proxy},}127.0.0.1,localhost"
 
-echo "EntCollabBench env loaded:"
-echo "  profile=${_entcollab_profile}"
-echo "  AGENT_LLM_MODEL=${AGENT_LLM_MODEL}"
-echo "  AGENT_SUMMARY_MODEL=${AGENT_SUMMARY_MODEL}"
-echo "  OPENAI_BASE_URL=${OPENAI_BASE_URL}"
-echo "  JUDGE_MODELS=${JUDGE_MODELS}"
-echo "  JUDGE_OPENAI_BASE_URL=${JUDGE_OPENAI_BASE_URL}"
-echo "  TASK_TIMEOUT_SECONDS=${TASK_TIMEOUT_SECONDS}"
-echo "  AGENT_HTTP_TIMEOUT_SECONDS=${AGENT_HTTP_TIMEOUT_SECONDS}"
-echo "  JUDGE_TIMEOUT_SECONDS=${JUDGE_TIMEOUT_SECONDS}"
+if [[ -n "${_entcollab_compose_env}" ]]; then
+  mkdir -p "$(dirname "${_entcollab_compose_env}")"
+  {
+    printf 'OPENAI_API_KEY=%s\n' "$(_entcollab_dotenv_quote "${OPENAI_API_KEY}")"
+    printf 'OPENAI_BASE_URL=%s\n' "$(_entcollab_dotenv_quote "${OPENAI_BASE_URL}")"
+    printf 'AGENT_LLM_MODEL=%s\n' "$(_entcollab_dotenv_quote "${AGENT_LLM_MODEL}")"
+    printf 'AGENT_SUMMARY_MODEL=%s\n' "$(_entcollab_dotenv_quote "${AGENT_SUMMARY_MODEL}")"
+    printf 'JUDGE_OPENAI_API_KEY=%s\n' "$(_entcollab_dotenv_quote "${JUDGE_OPENAI_API_KEY}")"
+    printf 'JUDGE_OPENAI_BASE_URL=%s\n' "$(_entcollab_dotenv_quote "${JUDGE_OPENAI_BASE_URL}")"
+    printf 'JUDGE_MODELS=%s\n' "$(_entcollab_dotenv_quote "${JUDGE_MODELS}")"
+    printf 'TASK_TIMEOUT_SECONDS=%s\n' "$(_entcollab_dotenv_quote "${TASK_TIMEOUT_SECONDS}")"
+    printf 'AGENT_HTTP_TIMEOUT_SECONDS=%s\n' "$(_entcollab_dotenv_quote "${AGENT_HTTP_TIMEOUT_SECONDS}")"
+    printf 'JUDGE_TIMEOUT_SECONDS=%s\n' "$(_entcollab_dotenv_quote "${JUDGE_TIMEOUT_SECONDS}")"
+    printf 'NO_PROXY=%s\n' "$(_entcollab_dotenv_quote "${NO_PROXY}")"
+    printf 'no_proxy=%s\n' "$(_entcollab_dotenv_quote "${no_proxy}")"
+  } > "${_entcollab_compose_env}"
+  chmod 600 "${_entcollab_compose_env}"
+fi
 
-unset _entcollab_profile _entcollab_profile_upper _entcollab_root _entcollab_secrets _entcollab_agent_model _entcollab_missing _entcollab_script
+if [[ "${_entcollab_quiet}" != "1" ]]; then
+  echo "EntCollabBench env loaded:"
+  echo "  profile=${_entcollab_profile}"
+  echo "  AGENT_LLM_MODEL=${AGENT_LLM_MODEL}"
+  echo "  AGENT_SUMMARY_MODEL=${AGENT_SUMMARY_MODEL}"
+  echo "  OPENAI_BASE_URL=${OPENAI_BASE_URL}"
+  echo "  JUDGE_MODELS=${JUDGE_MODELS}"
+  echo "  JUDGE_OPENAI_BASE_URL=${JUDGE_OPENAI_BASE_URL}"
+  echo "  TASK_TIMEOUT_SECONDS=${TASK_TIMEOUT_SECONDS}"
+  echo "  AGENT_HTTP_TIMEOUT_SECONDS=${AGENT_HTTP_TIMEOUT_SECONDS}"
+  echo "  JUDGE_TIMEOUT_SECONDS=${JUDGE_TIMEOUT_SECONDS}"
+  if [[ -n "${_entcollab_compose_env}" ]]; then
+    echo "  compose_env=${_entcollab_compose_env}"
+  fi
+fi
+
+unset _entcollab_profile _entcollab_profile_upper _entcollab_root _entcollab_secrets _entcollab_agent_model _entcollab_missing _entcollab_script _entcollab_compose_env _entcollab_quiet
+unset -f _entcollab_dotenv_quote

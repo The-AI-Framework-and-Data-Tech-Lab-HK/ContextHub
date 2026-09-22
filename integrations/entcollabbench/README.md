@@ -7,14 +7,25 @@ This package contains ContextHub-side mapping conventions only. It does not vend
 Clone the upstream repository outside this ContextHub checkout:
 
 ```bash
-mkdir -p /Users/sherrylin/Documents/PythonProjects/research
-cd /Users/sherrylin/Documents/PythonProjects/research
+mkdir -p /Users/sherrylin/Documents/PythonProjects/public
+cd /Users/sherrylin/Documents/PythonProjects/public
 git clone https://github.com/yutao1024/EntCollabBench.git
 cd EntCollabBench
 git rev-parse HEAD
 ```
 
 Task 7 investigated commit `9d085fcb86adaf20254c09e2ca35123e535a9643`.
+
+## Artifact Layout
+
+Use these paths as the canonical Phase 4 layout:
+
+- EntCollabBench external clone: `/Users/sherrylin/Documents/PythonProjects/public/EntCollabBench`
+- ContextHub run ledger: `/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/runs`
+- Native raw benchmark output: `/Users/sherrylin/Documents/PythonProjects/public/EntCollabBench/scripts/result`
+- Fixed experiment definitions: `/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/experiments/fixed12`
+
+For new experiments, create `integrations/entcollabbench/runs/<run_id>/manifest.json` and append the run to `runs/registry.jsonl`. Raw `result.jsonl`, `trajectory.jsonl`, and `decision_log.jsonl` may remain in their native output locations, but the run manifest must point to them explicitly. Read historical experiments through `runs/registry.jsonl` or `runs/<run_id>/manifest.json`; do not infer paper-eligible data by scanning `scripts/result`.
 
 ## Install
 
@@ -83,6 +94,8 @@ The benchmark requires judge credentials even for a one-batch run:
 export JUDGE_OPENAI_API_KEY=...
 export JUDGE_OPENAI_BASE_URL=https://<openai-compatible-host>/v1
 export JUDGE_MODELS=<judge-model>
+export CONTEXTHUB_RUN_DIR=/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/runs/sample_manual_$(date +%Y%m%d_%H%M%S)
+mkdir -p "$CONTEXTHUB_RUN_DIR"
 
 python scripts/benchmark.py \
   --tasks-spec-file scripts/dataset/mcp_tasks_160.json \
@@ -91,8 +104,8 @@ python scripts/benchmark.py \
   --batch-concurrency 1 \
   --agent-url-map-file config/agent_url_map.json \
   --trajectory-full-mode \
-  --bench-result-jsonl scripts/result/sample_result.jsonl \
-  --trajectory-run-jsonl scripts/result/sample_traj.jsonl \
+  --bench-result-jsonl "$CONTEXTHUB_RUN_DIR/result.jsonl" \
+  --trajectory-run-jsonl "$CONTEXTHUB_RUN_DIR/trajectory.jsonl" \
   --continue-on-error
 ```
 

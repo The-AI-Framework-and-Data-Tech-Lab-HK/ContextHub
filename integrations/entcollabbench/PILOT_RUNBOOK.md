@@ -51,7 +51,7 @@ socket error, wait for Docker Desktop to finish starting.
 ## 3. Start EntCollabBench MCP Services
 
 ```bash
-cd /Users/sherrylin/Documents/PythonProjects/research/EntCollabBench
+cd /Users/sherrylin/Documents/PythonProjects/public/EntCollabBench
 docker compose -f Arena/docker-compose-mcp.yml up -d --force-recreate
 docker compose -f Arena/docker-compose-mcp.yml ps
 ```
@@ -89,7 +89,7 @@ source scripts/entcollab_env.sh strong
 Then start agents:
 
 ```bash
-cd /Users/sherrylin/Documents/PythonProjects/research/EntCollabBench
+cd /Users/sherrylin/Documents/PythonProjects/public/EntCollabBench
 docker compose -f agent/docker-compose.yml build
 docker compose -f agent/docker-compose.yml up -d --force-recreate
 ```
@@ -167,37 +167,39 @@ Therefore:
 
 First fixed-case boundary:
 
-- Use `experiments/fixed12/FIXED_CASES_MANIFEST_12.json` for the first frozen
-  12-case suite.
-- Use `experiments/fixed12/FIXED_CASES_RUNNER_PROMPT.md` when delegating the run
-  to another agent.
-- Use `experiments/fixed12/FIXED_CASES_REPORT_TEMPLATE.md` for the final
-  fixed-suite report.
+- Use `/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/experiments/fixed12/FIXED_CASES_MANIFEST_12.json` for the first frozen 12-case suite.
+- Use `/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/experiments/fixed12/FIXED_CASES_RUNNER_PROMPT.md` when delegating the run to another agent.
+- Use `/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/experiments/fixed12/FIXED_CASES_REPORT_TEMPLATE.md` for the final fixed-suite report.
 - The intended execution is fresh S0 benchmark plus near-online/post-run S2
   diagnostic over saved artifacts, not full online S2.
 - Do not randomize, expand, or reorder the fixed cases without explicitly
   updating the manifest and report boundary.
 - Write all generated reports and raw benchmark artifacts under a timestamped
   `integrations/entcollabbench/runs/` directory, not the package root.
+- Register every historical or new run in `integrations/entcollabbench/runs/registry.jsonl`; read prior results through that registry or a run-local `manifest.json`, not by guessing from `scripts/result`.
 
 Example fixed-task run:
 
 ```bash
 cd /Users/sherrylin/Documents/PythonProjects/ContextHub
 source scripts/entcollab_env.sh strong
+export CONTEXTHUB_RUN_DIR=/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/runs/manual_fixed_task_$(date +%Y%m%d_%H%M%S)
+mkdir -p "$CONTEXTHUB_RUN_DIR/specs" "$CONTEXTHUB_RUN_DIR/s0"
+# Materialize the fixed task spec into "$CONTEXTHUB_RUN_DIR/specs/" before
+# invoking benchmark.py.
 
-cd /Users/sherrylin/Documents/PythonProjects/research/EntCollabBench
-MCP_ENDPOINTS_FILE=/Users/sherrylin/Documents/PythonProjects/research/EntCollabBench/config/mcp_endpoints_export.json \
+cd /Users/sherrylin/Documents/PythonProjects/public/EntCollabBench
+MCP_ENDPOINTS_FILE=/Users/sherrylin/Documents/PythonProjects/public/EntCollabBench/config/mcp_endpoints_export.json \
 TASK_TIMEOUT_SECONDS=1000 \
 AGENT_HTTP_TIMEOUT_SECONDS=400 \
 JUDGE_TIMEOUT_SECONDS=500 \
 .venv/bin/python scripts/benchmark.py \
-  --tasks-spec-file scripts/result/contexthub_smoke_mcp_single_144.json \
+  --tasks-spec-file "$CONTEXTHUB_RUN_DIR/specs/contexthub_smoke_mcp_single_144.json" \
   --batch-concurrency 1 \
   --agent-url-map-file config/agent_url_map.json \
   --trajectory-full-mode \
-  --bench-result-jsonl scripts/result/contexthub_smoke_strong_result.jsonl \
-  --trajectory-run-jsonl scripts/result/contexthub_smoke_strong_traj.jsonl \
+  --bench-result-jsonl "$CONTEXTHUB_RUN_DIR/s0/result.jsonl" \
+  --trajectory-run-jsonl "$CONTEXTHUB_RUN_DIR/s0/trajectory.jsonl" \
   --continue-on-error
 ```
 
@@ -321,7 +323,7 @@ You are running ContextHub Phase 4 EntCollabBench pilot smoke tests.
 
 Repository:
 - ContextHub: /Users/sherrylin/Documents/PythonProjects/ContextHub
-- EntCollabBench external clone: /Users/sherrylin/Documents/PythonProjects/research/EntCollabBench
+- EntCollabBench external clone: /Users/sherrylin/Documents/PythonProjects/public/EntCollabBench
 
 Read first:
 - /Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/PILOT_RUNBOOK.md

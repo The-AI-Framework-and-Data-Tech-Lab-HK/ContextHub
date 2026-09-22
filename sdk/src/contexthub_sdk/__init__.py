@@ -43,6 +43,7 @@ from .models import (
     SkillSubscriptionRecord,
     SkillVersionRecord,
     SkillVersionStatus,
+    StaleNotice,
 )
 
 __all__ = [
@@ -89,4 +90,5 @@ __all__ = [
     "SkillSubscriptionRecord",
     "SkillVersionRecord",
     "SkillVersionStatus",
+    "StaleNotice",
 ]

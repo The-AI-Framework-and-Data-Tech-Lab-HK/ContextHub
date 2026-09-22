@@ -19,7 +19,6 @@ from contexthub.retrieval.long_doc import (
     TreeRetriever,
 )
 from contexthub.retrieval.long_doc import keyword_retriever as keyword_module
-from contexthub.retrieval.long_doc import tree_retriever as tree_module
 from contexthub.retrieval.router import RetrievalRouter
 from contexthub.services.document_ingester import LongDocumentIngester
 from contexthub.services.masking_service import MaskingService
@@ -66,6 +65,19 @@ class RetrievalFlowDB:
         self.executed: list[tuple[str, tuple]] = []
 
     async def fetch(self, sql: str, *args):
+        if "SELECT id, version, status, validity_status" in sql:
+            allowed = set(args[0])
+            return [
+                FakeRecord(
+                    id=row["id"],
+                    version=row.get("version"),
+                    status=row.get("status"),
+                    validity_status=row.get("validity_status")
+                    or ("fresh" if row.get("status") == "active" else row.get("status")),
+                )
+                for row in self.candidates
+                if row["id"] in allowed
+            ]
         if "SELECT id, adopted_count, ignored_count" in sql:
             return self.quality_rows
         return []
@@ -933,7 +945,7 @@ async def test_retrieval_service_runs_precision_before_acl_filter(monkeypatch):
                 {"id": hidden_id, "adopted_count": 0, "ignored_count": 0},
             ],
         ),
-        SearchRequest(query="postgres", top_k=2),
+            SearchRequest(query="postgres", top_k=2),
         RequestContext(account_id="acme", agent_id="query-agent"),
     )
 
@@ -1111,7 +1123,7 @@ async def test_retrieval_service_applies_quality_and_stale_to_long_doc_results(m
                 {"id": active_id, "adopted_count": 8, "ignored_count": 0},
             ],
         ),
-        SearchRequest(query="postgres", top_k=2),
+        SearchRequest(query="postgres", top_k=2, include_stale=True),
         RequestContext(account_id="acme", agent_id="query-agent"),
     )
 

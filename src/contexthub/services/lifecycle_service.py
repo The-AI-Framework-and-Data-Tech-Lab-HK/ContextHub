@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from enum import StrEnum
+import hashlib
+import json
 from uuid import UUID
 
 from contexthub.db.repository import ScopedRepo
-from contexthub.errors import NotFoundError
+from contexthub.errors import ConflictError, NotFoundError
 from contexthub.models.lifecycle import LifecyclePolicy
 from contexthub.models.request import RequestContext
 from contexthub.services.audit_service import AuditService
@@ -48,43 +50,170 @@ class LifecycleService:
         context_id: UUID,
         reason: str,
         ctx: RequestContext,
+        source_event: dict | None = None,
     ) -> None:
-        row = await self._fetch_context_row(db, context_id)
-        if row["status"] != "active":
+        row = await self._fetch_context_row(db, context_id, extra_columns=("version",))
+        if row["status"] not in ("active", "stale"):
             return
 
         result = await db.execute(
             """
             UPDATE contexts
             SET status = 'stale',
+                validity_status = 'stale',
+                validity_reason = $2,
                 stale_at = NOW(),
                 updated_at = NOW()
             WHERE id = $1 AND status = 'active'
             """,
             context_id,
+            reason,
         )
-        if result == "UPDATE 0":
+        transitioned = result != "UPDATE 0"
+        # A repeated manual stale mark without a structured cause is idempotent.
+        # Structured propagation causes must still be recorded independently so
+        # multi-cause invalidation remains correct.
+        if not transitioned and source_event is None:
             return
 
-        await db.execute(
+        parent_event_id = source_event.get("event_id") if source_event else None
+        cause_identity = str(parent_event_id) if parent_event_id else hashlib.sha256(
+            reason.encode("utf-8")
+        ).hexdigest()
+        idempotency_key = (
+            f"marked-stale:{context_id}:{row['version']}:cause:{cause_identity}"
+        )
+        event_id = await db.fetchval(
             """
             INSERT INTO change_events
-                (context_id, account_id, change_type, actor, diff_summary)
-            VALUES ($1, $2, 'marked_stale', $3, $4)
+                (context_id, account_id, change_type, actor, diff_summary,
+                 idempotency_key, source_version, graph_scope, parent_event_id,
+                 root_event_id, plan_id, depth, metadata)
+            VALUES (
+              $1::uuid, $2, 'marked_stale', $3, $4, $5, $6,
+              'dependency-closure', $7::uuid,
+              COALESCE($8::uuid, $7::uuid), $9::uuid, $10, $11::jsonb
+            )
+            ON CONFLICT (account_id, idempotency_key) DO UPDATE
+              SET updated_at = NOW()
+            RETURNING event_id
             """,
             context_id,
             ctx.account_id,
             ctx.agent_id,
             reason,
+            idempotency_key,
+            row["version"],
+            parent_event_id,
+            source_event.get("root_event_id") if source_event else None,
+            source_event.get("plan_id") if source_event else None,
+            int(source_event.get("depth") or 0) + 1 if source_event else 0,
+            (
+                source_event.get("metadata")
+                if isinstance(source_event.get("metadata"), str)
+                else json.dumps(source_event.get("metadata") or {})
+            )
+            if source_event
+            else "{}",
         )
-        await self._log_transition(
-            db,
-            actor=ctx.agent_id,
-            uri=row["uri"],
-            from_status="active",
-            to_status="stale",
-            reason=reason,
+        # Read barrier: every known structured descendant and identity-linked copy
+        # becomes unserviceable in the same transaction as the source stale event.
+        # This is deliberately structural; no content or entity-name matching occurs.
+        await db.execute(
+            """
+            WITH RECURSIVE invalid(node_id) AS (
+              SELECT $1::uuid
+              UNION
+              SELECT edge.node_id
+                FROM invalid i
+                JOIN LATERAL (
+                  SELECT d.dependent_id AS node_id
+                    FROM dependencies d
+                   WHERE d.dependency_id = i.node_id
+                  UNION
+                  SELECT r.context_id AS node_id
+                    FROM context_relations r
+                   WHERE r.related_context_id = i.node_id
+                     AND r.relation_type IN (
+                       'alias_of', 'duplicate_of', 'materialized_from'
+                     )
+                ) edge ON TRUE
+            )
+            UPDATE contexts c
+               SET validity_status = CASE
+                     WHEN c.id = $1 THEN 'stale' ELSE 'invalid'
+                   END,
+                   validity_reason = CASE
+                     WHEN c.id = $1 THEN $2
+                     ELSE concat('dependency closure invalidated by ', $1::text)
+                   END,
+                   updated_at = NOW()
+              FROM invalid i
+             WHERE c.id = i.node_id
+               AND c.validity_status NOT IN ('superseded', 'recomputing')
+            """,
+            context_id,
+            reason,
         )
+        await db.execute(
+            """
+            WITH RECURSIVE invalid(node_id) AS (
+              SELECT $1::uuid
+              UNION
+              SELECT edge.node_id
+                FROM invalid i
+                JOIN LATERAL (
+                  SELECT d.dependent_id AS node_id
+                    FROM dependencies d
+                   WHERE d.dependency_id = i.node_id
+                  UNION
+                  SELECT r.context_id AS node_id
+                    FROM context_relations r
+                   WHERE r.related_context_id = i.node_id
+                     AND r.relation_type IN (
+                       'alias_of', 'duplicate_of', 'materialized_from'
+                     )
+                ) edge ON TRUE
+            )
+            INSERT INTO context_invalidations (
+              context_id, cause_event_id, source_context_id, source_version,
+              reason_hash
+            )
+            SELECT i.node_id, COALESCE($2::uuid, $3::uuid), $1, $5,
+                   encode(digest($4, 'sha256'), 'hex')
+              FROM invalid i
+            ON CONFLICT (context_id, cause_event_id) DO NOTHING
+            """,
+            context_id,
+            source_event.get("event_id") if source_event else None,
+            event_id,
+            reason,
+            source_event.get("source_version") if source_event else row["version"],
+        )
+        await db.execute(
+            """
+            INSERT INTO propagation_trace (event_id, trace_type, payload)
+            VALUES (
+              $1, 'stale_closure',
+              jsonb_build_object(
+                'source_context_id', $2::uuid::text,
+                'reason_hash', encode(digest($3, 'sha256'), 'hex')
+              )
+            )
+            """,
+            event_id,
+            context_id,
+            reason,
+        )
+        if transitioned:
+            await self._log_transition(
+                db,
+                actor=ctx.agent_id,
+                uri=row["uri"],
+                from_status="active",
+                to_status="stale",
+                reason=reason,
+            )
 
     async def recover_from_stale(
         self,
@@ -95,11 +224,32 @@ class LifecycleService:
         row = await self._fetch_context_row(db, context_id)
         if row["status"] != "stale":
             return
+        dependency_block = await db.fetchval(
+            """
+            SELECT 1
+              FROM context_invalidations i
+              JOIN change_events e ON e.event_id = i.cause_event_id
+             WHERE i.context_id = $1
+               AND i.resolved_at IS NULL
+               AND (
+                 e.change_type != 'marked_stale'
+                 OR e.parent_event_id IS NOT NULL
+               )
+             LIMIT 1
+            """,
+            context_id,
+        )
+        if dependency_block is not None:
+            raise ConflictError(
+                "Context is stale because a dependency changed; recompute it before reading"
+            )
 
         result = await db.execute(
             """
             UPDATE contexts
             SET status = 'active',
+                validity_status = 'fresh',
+                validity_reason = NULL,
                 stale_at = NULL,
                 last_accessed_at = NOW(),
                 updated_at = NOW()
@@ -109,6 +259,18 @@ class LifecycleService:
         )
         if result == "UPDATE 0":
             return
+        await db.execute(
+            """
+            UPDATE context_invalidations i
+               SET resolved_at = NOW()
+              FROM change_events e
+             WHERE i.context_id = $1
+               AND i.cause_event_id = e.event_id
+               AND i.resolved_at IS NULL
+               AND e.parent_event_id IS NULL
+            """,
+            context_id,
+        )
 
         await self._log_transition(
             db,

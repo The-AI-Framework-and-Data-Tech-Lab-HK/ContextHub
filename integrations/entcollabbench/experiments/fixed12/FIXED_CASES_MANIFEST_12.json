@@ -3,8 +3,8 @@
   "created_at": "2026-06-17",
   "purpose": "First fixed-case suite for fresh S0 benchmark plus near-online/post-run S2 diagnostic. This is not a full online S2 run.",
   "source_baseline": {
-    "report_path": "/Users/sherrylin/Documents/PythonProjects/research/EntCollabBench/scripts/result/contexthub_baseline_cases/BASELINE_20_REPORT.md",
-    "summary_path": "/Users/sherrylin/Documents/PythonProjects/research/EntCollabBench/scripts/result/contexthub_baseline_cases/analysis_summary_20.json",
+    "report_path": "/Users/sherrylin/Documents/PythonProjects/public/EntCollabBench/scripts/result/contexthub_baseline_cases/BASELINE_20_REPORT.md",
+    "summary_path": "/Users/sherrylin/Documents/PythonProjects/public/EntCollabBench/scripts/result/contexthub_baseline_cases/analysis_summary_20.json",
     "profile": "strong",
     "timeouts": {
       "TASK_TIMEOUT_SECONDS": 1000,

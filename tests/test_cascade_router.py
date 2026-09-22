@@ -16,7 +16,9 @@ from contexthub.services.cascade_router import (
     route_disambiguation,
     route_edge_discovery,
     route_extraction,
+    _edge_cost_estimate,
     _regex_extract_sentence,
+    _should_escalate_edge,
 )
 from contexthub.services.conversation_extraction_service import (
     ConversationExtractionService,
@@ -69,6 +71,33 @@ def test_var4_escalates_to_full_when_nothing_similar():
     assert len(r.candidates) == 2
 
 
+def test_var4_recency_off_by_default_is_legacy_ladder():
+    # Blocking thin (no lexical overlap) but a recent candidate is cosine-similar:
+    # with recency=False the recency tier is skipped => embed_topk, exactly the old
+    # ladder. Regression guard.
+    pool = [
+        CandidateFact(id=uuid.uuid4(), text="lunch noon cafeteria", embedding=[0.0, 1.0]),
+        CandidateFact(id=uuid.uuid4(), text="weather sunny today", embedding=[1.0, 0.0]),
+    ]
+    r = route_candidate_selection("no shared words", [1.0, 0.0], pool, tau=0.5, k=1)
+    assert r.tier == "embed_topk"
+
+
+def test_var4_recency_tier_fires_when_enabled():
+    # recency=True: blocking thin, but the most-recent k (pool tail) are cosine
+    # >= tau => stop at the cheaper recency tier before the full-pool embed scan.
+    pool = [
+        CandidateFact(id=uuid.uuid4(), text="old unrelated a", embedding=[0.0, 1.0]),
+        CandidateFact(id=uuid.uuid4(), text="recent one b", embedding=[1.0, 0.0]),
+        CandidateFact(id=uuid.uuid4(), text="recent two c", embedding=[1.0, 0.0]),
+        CandidateFact(id=uuid.uuid4(), text="recent three d", embedding=[1.0, 0.0]),
+    ]
+    r = route_candidate_selection("no shared words", [1.0, 0.0], pool, tau=0.5,
+                                  k=3, min_cands=3, recency=True)
+    assert r.tier == "recency"
+    assert len(r.candidates) == 3
+
+
 # --------------------------------------------------------------------------- #
 # Variable 3 — edge discovery ladder (regex hard-block, cheap NONE, escalate).
 # --------------------------------------------------------------------------- #
@@ -107,6 +136,72 @@ async def test_var3_escalates_to_strong_on_weak_support():
                                    cheap=cheap, strong=strong)
     assert r.tier == "strong"
     assert strong._chat.prompts  # strong tier was consulted
+
+
+# --------------------------------------------------------------------------- #
+# Variable 3 — pricing rule (1-p)/c >= lam + floor p_min (lam-aware escalation).
+# --------------------------------------------------------------------------- #
+
+def test_edge_cost_estimate_input_chars_over_4_plus_max_tokens():
+    cands = [
+        CandidateFact(id=uuid.uuid4(), text="a" * 40),
+        CandidateFact(id=uuid.uuid4(), text="b" * 40),
+    ]
+    # (len("cccc")=4 + 40 + 40) / 4 + max_tokens
+    assert _edge_cost_estimate("cccc", cands, max_tokens=100) == 84 / 4 + 100
+
+
+def test_should_escalate_lam_none_is_legacy_tau_rule():
+    # lam=None => escalate iff conf < tau, exactly the old behaviour. c_est ignored.
+    assert _should_escalate_edge(conf=0.3, tau=0.5, lam=None, c_est=1.0) is True
+    assert _should_escalate_edge(conf=0.7, tau=0.5, lam=None, c_est=1.0) is False
+
+
+def test_should_escalate_lam_inf_recovers_pure_floor():
+    # lam=+inf => pricing term never fires; only the conf < tau floor escalates.
+    inf = float("inf")
+    assert _should_escalate_edge(conf=0.3, tau=0.5, lam=inf, c_est=1.0) is True   # floor
+    assert _should_escalate_edge(conf=0.7, tau=0.5, lam=inf, c_est=1.0) is False  # nothing
+
+
+def test_should_escalate_lam_zero_escalates_everything():
+    # lam=0 => (1-conf)/c >= 0 always true => escalate regardless of tau.
+    assert _should_escalate_edge(conf=0.99, tau=0.0, lam=0.0, c_est=1000.0) is True
+
+
+def test_should_escalate_pricing_fires_above_floor():
+    # conf=0.6 >= tau=0.5 (floor NOT hit), but cheap c makes it worthwhile:
+    # (1-0.6)/c = 0.4/100 = 4e-3 >= lam=2e-3  => escalate on the pricing rule.
+    assert _should_escalate_edge(conf=0.6, tau=0.5, lam=2e-3, c_est=100.0) is True
+    # same edge but expensive (c=1000): 0.4/1000 = 4e-4 < 2e-3 => not worthwhile.
+    assert _should_escalate_edge(conf=0.6, tau=0.5, lam=2e-3, c_est=1000.0) is False
+
+
+@pytest.mark.asyncio
+async def test_var3_no_lam_matches_legacy_strong_escalation():
+    # Regression: with lam unset, a weak-support edge still escalates to strong,
+    # identical to test_var3_escalates_to_strong_on_weak_support.
+    a = uuid.uuid4()
+    cheap = DependencyDiscoveryService(FakeChat(["1"]))
+    strong = DependencyDiscoveryService(FakeChat(["NONE"]))
+    cands = [CandidateFact(id=a, text="pottery class every friday")]
+    r = await route_edge_discovery("the report recipient is Nam", cands, tau=0.5,
+                                   cheap=cheap, strong=strong)
+    assert r.tier == "strong"
+
+
+@pytest.mark.asyncio
+async def test_var3_lam_inf_stays_cheap_when_floor_not_hit():
+    # Strong structural support (identical texts => overlap 1.0 >= tau) and lam=inf
+    # => neither floor nor pricing fires => stay cheap, strong never consulted.
+    a = uuid.uuid4()
+    cheap = DependencyDiscoveryService(FakeChat(["1"]))
+    strong = DependencyDiscoveryService(FakeChat(["1"]))
+    cands = [CandidateFact(id=a, text="the report recipient is Nam")]
+    r = await route_edge_discovery("the report recipient is Nam", cands, tau=0.5,
+                                   cheap=cheap, strong=strong, lam=float("inf"))
+    assert r.tier == "cheap"
+    assert strong._chat.prompts == []
 
 
 # --------------------------------------------------------------------------- #
@@ -154,3 +249,38 @@ async def test_var2_tau_zero_skips_spacy_on_pronoun():
     r = await route_disambiguation("they", "the team met", ["Seokjin", "Nam"],
                                    tau=0.0, llm=llm)
     assert r.tier in ("llm", "none")
+
+
+@pytest.mark.asyncio
+async def test_var2_no_strong_is_legacy_single_tier():
+    # strong=None => old behaviour: weak LLM answer returned as tier "llm", conf 0.0,
+    # strong never consulted. Regression guard.
+    llm = DependencyDiscoveryService(FakeChat(["1"]))
+    r = await route_disambiguation("they", "the team met", ["Seokjin", "Nam"],
+                                   tau=0.9, llm=llm)
+    assert r.tier == "llm" and r.confidence == 0.0
+
+
+@pytest.mark.asyncio
+async def test_var2_weak_unique_match_not_escalated():
+    # Weak LLM picks a pool entity that is UNIQUELY matched (credibility 1.0 >= tau)
+    # => trust the weak tier, strong never consulted.
+    llm = DependencyDiscoveryService(FakeChat(["1"]))       # picks "Seokjin"
+    strong = DependencyDiscoveryService(FakeChat(["2"]))    # must not be consulted
+    r = await route_disambiguation("they", "the team met", ["Seokjin", "Nam"],
+                                   tau=0.9, llm=llm, strong=strong)
+    assert r.tier == "llm" and r.resolution == "Seokjin"
+    assert strong._chat.prompts == []
+
+
+@pytest.mark.asyncio
+async def test_var2_weak_ambiguous_match_escalates_to_strong():
+    # Weak LLM resolves to "Sam", which is a substring of TWO pool entities
+    # (credibility 0.5 < tau) => escalate to the strong tier.
+    llm = DependencyDiscoveryService(FakeChat(["1"]))       # picks first candidate "Sam"
+    strong = DependencyDiscoveryService(FakeChat(["2"]))
+    pool = ["Sam", "Samuel Lee", "Nam"]
+    r = await route_disambiguation("they", "the team met", pool,
+                                   tau=0.9, llm=llm, strong=strong)
+    assert r.tier == "llm_strong"
+    assert strong._chat.prompts  # strong tier was consulted

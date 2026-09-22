@@ -43,12 +43,19 @@ Then a short one-line reason."""
 
 
 class DerivedMemoryOracleRule(PropagationRule):
-    """derived_from 的真语义失效判定器（朴素 oracle）。
+    """derived_from 的真语义失效判定器（可选 soundness 方向级联）。
 
-    对派生依赖边上的下游节点各调一次 LLM，判断上游变更是否使其过期。
-    这是最朴素的一版（每条边都上 LLM），刻意作为代价优化器的基线——
-    未来在同一 evaluate 接口内加"先规则、再便宜 LLM、最后贵 LLM + 短路"
-    即长成分级判定器，引擎与评测层无需改动。
+    默认（``cheap_chat=None``）：每条边只调一次 ``chat_client``，即最朴素的
+    单档 oracle（做法乙前的基线，E.8 的 P2 用的就是这个）——逐字节不变。
+
+    传入 ``cheap_chat`` 时启用**做法乙 soundness 方向的两级级联**（§2.2 / 附录
+    G.1 / D.5c）：先用便宜档判，**判 stale 即采信并短路**（省下贵档调用），
+    **只有便宜档判 fresh 的边才升级贵档复核**。方向朝 soundness——因为
+    false-fresh（真过期却放过）是唯一致命的错误，故要复核便宜档说"没事"的边；
+    这与 §4.2 为压 precision 而设的"便宜档说 stale 才升级"级联方向相反。
+    便宜档漏判（把真 stale 判成 fresh）会被贵档复核补回，故级联 false-fresh
+    不高于全量贵档；便宜档过度标记（判 stale）被直接采信 → false-stale 升高，
+    这是 soundness 方向省钱的代价（重算便宜时可接受，见 D.5c）。
 
     - 对 ``modified`` 事件动作（hop-1）；
     - 对 ``marked_stale`` 事件动作（级联到 hop-2+，需引擎放行 marked_stale 传播）。
@@ -58,9 +65,15 @@ class DerivedMemoryOracleRule(PropagationRule):
     故规则自行用 repo 在 event 的 account_id 下开 RLS session 取 L2。
     """
 
-    def __init__(self, chat_client, repo):
-        self._chat = chat_client
+    def __init__(self, chat_client, repo, cheap_chat=None, event_sink=None):
+        self._chat = chat_client          # 贵档（复核档）
         self._repo = repo
+        self._cheap_chat = cheap_chat     # 便宜档；None = 单档回归
+        # 可选：每条边判定一次就 append 一条记录的 list。只做观测，不改判定。
+        # 没有它的话，"便宜档判 stale 短路了几条 / 升档几条"只存在于进程内计数
+        # 器里，落盘的 oracle_calls 又只计贵档，于是 oracle_calls=0 分不清是
+        # "便宜档短路"还是"传播没走到这条边"（两者修法相反）。见 P2 复跑要求。
+        self._event_sink = event_sink
 
     async def evaluate(self, event: dict[str, Any], target: dict[str, Any]) -> PropagationAction:
         change_type = event.get("change_type", "")
@@ -82,17 +95,32 @@ class DerivedMemoryOracleRule(PropagationRule):
             )
 
         change_desc = await self._describe_change(event, account_id)
-
         prompt = _ORACLE_PROMPT.format(change=change_desc, derived=derived_text)
-        try:
-            answer = await self._chat.complete(prompt, max_tokens=100)
-        except Exception:
-            logger.exception("Oracle LLM call failed for dependent_id=%s", dependent_id)
-            # 判定器失败时保守：不误标 fresh，交回引擎重试（partial failure）。
-            raise
 
-        verdict = (answer or "").strip().upper()
-        is_stale = verdict.startswith("YES")
+        cheap_verdict: str | None = None
+        escalated = False
+        if self._cheap_chat is None:
+            # 单档回归：只调贵档一次。
+            is_stale, answer = await self._judge(self._chat, prompt, dependent_id)
+        else:
+            # soundness 方向级联：便宜档先判。判 stale 即采信、短路（省贵档）；
+            # 判 fresh 才升贵档复核（复核"便宜档说没事"的边，补回其漏判）。
+            cheap_stale, cheap_ans = await self._judge(self._cheap_chat, prompt, dependent_id)
+            cheap_verdict = "stale" if cheap_stale else "fresh"
+            if cheap_stale:
+                is_stale, answer = True, cheap_ans
+            else:
+                escalated = True
+                is_stale, answer = await self._judge(self._chat, prompt, dependent_id)
+
+        if self._event_sink is not None:
+            self._event_sink.append({
+                "dependent_id": str(dependent_id),
+                "change_type": change_type,
+                "cheap": cheap_verdict,          # None = 单档（无便宜档）
+                "escalated": escalated,          # True = 便宜档判 fresh、升了贵档
+                "final": "stale" if is_stale else "fresh",
+            })
 
         if is_stale:
             return PropagationAction(
@@ -106,6 +134,20 @@ class DerivedMemoryOracleRule(PropagationRule):
             action="no_action",
             reason=f"oracle 判定未过期: {answer.strip()[:120] if answer else ''}",
         )
+
+    async def _judge(self, chat, prompt: str, dependent_id) -> tuple[bool, str]:
+        """调一档判定器，返回 (is_stale, answer)。
+
+        判定器失败时保守：不吞异常、交回引擎重试（partial failure），绝不
+        把调用失败当成 fresh——否则会引入 false-fresh。
+        """
+        try:
+            answer = await chat.complete(prompt, max_tokens=100)
+        except Exception:
+            logger.exception("Oracle LLM call failed for dependent_id=%s", dependent_id)
+            raise
+        is_stale = (answer or "").strip().upper().startswith("YES")
+        return is_stale, (answer or "")
 
     async def _fetch_content(self, account_id: str, context_id) -> str | None:
         async with self._repo.session(account_id) as db:

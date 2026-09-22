@@ -15,7 +15,7 @@ from contexthub.services.lifecycle_scheduler import LifecycleScheduler
 from contexthub.services.lifecycle_service import LifecycleService
 from contexthub.services.masking_service import MaskingService
 from contexthub.store.context_store import ContextStore
-from contexthub.errors import NotFoundError
+from contexthub.errors import ConflictError, NotFoundError
 
 
 class StaticEmbeddingClient:
@@ -218,16 +218,16 @@ async def test_mark_stale_and_store_read_recover_flow(acme_session, db_pool):
     ) == 1
 
     before_read_events = await acme_session.fetchval("SELECT COUNT(*) FROM change_events")
-    content = await store.read(acme_session, uri, ContextLevel.L1, ctx)
+    with pytest.raises(ConflictError, match="not serviceable"):
+        await store.read(acme_session, uri, ContextLevel.L1, ctx)
     after_read = await acme_session.fetchrow(
         "SELECT status, stale_at, last_accessed_at FROM contexts WHERE id = $1",
         context_id,
     )
 
-    assert content == "detail"
-    assert after_read["status"] == "active"
-    assert after_read["stale_at"] is None
-    assert after_read["last_accessed_at"] >= stale_row["last_accessed_at"]
+    assert after_read["status"] == "stale"
+    assert after_read["stale_at"] == stale_row["stale_at"]
+    assert after_read["last_accessed_at"] == stale_row["last_accessed_at"]
     assert await acme_session.fetchval("SELECT COUNT(*) FROM change_events") == before_read_events
     assert await acme_session.fetchval(
         """
@@ -236,7 +236,7 @@ async def test_mark_stale_and_store_read_recover_flow(acme_session, db_pool):
         WHERE resource_uri = $1 AND action = 'lifecycle_transition'
         """,
         uri,
-    ) == 2
+    ) == 1
 
 
 @pytest.mark.asyncio
@@ -310,7 +310,8 @@ async def test_mark_archived_and_recover_from_archived_restores_embedding_and_ke
     assert archived_row["archived_at"] is not None
     assert archived_row["embedding_cleared"] is True
 
-    assert await store.read(acme_session, uri, ContextLevel.L1, ctx) == "detail"
+    with pytest.raises(ConflictError):
+        await store.read(acme_session, uri, ContextLevel.L1, ctx)
 
     await lifecycle.recover_from_archived(acme_session, context_id, ctx)
     restored_row = await acme_session.fetchrow(

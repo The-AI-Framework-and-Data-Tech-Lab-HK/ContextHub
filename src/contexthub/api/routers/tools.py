@@ -16,7 +16,7 @@ from contexthub.api.deps import (
     get_skill_service,
 )
 from contexthub.db.repository import ScopedRepo
-from contexthub.errors import ForbiddenError, NotFoundError
+from contexthub.errors import ConflictError, ForbiddenError, NotFoundError
 from contexthub.models.request import RequestContext
 from contexthub.models.search import (
     SearchRequest,
@@ -43,7 +43,7 @@ async def tool_ls(
     db: ScopedRepo = Depends(get_db),
     store: ContextStore = Depends(get_context_store),
 ):
-    return await store.ls(db, body.path, ctx)
+    return await store.ls(db, body.path, ctx, include_stale=body.include_stale)
 
 
 @router.post("/tools/read")
@@ -60,7 +60,7 @@ async def tool_read(
 ):
     row = await db.fetchrow(
         """
-        SELECT id, context_type, status
+        SELECT id, context_type, status, validity_status
         FROM contexts
         WHERE uri = $1 AND status != 'deleted'
         """,
@@ -81,8 +81,18 @@ async def tool_read(
                     metadata={"action": "read", "reason": decision.reason},
                 )
             raise ForbiddenError()
-        if row["status"] == "stale" and _lifecycle is not None:
-            await _lifecycle.recover_from_stale(db, row["id"], ctx)
+        if (
+            not body.include_stale
+            and (
+                row["status"] != "active"
+                or row.get("validity_status", "fresh") != "fresh"
+            )
+        ):
+            raise ConflictError(
+                f"Context {body.uri} is not serviceable "
+                f"(status={row['status']}, "
+                f"validity={row.get('validity_status', 'unknown')})"
+            )
         result = await skill_svc.read_resolved(db, row["id"], ctx.agent_id, body.version)
         if row["status"] != "stale" or _lifecycle is None:
             await db.execute(
@@ -103,11 +113,24 @@ async def tool_read(
             "version": result.version,
             "content": content,
             "status": result.status,
+            "validity_status": row.get("validity_status", "unknown"),
             "advisory": result.advisory,
         }
 
-    content = await store.read(db, body.uri, body.level, ctx)
-    return {"uri": body.uri, "level": body.level, "content": content}
+    content = await store.read(
+        db,
+        body.uri,
+        body.level,
+        ctx,
+        include_stale=body.include_stale,
+    )
+    return {
+        "uri": body.uri,
+        "level": body.level,
+        "content": content,
+        "status": row["status"],
+        "validity_status": row.get("validity_status", "unknown"),
+    }
 
 
 @router.post("/tools/grep")

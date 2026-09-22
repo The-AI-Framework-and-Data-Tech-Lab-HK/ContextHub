@@ -20,7 +20,7 @@ from contexthub.api.deps import (
     get_request_context,
 )
 from contexthub.db.repository import ScopedRepo
-from contexthub.errors import BadRequestError, ForbiddenError, NotFoundError
+from contexthub.errors import BadRequestError, ConflictError, ForbiddenError, NotFoundError
 from contexthub.models.document import (
     DocumentIngestResponse,
     DocumentSectionReadResult,
@@ -118,6 +118,15 @@ async def read_document_section(
                 },
             )
         raise ForbiddenError()
+    if (
+        context_row["status"] != "active"
+        or context_row["validity_status"] != "fresh"
+    ):
+        raise ConflictError(
+            f"Document {context_id} is not serviceable "
+            f"(status={context_row['status']}, "
+            f"validity={context_row['validity_status']})"
+        )
 
     row = await db.fetchrow(
         """
@@ -160,9 +169,28 @@ async def read_document_section(
             f"Extracted text file not found for context {context_id}"
         ) from exc
 
-    if context_row["status"] == "stale":
-        await lifecycle.recover_from_stale(db, context_row["id"], ctx)
-    else:
+    still_current = await db.fetchval(
+        """
+        SELECT 1
+          FROM contexts c
+          JOIN document_sections s ON s.context_id = c.id
+         WHERE c.id = $1 AND c.version = $2 AND c.file_path = $3
+           AND c.status = 'active' AND c.validity_status = 'fresh'
+           AND s.section_id = $4
+           AND s.start_offset IS NOT DISTINCT FROM $5
+           AND s.end_offset IS NOT DISTINCT FROM $6
+        """,
+        context_row["id"],
+        context_row["version"],
+        context_row["file_path"],
+        section_id,
+        start_offset,
+        end_offset,
+    )
+    if still_current is None:
+        raise ConflictError("Document changed while section content was read")
+
+    if context_row["status"] != "stale":
         await db.execute(
             "UPDATE contexts SET last_accessed_at = NOW() WHERE id = $1",
             context_row["id"],
@@ -193,7 +221,7 @@ async def read_document_section(
 async def _get_document_context(db: ScopedRepo, context_id: UUID):
     row = await db.fetchrow(
         """
-        SELECT id, uri, context_type, file_path, status
+        SELECT id, uri, context_type, file_path, status, validity_status, version
         FROM contexts
         WHERE id = $1 AND status != 'deleted'
         """,
@@ -203,6 +231,11 @@ async def _get_document_context(db: ScopedRepo, context_id: UUID):
         raise NotFoundError(f"Context {context_id} not found")
     if row["context_type"] != "resource" or not row["file_path"]:
         raise BadRequestError("Context is not a long-document resource")
+    if row["status"] != "active" or row["validity_status"] != "fresh":
+        raise ConflictError(
+            f"Document {context_id} is not serviceable "
+            f"(status={row['status']}, validity={row['validity_status']})"
+        )
     return row
 
 

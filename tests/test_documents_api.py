@@ -434,7 +434,7 @@ async def test_document_read_section_reuses_store_side_effects(
     finally:
         await client.aclose()
 
-    assert response.status_code == 200
+    assert response.status_code == 409
     async with repo.session("acme") as db:
         row = await db.fetchrow(
             "SELECT status, stale_at, last_accessed_at FROM contexts WHERE id = $1",
@@ -458,12 +458,10 @@ async def test_document_read_section_reuses_store_side_effects(
             """,
             "ctx://resources/manuals/stale-doc",
         )
-    assert row["status"] == "active"
-    assert row["stale_at"] is None
-    assert row["last_accessed_at"] is not None
-    assert audit_count == 1
-    assert audit_meta is not None
-    assert audit_meta.get("section_id") == 9
+    assert row["status"] == "stale"
+    assert row["stale_at"] is not None
+    assert audit_count == 0
+    assert audit_meta is None
 
 
 @pytest.mark.asyncio

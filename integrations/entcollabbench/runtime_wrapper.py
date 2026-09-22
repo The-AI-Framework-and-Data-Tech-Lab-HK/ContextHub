@@ -16,6 +16,7 @@ from contexthub.enforcement.decision import GuardrailDecision
 from contexthub.enforcement.guardrails.closure import ClosureGuardrail
 from contexthub.enforcement.guardrails.handoff import HandoffGuardrail
 from contexthub.enforcement.guardrails.tool_state import ToolStateGuardrail
+from contexthub.enforcement.staleness import StalenessChecker
 from contexthub.enforcement.service import EnforcementService
 from contexthub.services.acl_service import ACLService
 
@@ -23,14 +24,15 @@ from integrations.entcollabbench import closure_adapter, mapping, tool_contract_
 from integrations.entcollabbench.interceptor import EnforcementAction, EnforcementInterceptor
 from integrations.entcollabbench.mcp_runtime_adapter import (
     McpEndpointConfig,
-    McpRuntimeAdapterError,
-    get_tool_schema,
+    ToolSchemaCache,
     normalize_tool_schema_record,
 )
 from integrations.entcollabbench.world_loader import LoadedWorld
 
 SchemaProvider = Callable[[str, str], Mapping[str, Any]]
 RoleChecker = Callable[[str, str], Awaitable[bool]]
+ObjectExists = Callable[[str], Awaitable[bool]]
+ProvenanceCheck = Callable[[str, str], Awaitable[bool]]
 MutationIntentProvider = Callable[[str], str]
 
 
@@ -92,21 +94,36 @@ class ContextHubRuntimeWrapper:
         service: EnforcementService | None = None,
         schema_provider: SchemaProvider | None = None,
         endpoint_config: McpEndpointConfig | None = None,
+        schema_cache: ToolSchemaCache | None = None,
         role_checker: RoleChecker | None = None,
+        object_exists: ObjectExists | None = None,
+        provenance_check: ProvenanceCheck | None = None,
         staleness: Any | None = None,
         mutation_intent_provider: MutationIntentProvider | None = None,
     ):
         self._schema_provider = schema_provider
         self._endpoint_config = endpoint_config
-        self._mutation_intent_provider = mutation_intent_provider or infer_mutation_intent
-        self._staleness = staleness or NoopStaleness()
-        self._loaded = loaded or LoadedWorld()
+        self._schema_cache = schema_cache or (
+            ToolSchemaCache(endpoint_config) if endpoint_config is not None else None
+        )
+        self._mutation_intent_provider = (
+            mutation_intent_provider
+            if mutation_intent_provider is not None
+            else infer_mutation_intent
+        )
+        self._staleness = staleness if staleness is not None else NoopStaleness()
+        self._loaded = loaded if loaded is not None else LoadedWorld()
         self._interceptor = EnforcementInterceptor(
-            repo or NullRepo(),
+            repo if repo is not None else NullRepo(),
             account_id,
             self._loaded,
             guardrails=None,
-            service=service or self._default_service(role_checker),
+            service=service
+            or self._default_service(
+                role_checker,
+                object_exists=object_exists,
+                provenance_check=provenance_check,
+            ),
         )
 
     async def enforce_tool_call_before_execute(
@@ -208,7 +225,13 @@ class ContextHubRuntimeWrapper:
             packet=packet_dict,
         )
 
-    def _default_service(self, role_checker: RoleChecker | None) -> EnforcementService:
+    def _default_service(
+        self,
+        role_checker: RoleChecker | None,
+        *,
+        object_exists: ObjectExists | None = None,
+        provenance_check: ProvenanceCheck | None = None,
+    ) -> EnforcementService:
         return EnforcementService(
             [
                 HandoffGuardrail(
@@ -220,11 +243,12 @@ class ContextHubRuntimeWrapper:
                 ToolStateGuardrail(
                     self._staleness,
                     role_checker=role_checker or exact_role_checker,
-                    object_exists=None,
-                    provenance_check=None,
+                    object_exists=object_exists,
+                    provenance_check=provenance_check,
                 ),
                 ClosureGuardrail(self._staleness),
-            ]
+            ],
+            audit=None,
         )
 
     def _schema_for_tool(
@@ -248,14 +272,8 @@ class ContextHubRuntimeWrapper:
                 "injected-schema-provider",
             )
 
-        if self._endpoint_config is not None:
-            try:
-                return get_tool_schema(self._endpoint_config, server, tool_name), "live-mcp-schema"
-            except (McpRuntimeAdapterError, OSError, TimeoutError, ValueError) as exc:
-                return (
-                    normalize_tool_schema_record({"name": tool_name}, tool_name=tool_name),
-                    f"schema-unavailable:{type(exc).__name__}",
-                )
+        if self._schema_cache is not None:
+            return self._schema_cache.get(server, tool_name)
 
         return (
             normalize_tool_schema_record({"name": tool_name}, tool_name=tool_name),
@@ -265,6 +283,71 @@ class ContextHubRuntimeWrapper:
 
 async def exact_role_checker(agent_id: str, required_role: str) -> bool:
     return str(agent_id or "").strip() == str(required_role or "").strip()
+
+
+def build_full_s2_runtime_wrapper(
+    *,
+    repo: Any,
+    loaded: LoadedWorld,
+    account_id: str = "entcollab-runtime",
+    schema_provider: SchemaProvider | None = None,
+    endpoint_config: McpEndpointConfig | None = None,
+    schema_cache: ToolSchemaCache | None = None,
+    mutation_intent_provider: MutationIntentProvider | None = None,
+) -> ContextHubRuntimeWrapper:
+    """Construct the DB-backed S2 runtime wrapper used by online proxies.
+
+    Audit is deliberately not wired into ``EnforcementService`` here; proxy
+    callers persist audit records through a side channel after the gate decides.
+    """
+
+    from integrations.entcollabbench.systems import (
+        _object_exists,
+        _provenance_check,
+        _role_checker,
+    )
+
+    return ContextHubRuntimeWrapper(
+        repo=repo,
+        account_id=account_id,
+        loaded=loaded,
+        schema_provider=schema_provider,
+        endpoint_config=endpoint_config,
+        schema_cache=schema_cache,
+        role_checker=_role_checker(loaded),
+        object_exists=_object_exists(loaded),
+        provenance_check=_provenance_check(loaded),
+        staleness=StalenessChecker(),
+        mutation_intent_provider=mutation_intent_provider,
+    )
+
+
+def build_s1_runtime_wrapper(
+    *,
+    account_id: str = "entcollab-runtime",
+    schema_provider: SchemaProvider | None = None,
+    endpoint_config: McpEndpointConfig | None = None,
+    schema_cache: ToolSchemaCache | None = None,
+    mutation_intent_provider: MutationIntentProvider | None = None,
+) -> ContextHubRuntimeWrapper:
+    """Construct the online S1 generic guardrail runtime wrapper.
+
+    S1 is the H3 control: it intentionally uses no ContextHub repo, loaded world,
+    ACL, provenance, or staleness state. It only validates generic boundary shape
+    and live/static schema details already present in the request contract.
+    """
+
+    from integrations.entcollabbench.systems import GenericGuardrail
+
+    return ContextHubRuntimeWrapper(
+        repo=NullRepo(),
+        account_id=account_id,
+        service=EnforcementService([GenericGuardrail()], audit=None),
+        schema_provider=schema_provider,
+        endpoint_config=endpoint_config,
+        schema_cache=schema_cache,
+        mutation_intent_provider=mutation_intent_provider,
+    )
 
 
 def infer_mutation_intent(tool_name: str) -> str:
