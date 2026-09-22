@@ -103,7 +103,7 @@ class CandidateRoute:
     """Result of variable-4 routing: which candidates to hand the edge judge."""
 
     candidates: list[CandidateFact]
-    tier: str  # "block" | "embed_topk" | "full"
+    tier: str  # "block" | "recency" | "embed_topk" | "full"
     confidence: float
 
 
@@ -147,12 +147,18 @@ def route_candidate_selection(
     *,
     k: int = 10,
     min_cands: int = 3,
+    recency: bool = False,
 ) -> CandidateRoute:
     """Pick the candidate shortlist for the new node's edge judgement.
 
     Ladder (cheapest first), escalate when confidence < tau:
       "block"      : lexical blocking (content-word overlap). Cheapest — a tiny
                      shortlist, fewest prompt tokens for the LLM judge.
+      "recency"    : the most-recent k candidates by insertion order (pool tail).
+                     OPTIONAL tier (recency=True), between block and embed_topk:
+                     a no-cosine widening that exploits temporal locality — a new
+                     fact most often derives from a recently-inserted one. Skipped
+                     entirely when recency=False (byte-for-byte the old ladder).
       "embed_topk" : top-k candidates by cosine to new_emb. Wider, similarity-
                      ranked. Escalated to when blocking is thin (< min_cands) or
                      its best candidate is weakly similar.
@@ -177,6 +183,15 @@ def route_candidate_selection(
     if len(block) >= min_cands and conf_block >= tau:
         return CandidateRoute(block, "block", conf_block)
 
+    # Optional recency tier: the most-recent k by insertion order (pool tail). A
+    # cosine-free widening tried before the embed_topk scan. Disabled by default.
+    if recency:
+        recent = pool[-k:]
+        conf_recent = max((_cosine(new_emb, c.embedding) for c in recent), default=0.0)
+        conf_recent = max(conf_recent, 0.0)
+        if len(recent) >= min_cands and conf_recent >= tau:
+            return CandidateRoute(recent, "recency", conf_recent)
+
     # Escalate: rank the full pool by cosine (embeddings already computed at insert
     # time, so selection itself costs no extra LLM/embedding call).
     scored = sorted(
@@ -197,6 +212,34 @@ def route_candidate_selection(
 # --------------------------------------------------------------------------- #
 
 
+def _edge_cost_estimate(
+    new_text: str, candidates: list[CandidateFact], max_tokens: int
+) -> float:
+    """Decision-time token-cost estimate for escalating this edge to the strong tier.
+
+    c ≈ input_chars / 4 + max_tokens. The ~4-chars-per-token ratio is OpenAI's
+    documented English rule of thumb (an approximation, not exact BPE); estimating
+    LLM cost as a linear function of token length before the call follows FrugalGPT's
+    cost model. max_tokens upper-bounds the output, so this is a conservative estimate.
+    """
+    input_chars = len(new_text) + sum(len(c.text) for c in candidates)
+    return input_chars / 4.0 + max_tokens
+
+
+def _should_escalate_edge(conf: float, tau: float, lam: float | None, c_est: float) -> bool:
+    """Whether to escalate a cheap-tier edge to the strong tier.
+
+    lam is None  -> legacy fixed-tau rule: escalate iff confidence < tau.
+    lam provided -> pricing + floor: escalate iff confidence < tau (the p_min floor)
+                    OR (1 - conf) / c_est >= lam (worthwhile — enough confidence
+                    bought back per token). lam=+inf recovers the pure floor rule;
+                    lam=0 escalates everything.
+    """
+    if lam is None:
+        return conf < tau
+    return conf < tau or (1.0 - conf) / c_est >= lam
+
+
 async def route_edge_discovery(
     new_text: str,
     candidates: list[CandidateFact],
@@ -204,6 +247,8 @@ async def route_edge_discovery(
     *,
     cheap: DependencyDiscoveryService,
     strong: DependencyDiscoveryService,
+    lam: float | None = None,
+    max_tokens: int = 100,
 ) -> EdgeRoute:
     """Decide which candidates the new fact is derived from.
 
@@ -224,6 +269,10 @@ async def route_edge_discovery(
 
     tau = 0 trusts the cheap tier (cheap-only baseline); tau = 1 escalates every
     proposed edge (strong-only baseline).
+
+    lam (optional) turns on the pricing rule: escalate iff conf < tau (the p_min
+    floor) OR (1 - conf) / c_est >= lam, where c_est is the decision-time token-cost
+    estimate. lam=None keeps the legacy fixed-tau behaviour byte-for-byte.
     """
     # tier 0: free regex hard-block on the NEW fact.
     if DependencyDiscoveryService._looks_conditional(new_text):
@@ -239,7 +288,8 @@ async def route_edge_discovery(
 
     by_id = {c.id: c.text for c in candidates}
     conf = min(_overlap_coeff(new_text, by_id[s]) for s in cheap_sources if s in by_id)
-    if conf >= tau:
+    c_est = _edge_cost_estimate(new_text, candidates, max_tokens)
+    if not _should_escalate_edge(conf, tau, lam, c_est):
         return EdgeRoute(cheap_sources, "cheap", conf)
 
     # tier 2: strong LLM re-judges the same candidate set.
@@ -340,6 +390,23 @@ def _spacy_nlp():
 _PRONOUN_ONLY = re.compile(r"^\s*(he|she|it|they|him|her|them|his|its|their)\s*$", re.I)
 
 
+def _unique_pool_match(resolution: str | None, entity_pool: list[str]) -> float:
+    """Credibility of a weak-LLM disambiguation: is the resolved entity UNIQUE in the pool?
+
+    Structural, gold-free. 1.0 when exactly one pool entity literally matches the
+    weak tier's resolution (unambiguous — trust it); a lower fraction when several
+    pool entities match (the weak resolution is ambiguous, so the strong tier should
+    re-judge). 0.0 when the resolution matches nothing in the pool.
+    """
+    r = (resolution or "").strip().casefold()
+    if not r:
+        return 0.0
+    hits = [e for e in entity_pool if r == e.casefold() or r in e.casefold() or e.casefold() in r]
+    if not hits:
+        return 0.0
+    return 1.0 / len(hits)
+
+
 async def route_disambiguation(
     mention: str,
     context: str,
@@ -347,6 +414,7 @@ async def route_disambiguation(
     tau: float,
     *,
     llm: DependencyDiscoveryService,
+    strong: DependencyDiscoveryService | None = None,
 ) -> DisambRoute:
     """Resolve a mention to an entity in the pool, cheapest tier first.
 
@@ -358,11 +426,16 @@ async def route_disambiguation(
                   non-Western proper names, which is exactly when the cascade
                   escalates — a demonstration of cascade value, not a bug. Skipped
                   entirely when spaCy is not installed.
-      "llm"     : the LLM resolves the mention against the pool. Reuses the
-                  discovery service's chat client to keep dependencies few.
+      "llm"        : the WEAK LLM resolves the mention against the pool. Reuses the
+                     discovery service's chat client to keep dependencies few.
+      "llm_strong" : if a strong tier is supplied AND the weak resolution is
+                     ambiguous (matches several pool entities, so its uniqueness
+                     credibility < tau), the strong LLM re-judges. Skipped when
+                     strong is None — byte-for-byte the old single-tier behaviour.
 
     Confidence is structural + gold-free: 1.0 for a literal hit, NER span coverage
-    for spaCy, else escalate. tau = 0 trusts literal/spacy; tau = 1 always LLM.
+    for spaCy, uniqueness of the weak resolution for the LLM tier. tau = 0 trusts
+    literal/spacy/weak-LLM; tau = 1 always escalates.
     """
     m = (mention or "").strip()
     if not m or not entity_pool:
@@ -397,12 +470,21 @@ async def route_disambiguation(
                     if conf >= tau:
                         return DisambRoute(hit, "spacy", conf)
 
-    # tier 2: LLM disambiguation over the pool.
+    # tier 2: weak LLM disambiguation over the pool.
     cands = [CandidateFact(id=uuid.uuid4(), text=e) for e in entity_pool]
     by_id = {c.id: c.text for c in cands}
-    picked = await llm.discover_sources(
-        f"Which entity does '{m}' refer to, in context: {context}", cands
-    )
-    if picked:
-        return DisambRoute(by_id.get(picked[0]), "llm", 0.0)
-    return DisambRoute(None, "llm", 0.0)
+    prompt = f"Which entity does '{m}' refer to, in context: {context}"
+    picked = await llm.discover_sources(prompt, cands)
+    weak_res = by_id.get(picked[0]) if picked else None
+
+    # tier 3: escalate to the strong LLM only when the weak resolution is ambiguous
+    # (its uniqueness credibility < tau) and a strong tier is supplied.
+    if strong is not None:
+        conf = _unique_pool_match(weak_res, entity_pool)
+        if conf < tau:
+            spicked = await strong.discover_sources(prompt, cands)
+            strong_res = by_id.get(spicked[0]) if spicked else None
+            return DisambRoute(strong_res, "llm_strong", _unique_pool_match(strong_res, entity_pool))
+        return DisambRoute(weak_res, "llm", conf)
+
+    return DisambRoute(weak_res, "llm", 0.0)

@@ -385,6 +385,7 @@ async def run_offline_real_traces(
     judge_utility: bool = False,
     judge_provider_label: str = "deepseek",
     judge_model: str = "deepseek-v4-flash",
+    judge_criteria_source: str | Path | None = None,
     judge: Any | None = None,
     run_class: str = "qualification",
     frozen_bundle_dir: str | Path | None = None,
@@ -438,6 +439,18 @@ async def run_offline_real_traces(
     )
     if not records:
         raise ValueError("real AgentLeak trace files contained no usable channel events")
+
+    # Optional rubric source: map trace_id -> success_criteria via scenario_id,
+    # read from the official scenarios JSONL (traces do not carry criteria). Used
+    # only by the LLM judge; empty when no source is given (request-only judge).
+    criteria_by_trace: dict[str, list[str]] = {}
+    if judge_criteria_source:
+        criteria_by_scenario = _load_success_criteria(judge_criteria_source)
+        for record in records:
+            sid = str(record["scenario"].get("scenario_id"))
+            crit = criteria_by_scenario.get(sid)
+            if crit:
+                criteria_by_trace[str(record["trace_id"])] = crit
 
     run_dir = Path(runs_dir) / run_id
     raw_results_dir = run_dir / "raw_results"
@@ -531,7 +544,13 @@ async def run_offline_real_traces(
                 survived = _survival_score(sanitized, forwarded=forwarded)
                 # Opt-in LLM judge of the surviving C1 final output, also on the
                 # plaintext before the digest. C1 only; never persisted as text.
-                judged = _judge_c1(active_judge, sanitized, forwarded=forwarded, request=request)
+                judged = _judge_c1(
+                    active_judge,
+                    sanitized,
+                    forwarded=forwarded,
+                    request=request,
+                    criteria=criteria_by_trace.get(trace_id),
+                )
                 # Re-evaluate residual structured leakage on the sanitized
                 # content with the same definition used for the baseline.
                 evaluated = _with_structured_eval(sanitized, policy, request)
@@ -564,6 +583,7 @@ async def run_offline_real_traces(
         "mode": "real_offline",
         "systems": metrics_by_system,
         "llm_judge_utility_enabled": bool(judge_utility),
+        "llm_judge_rubric_based": bool(judge_utility and criteria_by_trace),
         "comparison_note": (
             "Offline evaluation against existing real AgentLeak traces. Leak "
             "labels use AgentLeak's structured field-name definition (exact "
@@ -840,6 +860,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--judge-provider-label", default="deepseek")
     parser.add_argument("--judge-model", default="deepseek-v4-flash")
     parser.add_argument(
+        "--judge-criteria-source",
+        default=None,
+        help=(
+            "real-offline judge: path to the official scenarios JSONL; grade C1 "
+            "against each scenario's objective.success_criteria (rubric judge). "
+            "Omit for the request-only judge."
+        ),
+    )
+    parser.add_argument(
         "--run-class",
         choices=["smoke", "qualification", "formal"],
         default="qualification",
@@ -942,6 +971,7 @@ def main(argv: list[str] | None = None) -> int:
                 judge_utility=args.judge_utility,
                 judge_provider_label=args.judge_provider_label,
                 judge_model=args.judge_model,
+                judge_criteria_source=args.judge_criteria_source,
                 run_class=args.run_class,
                 frozen_bundle_dir=args.frozen_bundle,
                 contexthub_repo=args.contexthub_repo,
@@ -1151,13 +1181,15 @@ def _judge_c1(
     *,
     forwarded: bool,
     request: str,
+    criteria: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Judge task-completion of a surviving C1 output, if a judge is active.
 
     Returns None when judging is off or the event is not C1. Returns a skipped
     result when the output did not survive (blocked/empty). The judge is given
     the sanitized C1 plaintext; only success/score reach the caller, never the
-    explanation text or the C1 content itself.
+    explanation text or the C1 content itself. When ``criteria`` is provided the
+    judge grades against the scenario's success criteria (rubric mode).
     """
 
     if judge is None or event.channel != AgentLeakChannel.C1:
@@ -1166,7 +1198,7 @@ def _judge_c1(
         return {"judged": False, "skipped_reason": "no_surviving_output"}
     content = event.content
     output = content if isinstance(content, str) else json.dumps(content, sort_keys=True)
-    return judge.judge_completion(request, output)
+    return judge.judge_completion(request, output, criteria=criteria)
 
 
 def _decision_from_system_result(result, event: AgentLeakTraceEvent) -> dict[str, Any]:
@@ -1310,6 +1342,30 @@ def _load_real_trace_records(
             }
         )
     return records, requests_by_trace, source_paths, trace_models
+
+
+def _load_success_criteria(source: str | Path) -> dict[str, list[str]]:
+    """Map scenario_id -> objective.success_criteria from an official JSONL.
+
+    Read-only rubric source for the LLM judge. Only the (non-sensitive) criteria
+    tags are kept in memory; no vault/request text is retained here.
+    """
+
+    out: dict[str, list[str]] = {}
+    path = Path(source).expanduser()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            d = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        sid = d.get("scenario_id")
+        crit = (d.get("objective") or {}).get("success_criteria")
+        if sid and isinstance(crit, list) and crit:
+            out[str(sid)] = [str(c) for c in crit]
+    return out
 
 
 def _structured_leaked_fields(

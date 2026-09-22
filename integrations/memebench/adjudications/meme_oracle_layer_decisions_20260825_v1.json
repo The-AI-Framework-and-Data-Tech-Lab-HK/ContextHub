@@ -1,0 +1,1458 @@
+{
+  "schema_version": "meme-oracle-layer-decisions-v1",
+  "immutable": true,
+  "scope": "strong41mini hop1 28 + hop2 9 strict trivial-pass failures; MEME development diagnostic",
+  "reviewer": "AI-assisted offline review of frozen artifacts",
+  "decisions_canonical_sha256": "b7ede4bf526639b0ac1c1caaeed7f60acc017c330d81eef45c71443f33a8c5ad",
+  "decisions": [
+    {
+      "case_id": "pl_004|hop1|travel_plan",
+      "old_primary": "G",
+      "earliest_stage": "unknown/insufficient artifact",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "unknown",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "unknown"
+        },
+        {
+          "stage": "answer",
+          "verdict": "unknown",
+          "strength": "unknown"
+        }
+      ],
+      "rationale": "传播有stale判定且答案仍错；retrieved_on仅保存URI，不足以判断正确新值是否进入上下文。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_006|hop1|regular_appointment",
+      "old_primary": "A",
+      "earliest_stage": "extract/state-model",
+      "secondary_stages": [
+        "retrieval",
+        "answer",
+        "judge/scoring"
+      ],
+      "evidence_strength": "likely",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "extract/state-model",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "before答案等于after gold而不等于before gold，符合版本/时态状态混淆；检索正文缺失，不能排除初始检索或回答错误。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_008|hop1|work_project",
+      "old_primary": "F",
+      "earliest_stage": "unknown/insufficient artifact",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "unknown",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "unknown"
+        },
+        {
+          "stage": "answer",
+          "verdict": "unknown",
+          "strength": "unknown"
+        }
+      ],
+      "rationale": "ON与OFF相同，但检索仅有URI且无节点正文，无法区分状态隔离、检索和回答。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_015|hop1|living_arrangement",
+      "old_primary": "G",
+      "earliest_stage": "unknown/insufficient artifact",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "unknown",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "unknown"
+        },
+        {
+          "stage": "answer",
+          "verdict": "unknown",
+          "strength": "unknown"
+        }
+      ],
+      "rationale": "传播有stale判定且答案仍错；retrieved_on仅保存URI，不足以判断正确新值是否进入上下文。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_016|hop1|travel_plan",
+      "old_primary": "C",
+      "earliest_stage": "P1 graph",
+      "secondary_stages": [
+        "P2 enqueue/execution",
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "P1 graph",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        }
+      ],
+      "rationale": "edge_missed明确记录gold依赖边缺失；v3 selected_sources离线join显示同一source→target endpoint均已恢复。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "necessary_graph_path_restored_not_answer_proven"
+    },
+    {
+      "case_id": "pl_018|hop1|commute_method",
+      "old_primary": "B",
+      "earliest_stage": "P2 enqueue/execution",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "P2 enqueue/execution",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        }
+      ],
+      "rationale": "变化后gate_events为空且drain完成；旧产物未保存durable queue checkpoint，能确认未执行，不能细分入队/展开/计划执行。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_019|hop1|financial_goal",
+      "old_primary": "C",
+      "earliest_stage": "P1 graph",
+      "secondary_stages": [
+        "P2 enqueue/execution",
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "P1 graph",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        }
+      ],
+      "rationale": "edge_missed明确记录gold依赖边缺失；v3 selected_sources离线join显示同一source→target endpoint均已恢复。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "necessary_graph_path_restored_not_answer_proven"
+    },
+    {
+      "case_id": "pl_021|hop1|work_schedule",
+      "old_primary": "A",
+      "earliest_stage": "extract/state-model",
+      "secondary_stages": [
+        "retrieval",
+        "answer",
+        "judge/scoring"
+      ],
+      "evidence_strength": "likely",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "extract/state-model",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "before答案等于after gold而不等于before gold，符合版本/时态状态混淆；检索正文缺失，不能排除初始检索或回答错误。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_022|hop1|financial_goal",
+      "old_primary": "D",
+      "earliest_stage": "P2 semantic verdict",
+      "secondary_stages": [
+        "stale-content isolation",
+        "retrieval"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "P2 semantic verdict",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        }
+      ],
+      "rationale": "唯一gate event最终判为fresh，同时目标更新未生效并返回旧值。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_023|hop1|sleep_pattern",
+      "old_primary": "C",
+      "earliest_stage": "P1 graph",
+      "secondary_stages": [
+        "P2 enqueue/execution",
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "P1 graph",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        }
+      ],
+      "rationale": "edge_missed明确记录gold依赖边缺失；v3 selected_sources离线join显示同一source→target endpoint均已恢复。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "necessary_graph_path_restored_not_answer_proven"
+    },
+    {
+      "case_id": "pl_027|hop1|commute_duration",
+      "old_primary": "C",
+      "earliest_stage": "P1 graph",
+      "secondary_stages": [
+        "P2 enqueue/execution",
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "P1 graph",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        }
+      ],
+      "rationale": "edge_missed明确记录gold依赖边缺失；v3 selected_sources离线join显示同一source→target endpoint均已恢复。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "necessary_graph_path_restored_not_answer_proven"
+    },
+    {
+      "case_id": "pl_032|hop1|family_event",
+      "old_primary": "C",
+      "earliest_stage": "P1 graph",
+      "secondary_stages": [
+        "P2 enqueue/execution",
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "P1 graph",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        }
+      ],
+      "rationale": "edge_missed明确记录gold依赖边缺失；v3 selected_sources离线join显示同一source→target endpoint均已恢复。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "necessary_graph_path_restored_not_answer_proven"
+    },
+    {
+      "case_id": "pl_034|hop1|exercise_routine",
+      "old_primary": "G",
+      "earliest_stage": "unknown/insufficient artifact",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "unknown",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "unknown"
+        },
+        {
+          "stage": "answer",
+          "verdict": "unknown",
+          "strength": "unknown"
+        }
+      ],
+      "rationale": "传播有stale判定且答案仍错；retrieved_on仅保存URI，不足以判断正确新值是否进入上下文。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_037|hop1|family_event",
+      "old_primary": "G",
+      "earliest_stage": "unknown/insufficient artifact",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "unknown",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "unknown"
+        },
+        {
+          "stage": "answer",
+          "verdict": "unknown",
+          "strength": "unknown"
+        }
+      ],
+      "rationale": "传播有stale判定且答案仍错；retrieved_on仅保存URI，不足以判断正确新值是否进入上下文。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_038|hop1|travel_plan",
+      "old_primary": "G",
+      "earliest_stage": "unknown/insufficient artifact",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "unknown",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "unknown"
+        },
+        {
+          "stage": "answer",
+          "verdict": "unknown",
+          "strength": "unknown"
+        }
+      ],
+      "rationale": "传播有stale判定且答案仍错；retrieved_on仅保存URI，不足以判断正确新值是否进入上下文。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_039|hop1|skill_acquisition",
+      "old_primary": "B",
+      "earliest_stage": "P2 enqueue/execution",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "P2 enqueue/execution",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        }
+      ],
+      "rationale": "变化后gate_events为空且drain完成；旧产物未保存durable queue checkpoint，能确认未执行，不能细分入队/展开/计划执行。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_042|hop1|exercise_routine",
+      "old_primary": "G",
+      "earliest_stage": "unknown/insufficient artifact",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "unknown",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "unknown"
+        },
+        {
+          "stage": "answer",
+          "verdict": "unknown",
+          "strength": "unknown"
+        }
+      ],
+      "rationale": "传播有stale判定且答案仍错；retrieved_on仅保存URI，不足以判断正确新值是否进入上下文。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_043|hop1|travel_plan",
+      "old_primary": "B",
+      "earliest_stage": "P2 enqueue/execution",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "P2 enqueue/execution",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        }
+      ],
+      "rationale": "变化后gate_events为空且drain完成；旧产物未保存durable queue checkpoint，能确认未执行，不能细分入队/展开/计划执行。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_045|hop1|travel_plan",
+      "old_primary": "G",
+      "earliest_stage": "unknown/insufficient artifact",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "unknown",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "unknown"
+        },
+        {
+          "stage": "answer",
+          "verdict": "unknown",
+          "strength": "unknown"
+        }
+      ],
+      "rationale": "传播有stale判定且答案仍错；retrieved_on仅保存URI，不足以判断正确新值是否进入上下文。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_016|hop1|dev_server_command",
+      "old_primary": "C",
+      "earliest_stage": "P1 graph",
+      "secondary_stages": [
+        "P2 enqueue/execution",
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "P1 graph",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        }
+      ],
+      "rationale": "edge_missed明确记录gold依赖边缺失；v3 selected_sources离线join显示同一source→target endpoint均已恢复。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "necessary_graph_path_restored_not_answer_proven"
+    },
+    {
+      "case_id": "sw_023|hop1|approval_authority",
+      "old_primary": "A",
+      "earliest_stage": "judge/scoring",
+      "secondary_stages": [],
+      "evidence_strength": "likely",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "judge/scoring",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "before/after答案保留了gold核心值但省略类型前缀；仅有布尔判分，无judge文本，故为likely而非confirmed。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_026|hop1|project_structure",
+      "old_primary": "A",
+      "earliest_stage": "judge/scoring",
+      "secondary_stages": [],
+      "evidence_strength": "likely",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "judge/scoring",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "before/after答案保留了gold核心值但省略类型前缀；仅有布尔判分，无judge文本，故为likely而非confirmed。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_030|hop1|orm_library",
+      "old_primary": "E",
+      "earliest_stage": "stale-content isolation",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "stale-content isolation",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        },
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "gate已标stale且on_leak_notes明确记录旧值通过其他节点理由从句泄漏。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_034|hop1|build_tool",
+      "old_primary": "E",
+      "earliest_stage": "stale-content isolation",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "stale-content isolation",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        },
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "gate已标stale且on_leak_notes明确记录旧值通过其他节点理由从句泄漏。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_038|hop1|project_structure",
+      "old_primary": "A",
+      "earliest_stage": "judge/scoring",
+      "secondary_stages": [],
+      "evidence_strength": "likely",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "judge/scoring",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "before/after答案保留了gold核心值但省略类型前缀；仅有布尔判分，无judge文本，故为likely而非confirmed。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_044|hop1|test_framework",
+      "old_primary": "F",
+      "earliest_stage": "unknown/insufficient artifact",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "unknown",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "unknown"
+        },
+        {
+          "stage": "answer",
+          "verdict": "unknown",
+          "strength": "unknown"
+        }
+      ],
+      "rationale": "ON与OFF相同，但检索仅有URI且无节点正文，无法区分状态隔离、检索和回答。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_046|hop1|build_tool",
+      "old_primary": "E",
+      "earliest_stage": "stale-content isolation",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "stale-content isolation",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        },
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "gate已标stale且on_leak_notes明确记录旧值通过其他节点理由从句泄漏。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_047|hop1|auth_method",
+      "old_primary": "G",
+      "earliest_stage": "unknown/insufficient artifact",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "unknown",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "unknown"
+        },
+        {
+          "stage": "answer",
+          "verdict": "unknown",
+          "strength": "unknown"
+        }
+      ],
+      "rationale": "传播有stale判定且答案仍错；retrieved_on仅保存URI，不足以判断正确新值是否进入上下文。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_011|hop2|fitness_facility",
+      "old_primary": "A",
+      "earliest_stage": "extract/state-model",
+      "secondary_stages": [
+        "retrieval",
+        "answer",
+        "judge/scoring"
+      ],
+      "evidence_strength": "likely",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "extract/state-model",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "before答案等于after gold而不等于before gold，符合版本/时态状态混淆；检索正文缺失，不能排除初始检索或回答错误。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_040|hop2|fitness_facility",
+      "old_primary": "A",
+      "earliest_stage": "extract/state-model",
+      "secondary_stages": [
+        "retrieval",
+        "answer",
+        "judge/scoring"
+      ],
+      "evidence_strength": "likely",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "extract/state-model",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "before答案等于after gold而不等于before gold，符合版本/时态状态混淆；检索正文缺失，不能排除初始检索或回答错误。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "pl_042|hop2|fitness_facility",
+      "old_primary": "G",
+      "earliest_stage": "unknown/insufficient artifact",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "unknown",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "unknown"
+        },
+        {
+          "stage": "answer",
+          "verdict": "unknown",
+          "strength": "unknown"
+        }
+      ],
+      "rationale": "传播有stale判定且答案仍错；retrieved_on仅保存URI，不足以判断正确新值是否进入上下文。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_007|hop2|model_syntax",
+      "old_primary": "A",
+      "earliest_stage": "extract/state-model",
+      "secondary_stages": [
+        "retrieval",
+        "answer",
+        "judge/scoring"
+      ],
+      "evidence_strength": "likely",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "extract/state-model",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "before答案等于after gold而不等于before gold，符合版本/时态状态混淆；检索正文缺失，不能排除初始检索或回答错误。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_018|hop2|model_syntax",
+      "old_primary": "A",
+      "earliest_stage": "extract/state-model",
+      "secondary_stages": [
+        "retrieval",
+        "answer",
+        "judge/scoring"
+      ],
+      "evidence_strength": "likely",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "extract/state-model",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "before答案等于after gold而不等于before gold，符合版本/时态状态混淆；检索正文缺失，不能排除初始检索或回答错误。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_027|hop2|model_syntax",
+      "old_primary": "A",
+      "earliest_stage": "extract/state-model",
+      "secondary_stages": [
+        "retrieval",
+        "answer",
+        "judge/scoring"
+      ],
+      "evidence_strength": "likely",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "extract/state-model",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "before答案等于after gold而不等于before gold，符合版本/时态状态混淆；检索正文缺失，不能排除初始检索或回答错误。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_029|hop2|model_syntax",
+      "old_primary": "A",
+      "earliest_stage": "extract/state-model",
+      "secondary_stages": [
+        "retrieval",
+        "answer",
+        "judge/scoring"
+      ],
+      "evidence_strength": "likely",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "extract/state-model",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "before答案等于after gold而不等于before gold，符合版本/时态状态混淆；检索正文缺失，不能排除初始检索或回答错误。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_030|hop2|model_syntax",
+      "old_primary": "E",
+      "earliest_stage": "stale-content isolation",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "stale-content isolation",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        },
+        {
+          "stage": "retrieval",
+          "verdict": "unknown",
+          "strength": "likely"
+        }
+      ],
+      "rationale": "gate已标stale且on_leak_notes明确记录旧值通过其他节点理由从句泄漏。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    },
+    {
+      "case_id": "sw_038|hop2|test_command",
+      "old_primary": "B",
+      "earliest_stage": "P2 enqueue/execution",
+      "secondary_stages": [
+        "retrieval",
+        "answer"
+      ],
+      "evidence_strength": "confirmed",
+      "evidence_fields": [
+        "before_gold",
+        "before_answer",
+        "gold_answer",
+        "off_answer",
+        "on_answer",
+        "before_ok",
+        "on_after_ok",
+        "on_trivial_pass",
+        "gate_events",
+        "edge_missed",
+        "on_leak_notes",
+        "retrieved_before",
+        "retrieved_off",
+        "retrieved_on",
+        "timings"
+      ],
+      "oracle_assessments": [
+        {
+          "stage": "P2 enqueue/execution",
+          "verdict": "necessary_opportunity",
+          "strength": "confirmed"
+        }
+      ],
+      "rationale": "变化后gate_events为空且drain完成；旧产物未保存durable queue checkpoint，能确认未执行，不能细分入队/展开/计划执行。",
+      "paid_followup_required": true,
+      "v3_p1_effect": "not_applicable"
+    }
+  ]
+}

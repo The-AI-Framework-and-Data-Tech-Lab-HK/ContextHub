@@ -24,7 +24,6 @@ async def _make_propagation_engine(db_pool, repo, services):
         dsn="postgresql://contexthub:contexthub@localhost:5432/contexthub",
         rule_registry=services.rule_registry,
         lifecycle=services.lifecycle,
-        indexer=services.indexer,
         sweep_interval=9999,
         lease_timeout=5,
     )
@@ -69,10 +68,9 @@ async def test_p1_schema_change_marks_dependent_stale(db_pool, repo, acme_sessio
     engine._running = True
     await engine._drain_ready_events(context_id=None)
 
-    # 6. Assert dependent is stale or auto-updated
+    # 6. Assert dependent is marked stale (table_schema rule never rewrites content)
     mem = await acme_session.fetchrow("SELECT status FROM contexts WHERE id = $1", mem_id)
-    # table_schema rule does auto_update; if L2 is present it should succeed
-    assert mem["status"] in ("stale", "active")
+    assert mem["status"] == "stale"
 
 
 @pytest.mark.asyncio
@@ -285,7 +283,7 @@ async def test_p7_notify_lost_recovery(db_pool, repo, services):
             "SELECT delivery_status FROM change_events WHERE context_id = $1 ORDER BY timestamp DESC LIMIT 1",
             ctx_id,
         )
-    assert event["delivery_status"] == "processed"
+    assert event["delivery_status"] == "succeeded"
 
 
 @pytest.mark.asyncio
@@ -335,9 +333,9 @@ async def test_p8_lease_timeout_recovery(db_pool, repo, services):
                 "SELECT delivery_status FROM change_events WHERE context_id = $1 ORDER BY timestamp DESC LIMIT 1",
                 ctx_id,
             )
-        if event["delivery_status"] == "processed":
+        if event["delivery_status"] == "succeeded":
             break
         await asyncio.sleep(0.1)
-    assert event["delivery_status"] == "processed", (
+    assert event["delivery_status"] == "succeeded", (
         f"Stuck event was not recovered; final status: '{event['delivery_status']}'"
     )

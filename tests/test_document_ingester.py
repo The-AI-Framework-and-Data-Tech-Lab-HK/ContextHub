@@ -22,8 +22,6 @@ from contexthub.llm.factory import create_chat_client
 from contexthub.models.context import ContextLevel, Scope
 from contexthub.models.request import RequestContext
 from contexthub.services.access_decision import AccessDecision
-from contexthub.services.acl_service import ACLService
-from contexthub.services.audit_service import AuditService
 from contexthub.services.document_ingester import (
     TREE_PROMPT_CHAR_LIMIT,
     LongDocumentIngester,
@@ -982,13 +980,53 @@ async def test_context_store_reads_l2_from_filesystem_and_preserves_masking_and_
     assert content == "[MASKED] value"
     assert db.executed and "last_accessed_at" in db.executed[0][0]
     audit.log_best_effort.assert_awaited_once()
-
     l0 = await store.read(db, "ctx://resources/manuals/test", ContextLevel.L0, ctx)
     assert l0 == "db l0"
 
 
 @pytest.mark.asyncio
-async def test_context_store_handles_missing_extracted_file_and_stale_recovery(tmp_path: Path):
+async def test_context_store_discards_file_read_when_version_changes(tmp_path: Path):
+    file_dir = tmp_path / "doc-race"
+    file_dir.mkdir()
+    (file_dir / "extracted.txt").write_text("old bytes", encoding="utf-8")
+
+    class RacingDB:
+        async def fetchrow(self, sql, *args):
+            return {
+                "id": uuid.uuid4(),
+                "status": "active",
+                "validity_status": "fresh",
+                "version": 1,
+                "l2_content": None,
+                "file_path": str(file_dir),
+            }
+
+        async def fetchval(self, sql, *args):
+            return None
+
+        async def execute(self, sql, *args):
+            return "UPDATE 1"
+
+    store = ContextStore(
+        SimpleNamespace(
+            check_read_access=AsyncMock(
+                return_value=AccessDecision(
+                    allowed=True, field_masks=None, reason="ok"
+                )
+            )
+        ),
+        SimpleNamespace(apply_masks=lambda content, masks: content),
+    )
+    with pytest.raises(ConflictError, match="changed while"):
+        await store.read(
+            RacingDB(),
+            "ctx://resources/manuals/race",
+            ContextLevel.L2,
+            RequestContext(account_id="acme", agent_id="query-agent"),
+        )
+
+@pytest.mark.asyncio
+async def test_context_store_stale_file_read_is_blocked_by_service_barrier(tmp_path: Path):
     missing_dir = tmp_path / "missing"
     missing_dir.mkdir()
 
@@ -1025,14 +1063,14 @@ async def test_context_store_handles_missing_extracted_file_and_stale_recovery(t
         lifecycle=lifecycle,
     )
 
-    content = await store.read(
-        FakeDB(),
-        "ctx://resources/manuals/test",
-        ContextLevel.L2,
-        RequestContext(account_id="acme", agent_id="query-agent"),
-    )
-    assert content == ""
-    lifecycle.recover_from_stale.assert_awaited_once()
+    with pytest.raises(ConflictError, match="not serviceable"):
+        await store.read(
+            FakeDB(),
+            "ctx://resources/manuals/test",
+            ContextLevel.L2,
+            RequestContext(account_id="acme", agent_id="query-agent"),
+        )
+    lifecycle.recover_from_stale.assert_not_awaited()
 
 
 @pytest.mark.asyncio

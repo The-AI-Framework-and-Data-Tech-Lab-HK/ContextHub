@@ -9,7 +9,7 @@ You are running the ContextHub x EntCollabBench first fixed-case pilot.
 
 Repositories:
 - ContextHub: /Users/sherrylin/Documents/PythonProjects/ContextHub
-- EntCollabBench external clone: /Users/sherrylin/Documents/PythonProjects/research/EntCollabBench
+- EntCollabBench external clone: /Users/sherrylin/Documents/PythonProjects/public/EntCollabBench
 
 Read first:
 - /Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/PILOT_RUNBOOK.md
@@ -29,7 +29,7 @@ Hard rules:
 
 Experiment boundary:
 - Run a fresh S0 benchmark using the fixed cases in
-  `experiments/fixed12/FIXED_CASES_MANIFEST_12.json`.
+  `/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/experiments/fixed12/FIXED_CASES_MANIFEST_12.json`.
 - Then run ContextHub's near-online/post-run S2 diagnostic on the saved S0 result
   and trajectory artifacts.
 - S2 tool_state findings are diagnostics over observed trace events, with live
@@ -72,7 +72,7 @@ Suggested execution order:
    duration, cleanup/memory failures, and export-state compatibility issues.
 6. Run the ContextHub near-online/post-run S2 diagnostic against the saved S0
    artifacts.
-7. Fill `experiments/fixed12/FIXED_CASES_REPORT_TEMPLATE.md` into the final report path.
+7. Fill `/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/experiments/fixed12/FIXED_CASES_REPORT_TEMPLATE.md` into the final report path.
 
 Stop conditions:
 - Stop immediately if any API key or secret value would need to be printed.
@@ -111,8 +111,8 @@ Required return fields:
 
 ## Runner Notes
 
-- The first fixed suite is in `experiments/fixed12/FIXED_CASES_MANIFEST_12.json`.
-- The report template is `experiments/fixed12/FIXED_CASES_REPORT_TEMPLATE.md`.
+- The first fixed suite is in `/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/experiments/fixed12/FIXED_CASES_MANIFEST_12.json`.
+- The report template is `/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/experiments/fixed12/FIXED_CASES_REPORT_TEMPLATE.md`.
 - Existing reports, including `ONLINE_S2_PILOT_REPORT.md`, are prior artifacts
   and must not be overwritten.
 - If only S2 diagnostics are run from existing S0 artifacts, label the result

@@ -4,7 +4,7 @@
 
 - 源码：<https://github.com/yutao1024/EntCollabBench>
 - 数据集：<https://huggingface.co/datasets/Kirito-Lab/EntCollabBench>
-- 调研 clone：`/Users/sherrylin/Documents/PythonProjects/research/EntCollabBench`
+- 调研 / 执行 clone：`/Users/sherrylin/Documents/PythonProjects/public/EntCollabBench`
 - 源码 commit：`9d085fcb86adaf20254c09e2ca35123e535a9643`
 - 数据文件已从 Hugging Face 下载到外部 clone 的 `scripts/dataset/`：
   - `mcp_tasks_160.json`
@@ -21,8 +21,8 @@
 已执行的关键命令：
 
 ```bash
-git clone https://github.com/yutao1024/EntCollabBench.git /Users/sherrylin/Documents/PythonProjects/research/EntCollabBench
-cd /Users/sherrylin/Documents/PythonProjects/research/EntCollabBench
+git clone https://github.com/yutao1024/EntCollabBench.git /Users/sherrylin/Documents/PythonProjects/public/EntCollabBench
+cd /Users/sherrylin/Documents/PythonProjects/public/EntCollabBench
 python -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python scripts/benchmark.py --help
@@ -163,9 +163,17 @@ judge 模型通过：
 
 - `JUDGE_OPENAI_API_KEY` 或 `OPENAI_API_KEY`
 - `JUDGE_OPENAI_BASE_URL` 或 `OPENAI_BASE_URL`
-- `JUDGE_MODELS`
+- `JUDGE_MODELS`（comma-separated，1–3 个；repo 未硬编码型号，README 仅占位 `<model name>`）
 
 Task 9 的 weak/strong 模型轴应设置 `AGENT_LLM_MODEL`；judge 轴应固定，避免把被测模型变化混入评分器变化。
+
+**论文 judge 型号（已从论文正文 §4.3 "Judgment consistency" 确认）**：三模型多数投票 **Gemini-3.1-Pro + GPT-5.4 + Claude-Sonnet-4.6**（Appendix F 给出与人工标注一致性）。对外可比口径必须用这 3 个。
+
+**判分纪律（Phase 4 冻结，详见 task-prompt/phase 4/task9 §4.2.1 与 plan/19 §5.7）**：
+- 两层判分：**层 A 任务成功率**用 repo 原生 `judge.py`（纯 LLM-as-a-judge，见下"Grader / ground truth"）；**层 B 违规 oracle** 用 dataset `ground_truth[]` + DB diff 确定性对齐，不调 judge LLM。
+- 两阶段省钱：dev 用单模型 `gpt-5.4`（论文 3 之一，**禁用 `gpt-4o`**），定稿用 3 模型对已存 trajectory re-judge（`benchmark.py` 自带 re-judge，只重跑 judge 不重跑 agent）。dev 单判数字标 provisional，不可对外、不可与 3 模型数字混表。
+- **过去 `gpt-4o` 单判的 S0 结果（`/Users/sherrylin/Documents/PythonProjects/ContextHub/integrations/entcollabbench/runs`、`/Users/sherrylin/Documents/PythonProjects/public/EntCollabBench/scripts/result/contexthub_*`）不可作论文可比基线**——要保留须用上述 judge 配置重判。
+- judge 不进 weak/strong 轴。3 个型号在所用 provider（如 yunwu.ai）的确切调用 slug 定稿前须先验证可调。
 
 ## 代表性 trace 标注
 
@@ -193,10 +201,28 @@ Task 9 的 weak/strong 模型轴应设置 `AGENT_LLM_MODEL`；judge 轴应固定
 
 重要约束：world_loader 写 `contexts.uri` 时必须使用 base URI，不写 `@vN`。`@vN` 只出现在 handoff/tool/closure payload 的 `context_versions` 或 declared runtime refs 中。
 
+## 在线接入决策（Phase 4 冻结）
+
+最细粒度 hook 在 `AgentRuntime._append_session_event()`，改外部源码被禁止。但 agent 之间、agent 与工具之间都是 HTTP，因此用**代理形态**在网络层在线拦截，无需改 EntCollabBench 源码。
+
+**形态拍板（2026-06-18，见 `phase4_20260708_next_step.md` §1 决策 6）**：独立进程 HTTP 反向代理（**不**包装 MCP/委派 client——agent 与 MCP 均为 Docker 内独立 HTTP 服务，包装 client 等价改源码/改镜像）；身份用**方案 A（每 agent 一监听口，身份由端口定）**；判定全部委托现有 `runtime_wrapper.py::ContextHubRuntimeWrapper` + `interceptor.py::EnforcementInterceptor.apply()` + `mcp_runtime_adapter.py`，代理只做"网络外壳 + 协议翻译"；**observe→enforce 两段**（observe 永远转发、只记决策，量化 false-block 后再翻 enforce）；**S2 分阶段**（先弱 S2 = 内存 world + NoopStaleness + 仅 decision-log；完整 S2 = DB-backed staleness + 旁路 fail-open audit，留 P0-2b）。
+
+代码件（均已单测）：`online_proxy.py`（tool 代理）、`online_handoff_proxy.py`（handoff 代理）、`online_proxy_base.py`（共享脚手架）、`proxy_config.py`（option A 部署生成器）、`decision_log.py`（observe 读数聚合）、`mcp_runtime_adapter.py::ToolSchemaCache`（live schema + per-server 缓存）。
+
+边界状态：
+
+- **tool：真在线，observe 已在真实 fleet 跑通**（2026-06-20）——MCP 服务前架 ContextHub 代理，工具执行前做 pre-dispatch gate；observe 跑 145/146 得 128 条真实 tool-call 决策（全 forwarded、0 错），live MCP schema 经 `ToolSchemaCache` 真实拉取。enforce 模式已单测、真实 fleet 未验。
+- **handoff：真在线，机制已落地 + 对源码校准，待 Docker 现场跑**——在 `ask_{agent}_by_http`（`POST /v1/agent/tasks`）委派链路前架代理拦截；block = 合法 `AgentTaskResponse(status="rejected")`（经 `parse_task_response`，调用方得 `Error:` + 记 `delegate_non_ok`，下游 agent 不启动）。单测全绿，真实 fleet 未跑（tool/handoff 同一套基建）。
+- **closure：混合**——在线拦 tool/handoff，closure 走事后 / timeout 边界判定（agent 最终 DONE 文本在其内部产出，难在"宣布前"在线拦）。
+- **口径**：只有在线拦 tool+handoff 这部分能 claim 下游 success 改善（H1/H2）；纯 post-run replay（如现有 `s2_diagnostic` / `online_s2_pilot`）只能 claim detection，不能 claim 成功率提升。
+
+> 运行手册（Docker fleet 现状、挂代理两条路、observe 命令骨架、踩过的坑）见 `task-prompt/phase 4/phase4_20260708_next_step.md` §5，不在此重复。
+
 ## 风险与待确认
 
-- 完整 sample 未跑通，缺 Docker、Python 3.11 conda 环境和模型/judge 环境变量。
-- MCP tool schema 依赖运行中的服务，不能只靠仓内静态文件完整恢复。
-- 论文中的 deterministic policy adjudication 在开源 runner 中没有作为纯本地 API 暴露；当前 runner 仍要求 judge LLM。
-- `object_exists` 的精确 table/primary-key 映射需要在 MCP 服务启动后，通过 `export_state` 和具体 task `state_export` 再确认。
-- 最细粒度 hook 在 `AgentRuntime._append_session_event()`，但这需要改外部 EntCollabBench 或在 Task 8 通过 monkeypatch/包装 runtime；如果不改外部源码，只能在 benchmark runner 层用收集后的 trace 做离线 enforcement 评估。
+- ~~完整 sample 未跑通，缺 Docker~~ **已部分解除（2026-06-20）**：Docker fleet 已起（11 agent + 7 MCP，**无 gitea**；端口/环境见 `phase4_20260708_next_step.md` §5），observe 已跑通 145/146。仍待：enforce 真实验证、真实 would_block/would_repair 数字（上轮 deepseek-v4-pro 慢、被 180s 超时砍，需调大 timeout 或换快模型）。
+- MCP tool schema 依赖运行中的服务，不能只靠仓内静态文件完整恢复（已用 `ToolSchemaCache` 在运行时拉取并缓存；实测 MCP `tools/list` 无需 auth）。
+- 论文中的 deterministic policy adjudication 在开源 runner 中没有作为纯本地 API 暴露；当前 runner 仍要求 judge LLM（故层 A 任务成功率必须用其原生 3 模型 judge，见上"模型配置"）。
+- `object_exists` 的精确 table/primary-key 映射需要在 MCP 服务启动后，通过 `export_state` 和具体 task `state_export` 再确认（P0-2b 装配完整 S2 时落实）。
+- handoff 在线代理拦截**机制已实现 + 对源码校准 + 单测全绿**，待 Docker 现场跑（与 tool 同一套基建）；3 个 judge 型号在 provider 上的确切 slug 需定稿前验证。
+- per-agent 身份在线未跑（observe 用了共享映射，`agent_id` 失真）；代理 launcher 需守护（后台回收会静默死）；`online_proxy._apply_patch` 的 patch 基底 bug 翻 enforce 前需修。详见 `phase4_20260708_next_step.md` P0-2c。

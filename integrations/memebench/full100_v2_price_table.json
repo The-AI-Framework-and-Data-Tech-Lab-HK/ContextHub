@@ -1,0 +1,18 @@
+{
+  "gpt-4.1-mini": {
+    "input_per_million": 0.4,
+    "output_per_million": 1.6
+  },
+  "gpt-4o": {
+    "input_per_million": 2.5,
+    "output_per_million": 10.0
+  },
+  "gpt-4o-mini": {
+    "input_per_million": 0.15,
+    "output_per_million": 0.6
+  },
+  "text-embedding-v4": {
+    "input_per_million": 0.0,
+    "output_per_million": 0.0
+  }
+}

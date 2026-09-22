@@ -1,0 +1,90 @@
+{
+  "blind_decisions_canonical_sha256": "67b4cbd71e8a16d5d57436cee1b32543a5cc152537255975d8d46add41f1fa0c",
+  "cases": [
+    {
+      "blind_input": {
+        "after": {
+          "answer": "Taehyun Kim",
+          "gold_rubric": "VP Taehyun Kim",
+          "question": "Who has approval authority?"
+        },
+        "before": {
+          "answer": "Helen Chen",
+          "gold_rubric": "VP Helen Chen",
+          "question": "Who has approval authority?"
+        }
+      },
+      "blind_input_sha256": "c10952750d7b49ff9895ee0d0b35cb5a9068662d6391fc9a54f4658af162c5d9",
+      "case_id": "sw_023|hop1|approval_authority",
+      "decision": {
+        "after": {
+          "rationale": "姓名与参考一致；省略 VP 前缀不改变所指人员。",
+          "verdict": "yes"
+        },
+        "before": {
+          "rationale": "姓名与参考一致；职位前缀不改变“谁有权限”的实体答案。",
+          "verdict": "yes"
+        }
+      },
+      "final_recovered_by_scoring_correction": true
+    },
+    {
+      "blind_input": {
+        "after": {
+          "answer": "/domain, /infra, /api",
+          "gold_rubric": "layered with /domain, /infra, /api",
+          "question": "What's our project structure?"
+        },
+        "before": {
+          "answer": "/apps and /packages",
+          "gold_rubric": "monorepo with /apps and /packages",
+          "question": "What's our project structure?"
+        }
+      },
+      "blind_input_sha256": "7168601bae3add857394128db673f52dc2aa139908f136661d374aecdca5e7af",
+      "case_id": "sw_026|hop1|project_structure",
+      "decision": {
+        "after": {
+          "rationale": "三个目录均与参考一致，省略 layered 类型词不改变核心结构。",
+          "verdict": "yes"
+        },
+        "before": {
+          "rationale": "目录结构值完整，省略 monorepo 类型词不改变核心结构。",
+          "verdict": "yes"
+        }
+      },
+      "final_recovered_by_scoring_correction": true
+    },
+    {
+      "blind_input": {
+        "after": {
+          "answer": "/modules and /shared",
+          "gold_rubric": "monorepo with /apps and /packages",
+          "question": "What's our project structure?"
+        },
+        "before": {
+          "answer": "/modules and /shared",
+          "gold_rubric": "modular with /modules and /shared",
+          "question": "What's our project structure?"
+        }
+      },
+      "blind_input_sha256": "4d88a4f6300982ef1a50aba567f37ef3b18e66c0926627d754858b6f4be7d9d9",
+      "case_id": "sw_038|hop1|project_structure",
+      "decision": {
+        "after": {
+          "rationale": "回答仍给出旧的 /modules 与 /shared，和参考的新结构冲突。",
+          "verdict": "no"
+        },
+        "before": {
+          "rationale": "目录值完整，省略 modular 类型词不影响核心结构。",
+          "verdict": "yes"
+        }
+      },
+      "final_recovered_by_scoring_correction": false
+    }
+  ],
+  "immutable": true,
+  "method": "offline blind AI-assisted semantic adjudication; no model/API call",
+  "rubric": "yes/no/ambiguous; old verdict and failure class hidden",
+  "schema_version": "meme-oracle-judge-blind-v1"
+}

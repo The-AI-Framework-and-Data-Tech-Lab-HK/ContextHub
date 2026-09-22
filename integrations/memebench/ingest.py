@@ -285,6 +285,7 @@ def edge_pr(case: CascadeCase, graph: IngestedGraph) -> dict[str, float | int]:
         "n_tp": tp,
         "precision": precision,
         "recall": recall,
+        "missed": [f"{s}->{t}" for s, t in sorted(gold - pred, key=str)],
     }
 
 
@@ -320,12 +321,15 @@ def edge_pr_raw(case: CascadeCase, graph: IngestedGraph) -> dict[str, float | in
     gold_pairs = {(e.source, e.target) for e in case.edges}
 
     recalled = 0
+    missed: list[str] = []
     for src_e, tgt_e in gold_pairs:
         hit = any(
             src_e in node_ents.get(s, set()) and tgt_e in node_ents.get(t, set())
             for s, t in graph.persisted_edges
         )
         recalled += int(hit)
+        if not hit:
+            missed.append(f"{src_e}->{tgt_e}")
 
     tp_edges = 0
     for s, t in graph.persisted_edges:
@@ -345,6 +349,8 @@ def edge_pr_raw(case: CascadeCase, graph: IngestedGraph) -> dict[str, float | in
         "n_tp": recalled,
         "precision": precision,
         "recall": recall,
+        # which gold pairs got no edge — edge-level analysis without a rerun
+        "missed": missed,
     }
 
 
@@ -442,6 +448,22 @@ def _session_text(sess: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def _proper_names(text: str) -> list[str]:
+    """Named-entity spans (PERSON/ORG/GPE) in a fact, via the shared spaCy singleton.
+
+    Builds the running entity pool for variable-2 disambiguation (做法甲 cascade).
+    Gold-free — the pool is whatever the extractor's own outputs named, never
+    case.entities. Returns [] when spaCy is unavailable.
+    """
+    from contexthub.services.cascade_router import _spacy_nlp
+
+    nlp = _spacy_nlp()
+    if nlp is None:
+        return []
+    doc = nlp(text or "")
+    return [s.text.strip() for s in doc.ents if s.label_ in ("PERSON", "ORG", "GPE")]
+
+
 def _evidence_sessions(case: CascadeCase) -> list[dict[str, Any]]:
     return [s for s in case.sessions if s.get("type") != "filler"]
 
@@ -506,6 +528,121 @@ async def ingest_case_raw(
     return graph
 
 
+async def ingest_case_raw_cascade_e2e(
+    db: ScopedRepo,
+    case: CascadeCase,
+    account_id: str,
+    embed_batch,
+    *,
+    extractor: ConversationExtractionService,
+    disamb_cheap: DependencyDiscoveryService,
+    disamb_strong: DependencyDiscoveryService,
+    edge_cheap: DependencyDiscoveryService,
+    edge_strong: DependencyDiscoveryService,
+    tau_disamb: float,
+    tau_cand: float,
+    tau_edge: float,
+    k: int = 5,
+):
+    """做法甲: ingest a case from raw dialogue with the build-side four-variable cascade.
+
+    Same timeline-incremental shape and outputs as ingest_case_raw (so the P2 change
+    path + edge_pr_raw + answer chain all work unchanged), but each build step routes
+    through its cascade:
+      - variable 1 (extraction): FIXED single-tier `extractor` (gpt-4.1-mini), NOT
+        cascaded — granularity is a correctness prerequisite (see D.4), so this is
+        the same extractor ingest_case_raw uses.
+      - variable 2 (disambiguation): literal -> spaCy -> weak LLM -> strong LLM, on
+        each pronoun mention, escalating on the weak resolution's pool-uniqueness.
+      - variable 4 (candidate selection): blocking -> recency top-k -> embed_topk(k)
+        -> full, LLM-free.
+      - variable 3 (edge discovery): regex hard-block -> weak LLM -> strong LLM.
+
+    Each variable has its OWN design-time tau (independent confidence scales). Returns
+    (graph, {variable -> tier Counter}); graph.inserted_nodes/persisted_edges are
+    filled exactly as ingest_case_raw does, so the change/propagation path is identical.
+    """
+    from collections import Counter
+
+    from contexthub.services.cascade_router import (
+        _PRONOUN,
+        route_candidate_selection,
+        route_disambiguation,
+        route_edge_discovery,
+    )
+
+    graph = IngestedGraph(account_id=account_id, root_id=None)
+    pre_sessions, _ = _split_evidence(case)
+
+    pool: list[CandidateFact] = []
+    entity_pool: list[str] = []
+    tiers = {"disamb": Counter(), "cand": Counter(), "edge": Counter()}
+
+    import sys
+    n_fact = 0
+
+    for si, sess in enumerate(pre_sessions):
+        # variable 1: FIXED extractor (not cascaded).
+        facts = await extractor.extract(_session_text(sess))
+        texts = [f.text for f in facts if f.text and f.text.strip()]
+        print(f"    [cascade] session {si+1}/{len(pre_sessions)}: {len(texts)} facts",
+              file=sys.stderr, flush=True)
+        if not texts:
+            continue
+        embeddings = await _embed_all(embed_batch, texts)
+        for text, emb in zip(texts, embeddings):
+            n_fact += 1
+            # variable 2: resolve the first pronoun mention against the entity pool.
+            m = _PRONOUN.search(text)
+            if m and entity_pool:
+                dis = await route_disambiguation(
+                    m.group(0), text, entity_pool, tau_disamb,
+                    llm=disamb_cheap, strong=disamb_strong,
+                )
+                tiers["disamb"][dis.tier] += 1
+                judge_text = (
+                    f"{text} ({m.group(0)} = {dis.resolution})" if dis.resolution else text
+                )
+            else:
+                tiers["disamb"]["none"] += 1
+                judge_text = text
+
+            new_id = await _insert_memory(db, account_id, "fact", text, emb)
+
+            if pool:
+                # variable 4: candidate selection cascade (recency tier on, LLM-free).
+                cand = route_candidate_selection(
+                    judge_text, emb, pool, tau_cand, k=k, recency=True
+                )
+                tiers["cand"][cand.tier] += 1
+                # variable 3: edge discovery cascade.
+                edge = await route_edge_discovery(
+                    judge_text, cand.candidates, tau_edge,
+                    cheap=edge_cheap, strong=edge_strong,
+                )
+                tiers["edge"][edge.tier] += 1
+                print(f"    [cascade] fact {n_fact}: cand={cand.tier}({len(cand.candidates)}) "
+                      f"edge={edge.tier}", file=sys.stderr, flush=True)
+                for src_id in edge.sources:
+                    await db.execute(
+                        """
+                        INSERT INTO dependencies (dependent_id, dependency_id, dep_type)
+                        VALUES ($1, $2, 'derived_from')
+                        ON CONFLICT (dependent_id, dependency_id, dep_type) DO NOTHING
+                        """,
+                        new_id, src_id,
+                    )
+                    graph.persisted_edges.add((src_id, new_id))
+
+            graph.inserted_nodes.append((new_id, text))
+            pool.append(CandidateFact(id=new_id, text=text, embedding=emb))
+            for name in _proper_names(text):
+                if name not in entity_pool:
+                    entity_pool.append(name)
+
+    return graph, tiers
+
+
 async def apply_root_change_raw(
     db: ScopedRepo,
     case: CascadeCase,
@@ -566,3 +703,11 @@ async def apply_root_change_raw(
     if superseded:
         graph.root_id = superseded[0]  # for reporting only
     return superseded
+
+
+# Public aliases for the chronological harness. Same objects; no behavior change.
+split_evidence = _split_evidence
+session_text = _session_text
+insert_memory = _insert_memory
+embed_all = _embed_all
+proper_names = _proper_names

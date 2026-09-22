@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Coroutine
+from typing import Any
 
 
 @dataclass
 class PropagationAction:
-    action: str          # mark_stale | auto_update | notify | advisory | no_action
+    action: str          # mark_stale | notify | advisory | no_action
     reason: str
-    auto_update_fn: Callable[..., Coroutine] | None = None
 
 
 class PropagationRule(ABC):

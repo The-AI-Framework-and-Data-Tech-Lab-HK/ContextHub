@@ -123,18 +123,20 @@ def _parse_edges(raw: list[dict[str, Any]]) -> list[Edge]:
     ]
 
 
-def _find_question(qset: dict[str, Any], target_entity: str) -> Question | None:
-    """Find the Cas question for ``target_entity`` in a before/after question set.
+def _find_question(
+    qset: dict[str, Any], target_entity: str, task_type: str = "Cas"
+) -> Question | None:
+    """Find the ``task_type`` question for ``target_entity`` in a question set.
 
     ``expected_answer`` (before) and ``gold_answer`` (after) name the same field
     differently in the dataset; normalise both to ``expected_answer``.
     """
     for q in (qset or {}).get("questions", []):
-        if q.get("task_type") != "Cas":
+        if q.get("task_type") != task_type:
             continue
         if target_entity in (q.get("entity") or []):
             return Question(
-                task_type="Cas",
+                task_type=task_type,
                 entity=list(q.get("entity") or []),
                 question=q.get("question", ""),
                 expected_answer=q.get("expected_answer") or q.get("gold_answer") or "",
@@ -146,8 +148,9 @@ def _find_question(qset: dict[str, Any], target_entity: str) -> Question | None:
 def extract_cascade_cases(
     episodes: list[dict[str, Any]],
     hop: int | None = None,
+    task_type: str = "Cas",
 ) -> list[CascadeCase]:
-    """Extract one CascadeCase per ``Cas`` task, optionally filtered by hop."""
+    """Extract one CascadeCase per ``task_type`` task, optionally filtered by hop."""
     cases: list[CascadeCase] = []
     for ep in episodes:
         entities = _parse_entities(ep.get("entities", {}))
@@ -155,7 +158,7 @@ def extract_cascade_cases(
         before_q = ep.get("before_questions", {})
         after_q = ep.get("after_questions", {})
         for task in ep.get("tasks", []):
-            if task.get("type") != "Cas":
+            if task.get("type") != task_type:
                 continue
             targets = task.get("target_entities") or []
             if not targets:
@@ -175,8 +178,8 @@ def extract_cascade_cases(
                     target_entity=target,
                     gold_answer=task.get("gold_answer", ""),
                     question=task.get("question_template", ""),
-                    before_question=_find_question(before_q, target),
-                    after_question=_find_question(after_q, target),
+                    before_question=_find_question(before_q, target, task_type),
+                    after_question=_find_question(after_q, target, task_type),
                     edges=edges,
                     entities=entities,
                     sessions=ep.get("sessions", []),

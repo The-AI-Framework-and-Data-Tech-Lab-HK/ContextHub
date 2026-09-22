@@ -19,7 +19,7 @@ from contexthub.api.deps import (
     get_skill_service,
 )
 from contexthub.db.repository import ScopedRepo
-from contexthub.errors import BadRequestError, ForbiddenError, NotFoundError
+from contexthub.errors import BadRequestError, ConflictError, ForbiddenError, NotFoundError
 from contexthub.models.context import ContextLevel, CreateContextRequest, UpdateContextRequest
 from contexthub.models.request import RequestContext
 from contexthub.services.acl_service import ACLService
@@ -60,11 +60,12 @@ async def stat_context(
 @router.get("/contexts/{uri:path}/children")
 async def list_children(
     uri: str,
+    include_stale: bool = Query(False),
     ctx: RequestContext = Depends(get_request_context),
     db: ScopedRepo = Depends(get_db),
     store: ContextStore = Depends(get_context_store),
 ):
-    return await store.ls(db, uri, ctx)
+    return await store.ls(db, uri, ctx, include_stale=include_stale)
 
 
 @router.get("/contexts/{uri:path}/deps")
@@ -82,6 +83,7 @@ async def read_context(
     uri: str,
     level: ContextLevel = Query(ContextLevel.L1),
     version: int | None = Query(None),
+    include_stale: bool = Query(False),
     ctx: RequestContext = Depends(get_request_context),
     db: ScopedRepo = Depends(get_db),
     store: ContextStore = Depends(get_context_store),
@@ -96,7 +98,7 @@ async def read_context(
     # Check if this is a skill context
     row = await db.fetchrow(
         """
-        SELECT id, context_type, status
+        SELECT id, context_type, status, validity_status
         FROM contexts
         WHERE uri = $1 AND status != 'deleted'
         """,
@@ -117,8 +119,18 @@ async def read_context(
                     metadata={"action": "read", "reason": decision.reason},
                 )
             raise ForbiddenError()
-        if row["status"] == "stale" and _lifecycle is not None:
-            await _lifecycle.recover_from_stale(db, row["id"], ctx)
+        if (
+            not include_stale
+            and (
+                row["status"] != "active"
+                or row.get("validity_status", "fresh") != "fresh"
+            )
+        ):
+            raise ConflictError(
+                f"Context {uri} is not serviceable "
+                f"(status={row['status']}, "
+                f"validity={row.get('validity_status', 'unknown')})"
+            )
         result = await skill_svc.read_resolved(db, row["id"], ctx.agent_id, version)
         if row["status"] != "stale" or _lifecycle is None:
             await db.execute(
@@ -139,12 +151,19 @@ async def read_context(
             "version": result.version,
             "content": content,
             "status": result.status,
+            "validity_status": row.get("validity_status", "unknown"),
             "advisory": result.advisory,
         }
 
     # Non-skill: original path
-    content = await store.read(db, uri, level, ctx)
-    return {"uri": uri, "level": level, "content": content}
+    content = await store.read(db, uri, level, ctx, include_stale=include_stale)
+    return {
+        "uri": uri,
+        "level": level,
+        "content": content,
+        "status": row["status"],
+        "validity_status": row.get("validity_status", "unknown"),
+    }
 
 
 @router.patch("/contexts/{uri:path}")

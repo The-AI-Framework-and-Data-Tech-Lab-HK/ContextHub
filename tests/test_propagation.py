@@ -1,7 +1,5 @@
 """Propagation engine tests: P-1 through P-8 + event-time correctness + single-instance concurrency."""
 
-import asyncio
-import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -12,9 +10,8 @@ from fastapi import FastAPI
 
 import contexthub.main as main_module
 from contexthub.errors import NotFoundError
-from contexthub.generation.base import ContentGenerator, GeneratedContent
+from contexthub.generation.base import ContentGenerator
 from contexthub.llm.base import NoOpEmbeddingClient
-from contexthub.propagation.base import PropagationAction
 from contexthub.propagation.derived_memory_rule import DerivedMemoryRule
 from contexthub.propagation.registry import PropagationRuleRegistry
 from contexthub.propagation.skill_dep_rule import SkillVersionDepRule
@@ -61,20 +58,30 @@ class FakeScopedRepo:
 
     async def fetchrow(self, sql, *args):
         self.executed.append((sql, args))
+        if "INSERT INTO propagation_effects" in sql:
+            return FakeRecord(status="started")
         for key, rows in self._rows.items():
             if key in sql:
                 return rows[0] if rows else None
         if "SELECT id, uri, status" in sql and "FROM contexts" in sql:
-            return FakeRecord(id=args[0], uri=f"ctx://test/{args[0]}", status="active")
+            return FakeRecord(
+                id=args[0], uri=f"ctx://test/{args[0]}", status="active", version=1
+            )
         return None
 
     async def fetchval(self, sql, *args):
         self.executed.append((sql, args))
+        if "SELECT 1 FROM change_events" in sql:
+            return 1
         return None
 
     async def execute(self, sql, *args):
         self.executed.append((sql, args))
         return "UPDATE 1"
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield
 
 
 class FakePool:
@@ -125,6 +132,7 @@ def _make_event(
         "timestamp": timestamp or _NOW,
         "delivery_status": "processing",
         "attempt_count": 1,
+        "lease_token": uuid.uuid4(),
         "diff_summary": None,
     }
 def _make_engine(pool_conn=None, repo_scoped=None, indexer=None, lifecycle=None):
@@ -142,7 +150,6 @@ def _make_engine(pool_conn=None, repo_scoped=None, indexer=None, lifecycle=None)
         dsn="postgresql://fake",
         rule_registry=registry,
         lifecycle=engine_lifecycle,
-        indexer=engine_indexer,
         sweep_interval=30,
         lease_timeout=5,
     )
@@ -202,13 +209,13 @@ async def test_skill_version_rule_non_publish_event_no_action():
 
 
 @pytest.mark.asyncio
-async def test_table_schema_rule_returns_auto_update():
-    """P-3 core: table_schema → auto_update."""
+async def test_table_schema_rule_marks_stale():
+    """P-3 core: table_schema → mark_stale (never rewrites dependent content)."""
     rule = TableSchemaRule()
     event = _make_event(change_type="modified")
     target = {"dependent_id": _DEPENDENT_ID}
     action = await rule.evaluate(event, target)
-    assert action.action == "auto_update"
+    assert action.action == "mark_stale"
 
 
 @pytest.mark.asyncio
@@ -228,6 +235,106 @@ async def test_derived_memory_rule_created_no_action():
     target = {"dependent_id": _DEPENDENT_ID}
     action = await rule.evaluate(event, target)
     assert action.action == "no_action"
+
+
+# --- 做法乙：DerivedMemoryOracleRule soundness 方向级联 ---
+
+class _CountingChat:
+    """记录调用次数的假 chat；complete 固定返回预设 verdict。"""
+
+    def __init__(self, answer):
+        self._answer = answer
+        self.calls = 0
+
+    async def complete(self, prompt, max_tokens=100):
+        self.calls += 1
+        return self._answer
+
+
+class _OracleFakeRepo:
+    """只提供 _fetch_content 需要的 session().fetchrow()。"""
+
+    def __init__(self, derived_text):
+        self._text = derived_text
+
+    def session(self, account_id):
+        text = self._text
+
+        class _Ctx:
+            async def __aenter__(self_):
+                class _Db:
+                    async def fetchrow(self__, sql, ctx_id):
+                        return {"l2_content": text, "l1_content": None, "l0_content": None}
+                return _Db()
+
+            async def __aexit__(self_, *exc):
+                return False
+
+        return _Ctx()
+
+
+def _oracle_event():
+    return _make_event(
+        change_type="modified",
+        context_id=uuid.uuid4(),
+        metadata={"before": "2026-08-01", "after": "2026-09-01"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_oracle_single_tier_regression_no_cheap():
+    """cheap_chat=None：只调贵档一次，行为与做法乙前逐字节一致。"""
+    from contexthub.propagation.derived_memory_rule import DerivedMemoryOracleRule
+    strong = _CountingChat("YES\nderived value is now outdated")
+    rule = DerivedMemoryOracleRule(strong, _OracleFakeRepo("weekly report until deadline"))
+    action = await rule.evaluate(_oracle_event(), {"dependent_id": uuid.uuid4()})
+    assert action.action == "mark_stale"
+    assert strong.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_oracle_cascade_cheap_stale_short_circuits():
+    """便宜档判 stale → 采信并短路，不调贵档（省钱）。"""
+    from contexthub.propagation.derived_memory_rule import DerivedMemoryOracleRule
+    cheap = _CountingChat("YES\ncheap says stale")
+    strong = _CountingChat("NO\nshould not be reached")
+    rule = DerivedMemoryOracleRule(
+        strong, _OracleFakeRepo("weekly report until deadline"), cheap_chat=cheap
+    )
+    action = await rule.evaluate(_oracle_event(), {"dependent_id": uuid.uuid4()})
+    assert action.action == "mark_stale"
+    assert cheap.calls == 1
+    assert strong.calls == 0  # 短路：贵档未被调用
+
+
+@pytest.mark.asyncio
+async def test_oracle_cascade_cheap_fresh_escalates_to_strong():
+    """便宜档判 fresh → 升级贵档复核（soundness 方向，复核'说没事'的边）。"""
+    from contexthub.propagation.derived_memory_rule import DerivedMemoryOracleRule
+    cheap = _CountingChat("NO\ncheap says fresh")
+    strong = _CountingChat("YES\nstrong catches the stale one")
+    rule = DerivedMemoryOracleRule(
+        strong, _OracleFakeRepo("weekly report until deadline"), cheap_chat=cheap
+    )
+    action = await rule.evaluate(_oracle_event(), {"dependent_id": uuid.uuid4()})
+    assert action.action == "mark_stale"  # 贵档补回便宜档漏判
+    assert cheap.calls == 1
+    assert strong.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_oracle_cascade_both_fresh_no_action():
+    """便宜档 fresh + 贵档复核也 fresh → no_action，贵档被调过（付了复核成本）。"""
+    from contexthub.propagation.derived_memory_rule import DerivedMemoryOracleRule
+    cheap = _CountingChat("NO\ncheap fresh")
+    strong = _CountingChat("NO\nstrong confirms fresh")
+    rule = DerivedMemoryOracleRule(
+        strong, _OracleFakeRepo("unrelated chit-chat note"), cheap_chat=cheap
+    )
+    action = await rule.evaluate(_oracle_event(), {"dependent_id": uuid.uuid4()})
+    assert action.action == "no_action"
+    assert cheap.calls == 1
+    assert strong.calls == 1
 
 
 @pytest.mark.asyncio
@@ -300,7 +407,7 @@ async def test_p1_breaking_skill_marks_dependent_stale():
     # Should have finished event as processed
     finish_calls = [
         (sql, args) for sql, args in pool_conn.executed
-        if "delivery_status = 'processed'" in sql
+        if "delivery_status = 'succeeded'" in sql
     ]
     assert len(finish_calls) == 1
 
@@ -366,79 +473,14 @@ async def test_p2_non_breaking_does_not_mark_stale():
 
     # Event should be processed
     finish_calls = [
-        sql for sql, _ in pool_conn.executed if "delivery_status = 'processed'" in sql
+        sql for sql, _ in pool_conn.executed if "delivery_status = 'succeeded'" in sql
     ]
     assert len(finish_calls) == 1
 
 
 @pytest.mark.asyncio
-async def test_p3_table_schema_auto_update():
-    """P-3: table_schema change → auto_update L0/L1, L2 unchanged."""
-    dep_row = FakeRecord(
-        dependent_id=_DEPENDENT_ID,
-        dep_type="table_schema",
-        pinned_version=None,
-        created_at=_NOW - timedelta(hours=1),
-    )
-    source_row = FakeRecord(
-        id=_SOURCE_ID,
-        context_type="table_schema",
-        l0_content="old l0",
-        l1_content="old l1",
-        l2_content="CREATE TABLE users (id INT, name TEXT)",
-    )
-    dependent_row = FakeRecord(
-        id=_DEPENDENT_ID,
-        context_type="memory",
-        l2_content="Analysis of users table structure",
-    )
-    pool_conn = FakeScopedRepo(rows_by_query={
-        "FROM dependencies": [dep_row],
-    })
-
-    # Scoped repo returns source then dependent on successive fetchrow calls
-    call_count = {"n": 0}
-    rows_sequence = [source_row, dependent_row]
-
-    scoped = FakeScopedRepo()
-    original_fetchrow = scoped.fetchrow
-
-    async def ordered_fetchrow(sql, *args):
-        scoped.executed.append((sql, args))
-        if "FROM contexts" in sql:
-            idx = call_count["n"]
-            call_count["n"] += 1
-            if idx < len(rows_sequence):
-                return rows_sequence[idx]
-        return None
-
-    scoped.fetchrow = ordered_fetchrow
-
-    engine = _make_engine(pool_conn=pool_conn, repo_scoped=scoped)
-
-    event = _make_event(
-        change_type="modified",
-        context_id=_SOURCE_ID,
-    )
-    await engine._process_claimed_event(event)
-
-    # Should have updated l0_content and l1_content
-    l0l1_updates = [
-        (sql, args) for sql, args in scoped.executed
-        if "l0_content = $1" in sql and "l1_content = $2" in sql
-    ]
-    assert len(l0l1_updates) >= 1
-
-    # Should NOT have updated l2_content
-    l2_updates = [
-        sql for sql, _ in scoped.executed if "l2_content" in sql and "SET" in sql
-    ]
-    assert len(l2_updates) == 0
-
-
-@pytest.mark.asyncio
-async def test_p3_auto_update_missing_source_downgrades_to_stale():
-    """P-3: auto_update with missing source → downgrade to mark_stale."""
+async def test_p3_table_schema_marks_stale_without_rewriting_content():
+    """P-3: table_schema change marks the dependent stale, content untouched."""
     dep_row = FakeRecord(
         dependent_id=_DEPENDENT_ID,
         dep_type="table_schema",
@@ -448,141 +490,28 @@ async def test_p3_auto_update_missing_source_downgrades_to_stale():
     pool_conn = FakeScopedRepo(rows_by_query={
         "FROM dependencies": [dep_row],
     })
-    # scoped returns None for all fetchrow (source missing)
     scoped = FakeScopedRepo()
     engine = _make_engine(pool_conn=pool_conn, repo_scoped=scoped)
 
     event = _make_event(change_type="modified", context_id=_SOURCE_ID)
     await engine._process_claimed_event(event)
 
-    # Should have fallen back to mark_stale
     stale_updates = [
         sql for sql, _ in scoped.executed if "status = 'stale'" in sql
     ]
     assert len(stale_updates) >= 1
 
-
-@pytest.mark.asyncio
-async def test_p3_auto_update_embedding_failure_retries_event():
-    """Embedding failure should send auto_update back to retry."""
-    dep_row = FakeRecord(
-        dependent_id=_DEPENDENT_ID,
-        dep_type="table_schema",
-        pinned_version=None,
-        created_at=_NOW - timedelta(hours=1),
-    )
-    source_row = FakeRecord(
-        id=_SOURCE_ID,
-        context_type="table_schema",
-        l0_content="old l0",
-        l1_content="old l1",
-        l2_content="CREATE TABLE users (id INT, name TEXT)",
-    )
-    dependent_row = FakeRecord(
-        id=_DEPENDENT_ID,
-        context_type="memory",
-        l2_content="Analysis of users table structure",
-    )
-    pool_conn = FakeScopedRepo(rows_by_query={
-        "FROM dependencies": [dep_row],
-    })
-
-    call_count = {"n": 0}
-    rows_sequence = [source_row, dependent_row]
-    scoped = FakeScopedRepo()
-
-    async def ordered_fetchrow(sql, *args):
-        scoped.executed.append((sql, args))
-        if "FROM contexts" in sql:
-            idx = call_count["n"]
-            call_count["n"] += 1
-            if idx < len(rows_sequence):
-                return rows_sequence[idx]
-        return None
-
-    scoped.fetchrow = ordered_fetchrow
-
-    indexer = _make_indexer()
-    indexer.update_embedding = AsyncMock(return_value=False)
-    engine = _make_engine(pool_conn=pool_conn, repo_scoped=scoped, indexer=indexer)
-
-    event = _make_event(
-        change_type="modified",
-        context_id=_SOURCE_ID,
-    )
-    await engine._process_claimed_event(event)
-
-    retry_calls = [
-        sql for sql, _ in pool_conn.executed if "delivery_status = 'retry'" in sql
+    content_updates = [
+        sql for sql, _ in scoped.executed
+        if "UPDATE contexts" in sql
+        and ("l0_content = $1" in sql or "l1_content" in sql or "l2_content" in sql)
     ]
+    assert content_updates == []
+
     processed_calls = [
-        sql for sql, _ in pool_conn.executed if "delivery_status = 'processed'" in sql
+        sql for sql, _ in pool_conn.executed if "delivery_status = 'succeeded'" in sql
     ]
-    assert len(retry_calls) == 1
-    assert len(processed_calls) == 0
-    indexer.update_embedding.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_p3_auto_update_empty_l0_clears_embedding():
-    """Empty regenerated L0 should clear stale vector state."""
-    dep_row = FakeRecord(
-        dependent_id=_DEPENDENT_ID,
-        dep_type="table_schema",
-        pinned_version=None,
-        created_at=_NOW - timedelta(hours=1),
-    )
-    source_row = FakeRecord(
-        id=_SOURCE_ID,
-        context_type="table_schema",
-        l0_content="old l0",
-        l1_content="old l1",
-        l2_content="CREATE TABLE users (id INT, name TEXT)",
-    )
-    dependent_row = FakeRecord(
-        id=_DEPENDENT_ID,
-        context_type="memory",
-        l2_content="Analysis of users table structure",
-    )
-    pool_conn = FakeScopedRepo(rows_by_query={
-        "FROM dependencies": [dep_row],
-    })
-
-    call_count = {"n": 0}
-    rows_sequence = [source_row, dependent_row]
-    scoped = FakeScopedRepo()
-
-    async def ordered_fetchrow(sql, *args):
-        scoped.executed.append((sql, args))
-        if "FROM contexts" in sql:
-            idx = call_count["n"]
-            call_count["n"] += 1
-            if idx < len(rows_sequence):
-                return rows_sequence[idx]
-        return None
-
-    scoped.fetchrow = ordered_fetchrow
-
-    indexer = _make_indexer()
-    indexer.generate = AsyncMock(return_value=GeneratedContent(l0="", l1="refreshed"))
-    indexer.update_embedding = AsyncMock()
-    engine = _make_engine(pool_conn=pool_conn, repo_scoped=scoped, indexer=indexer)
-
-    event = _make_event(
-        change_type="modified",
-        context_id=_SOURCE_ID,
-    )
-    await engine._process_claimed_event(event)
-
-    clear_calls = [
-        sql for sql, _ in scoped.executed if "SET l0_embedding = NULL" in sql
-    ]
-    processed_calls = [
-        sql for sql, _ in pool_conn.executed if "delivery_status = 'processed'" in sql
-    ]
-    assert len(clear_calls) == 1
     assert len(processed_calls) == 1
-    indexer.update_embedding.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -612,7 +541,7 @@ async def test_p4_derived_memory_notify():
 
     # Event processed
     finish_calls = [
-        sql for sql, _ in pool_conn.executed if "delivery_status = 'processed'" in sql
+        sql for sql, _ in pool_conn.executed if "delivery_status = 'succeeded'" in sql
     ]
     assert len(finish_calls) == 1
 
@@ -644,7 +573,7 @@ async def test_p5_floating_subscriber_notify():
 
     # Event processed
     finish_calls = [
-        sql for sql, _ in pool_conn.executed if "delivery_status = 'processed'" in sql
+        sql for sql, _ in pool_conn.executed if "delivery_status = 'succeeded'" in sql
     ]
     assert len(finish_calls) == 1
 
@@ -686,8 +615,6 @@ async def test_p7_pending_event_processed_by_drain():
     claim_calls = {"n": 0}
     pool_conn = FakeScopedRepo()
 
-    original_fetch = pool_conn.fetch
-
     async def mock_fetch(sql, *args):
         pool_conn.executed.append((sql, args))
         if "RETURNING" in sql and claim_calls["n"] == 0:
@@ -707,7 +634,7 @@ async def test_p7_pending_event_processed_by_drain():
 
     # Event should have been claimed and finished
     finish_calls = [
-        sql for sql, _ in pool_conn.executed if "delivery_status = 'processed'" in sql
+        sql for sql, _ in pool_conn.executed if "delivery_status = 'succeeded'" in sql
     ]
     assert len(finish_calls) >= 1
 
@@ -774,7 +701,7 @@ async def test_marked_stale_event_no_propagation():
 
     # Event marked processed
     finish_calls = [
-        sql for sql, _ in pool_conn.executed if "delivery_status = 'processed'" in sql
+        sql for sql, _ in pool_conn.executed if "delivery_status = 'succeeded'" in sql
     ]
     assert len(finish_calls) == 1
 
@@ -793,7 +720,7 @@ async def test_deleted_event_no_propagation():
     assert len(dep_queries) == 0
 
     finish_calls = [
-        sql for sql, _ in pool_conn.executed if "delivery_status = 'processed'" in sql
+        sql for sql, _ in pool_conn.executed if "delivery_status = 'succeeded'" in sql
     ]
     assert len(finish_calls) == 1
 
@@ -862,7 +789,7 @@ async def test_partial_failure_retries_event():
     # Event should be retried, not processed
     retry_calls = [
         sql for sql, _ in pool_conn.executed
-        if "delivery_status = 'retry'" in sql
+        if "ELSE 'retry'" in sql
     ]
     assert len(retry_calls) == 1
 
@@ -899,11 +826,11 @@ async def test_missing_dependent_noops_and_processes_event():
 
     retry_calls = [
         sql for sql, _ in pool_conn.executed
-        if "delivery_status = 'retry'" in sql
+        if "ELSE 'retry'" in sql
     ]
     processed_calls = [
         sql for sql, _ in pool_conn.executed
-        if "delivery_status = 'processed'" in sql
+        if "delivery_status = 'succeeded'" in sql
     ]
     assert retry_calls == []
     assert len(processed_calls) == 1

@@ -10,6 +10,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import threading
 from typing import Any
 from urllib import error as urlerror
 from urllib import parse as urlparse
@@ -146,6 +147,92 @@ def get_tool_schema(
         if str(item.get("name") or item.get("tool_name") or "").strip() == target:
             return normalize_tool_schema_record(item, tool_name=target)
     raise McpRuntimeAdapterError(f"Tool {target!r} not found on MCP server {server!r}")
+
+
+def list_tool_schemas(
+    config: McpEndpointConfig,
+    server: str,
+    *,
+    opener: HttpOpen | None = None,
+    timeout: int = 30,
+) -> dict[str, dict[str, Any]]:
+    """Return all tools for ``server`` as ``{tool_name: normalized record}``.
+
+    One ``tools/list`` round-trip yields every tool, so callers that need
+    several tools from the same server should prefer this over repeated
+    :func:`get_tool_schema` calls.
+    """
+
+    endpoint = config.endpoint(server)
+    tools = _list_tools_jsonrpc(
+        endpoint,
+        opener=_opener_for_endpoint(endpoint, opener=opener),
+        timeout=timeout,
+    )
+    schemas: dict[str, dict[str, Any]] = {}
+    for item in tools:
+        name = str(item.get("name") or item.get("tool_name") or "").strip()
+        if name:
+            schemas[name] = normalize_tool_schema_record(item, tool_name=name)
+    return schemas
+
+
+class ToolSchemaCache:
+    """Thread-safe per-server tool-schema cache over an ``McpEndpointConfig``.
+
+    The cost of discovering a server's tools is amortized: the first lookup for
+    a server triggers one ``tools/list`` and caches every tool; later lookups
+    for any tool on that server are served from memory. This is what keeps the
+    online proxy from issuing a fresh ``tools/list`` per ``tools/call``.
+
+    Successful fetches are cached for the cache's lifetime (MCP schemas are
+    static during a run). A failed fetch is **not** cached, so a transient MCP
+    error self-heals on the next lookup; failures degrade to a name-only schema
+    so the gate stays available (fail-open on schema, not on enforcement).
+    """
+
+    def __init__(
+        self,
+        config: McpEndpointConfig,
+        *,
+        opener: HttpOpen | None = None,
+        timeout: int = 30,
+    ):
+        self._config = config
+        self._opener = opener
+        self._timeout = timeout
+        self._lock = threading.Lock()
+        self._by_server: dict[str, dict[str, dict[str, Any]]] = {}
+
+    def get(self, server: str, tool_name: str) -> tuple[dict[str, Any], str]:
+        """Return ``(normalized schema record, schema_source)`` for one tool."""
+
+        key = str(server or "").strip()
+        target = str(tool_name or "").strip()
+
+        with self._lock:
+            cached = self._by_server.get(key)
+
+        if cached is None:
+            try:
+                cached = list_tool_schemas(
+                    self._config, key, opener=self._opener, timeout=self._timeout
+                )
+            except (McpRuntimeAdapterError, OSError, TimeoutError, ValueError) as exc:
+                return (
+                    normalize_tool_schema_record({"name": target}, tool_name=target),
+                    f"schema-unavailable:{type(exc).__name__}",
+                )
+            with self._lock:
+                self._by_server[key] = cached
+
+        record = cached.get(target)
+        if record is not None:
+            return record, "live-mcp-schema"
+        return (
+            normalize_tool_schema_record({"name": target}, tool_name=target),
+            "schema-unavailable:tool-not-listed",
+        )
 
 
 def normalize_tool_schema_record(record: Mapping[str, Any], *, tool_name: str | None = None) -> dict[str, Any]:

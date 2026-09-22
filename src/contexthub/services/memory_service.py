@@ -85,8 +85,15 @@ class MemoryService:
 
         await db.execute(
             """
-            INSERT INTO change_events (context_id, account_id, change_type, actor)
-            VALUES ($1, current_setting('app.account_id'), 'created', $2)
+            INSERT INTO change_events (
+              context_id, account_id, change_type, actor, idempotency_key,
+              source_version, graph_scope
+            )
+            VALUES (
+              $1, current_setting('app.account_id'), 'created', $2,
+              concat('created:', $1::text, ':1'), 1, 'memory'
+            )
+            ON CONFLICT (account_id, idempotency_key) DO NOTHING
             """,
             row["id"],
             ctx.agent_id,
@@ -165,8 +172,11 @@ class MemoryService:
         for src_id in source_ids:
             await db.execute(
                 """
-                INSERT INTO dependencies (dependent_id, dependency_id, dep_type)
-                VALUES ($1, $2, 'derived_from')
+                INSERT INTO dependencies (
+                  dependent_id, dependency_id, dep_type, dependency_version
+                )
+                SELECT $1, $2, 'derived_from', version
+                  FROM contexts WHERE id = $2
                 ON CONFLICT (dependent_id, dependency_id, dep_type) DO NOTHING
                 """,
                 new_id,
@@ -203,14 +213,87 @@ class MemoryService:
         for old_id in superseded:
             await db.execute(
                 """
+                WITH RECURSIVE invalid(node_id) AS (
+                  SELECT $1::uuid
+                  UNION
+                  SELECT edge.node_id
+                    FROM invalid i
+                    JOIN LATERAL (
+                      SELECT d.dependent_id AS node_id
+                        FROM dependencies d
+                       WHERE d.dependency_id = i.node_id
+                      UNION
+                      SELECT r.context_id AS node_id
+                        FROM context_relations r
+                       WHERE r.related_context_id = i.node_id
+                         AND r.relation_type IN (
+                           'alias_of', 'duplicate_of', 'materialized_from'
+                         )
+                    ) edge ON TRUE
+                )
+                UPDATE contexts c
+                   SET validity_status = CASE
+                         WHEN c.id = $1 THEN 'superseded' ELSE 'invalid'
+                       END,
+                       validity_reason = concat('superseded by ', $2::text),
+                       updated_at = NOW()
+                  FROM invalid i
+                 WHERE c.id = i.node_id
+                """,
+                old_id,
+                new_id,
+            )
+            event_row = await db.fetchrow(
+                """
                 INSERT INTO change_events
-                    (context_id, account_id, change_type, actor, diff_summary)
-                VALUES ($1, current_setting('app.account_id'), 'modified', $2, $3)
+                    (context_id, account_id, change_type, actor, diff_summary,
+                     idempotency_key, source_version, graph_scope, metadata)
+                SELECT $1, current_setting('app.account_id'), 'modified', $2, $3,
+                       concat('superseded:', $1::text, ':by:', $4::text),
+                       version, 'memory',
+                       jsonb_build_object('superseded_by_context_id', $4::text)
+                  FROM contexts WHERE id = $1
+                ON CONFLICT (account_id, idempotency_key) DO NOTHING
+                RETURNING event_id
                 """,
                 old_id,
                 agent_id,
                 "superseded by new memory",
+                new_id,
             )
+            if event_row is not None and event_row.get("event_id") is not None:
+                await db.execute(
+                    """
+                    WITH RECURSIVE invalid(node_id) AS (
+                      SELECT $1::uuid
+                      UNION
+                      SELECT edge.node_id
+                        FROM invalid i
+                        JOIN LATERAL (
+                          SELECT d.dependent_id AS node_id
+                            FROM dependencies d
+                           WHERE d.dependency_id = i.node_id
+                          UNION
+                          SELECT r.context_id AS node_id
+                            FROM context_relations r
+                           WHERE r.related_context_id = i.node_id
+                             AND r.relation_type IN (
+                               'alias_of', 'duplicate_of', 'materialized_from'
+                             )
+                        ) edge ON TRUE
+                    )
+                    INSERT INTO context_invalidations (
+                      context_id, cause_event_id, source_context_id, reason_hash
+                    )
+                    SELECT i.node_id, $3, $1,
+                           encode(digest('superseded', 'sha256'), 'hex')
+                      FROM invalid i
+                    ON CONFLICT (context_id, cause_event_id) DO NOTHING
+                    """,
+                    old_id,
+                    new_id,
+                    event_row["event_id"],
+                )
 
     async def add_conversation(
         self, db: ScopedRepo, raw_text: str, ctx: RequestContext
@@ -236,18 +319,22 @@ class MemoryService:
         return out
 
     async def list_memories(
-        self, db: ScopedRepo, ctx: RequestContext
+        self, db: ScopedRepo, ctx: RequestContext, *, include_stale: bool = False
     ) -> list[dict]:
         rows = await db.fetch(
             """
-            SELECT uri, l0_content, status, version, tags, created_at, updated_at,
-                   scope, owner_space
+            SELECT uri, l0_content, status, validity_status, validity_reason,
+                   version, tags, created_at, updated_at, scope, owner_space
             FROM contexts
             WHERE context_type = 'memory'
               AND scope IN ('agent', 'team')
-              AND status != 'deleted'
+              AND (
+                ($1 AND status != 'deleted')
+                OR (NOT $1 AND status = 'active' AND validity_status = 'fresh')
+              )
             ORDER BY updated_at DESC
             """,
+            include_stale,
         )
         visible_with_masks = await self._acl.filter_visible_with_acl(db, rows, ctx)
         result = [
@@ -255,6 +342,8 @@ class MemoryService:
                 "uri": r["uri"],
                 "l0_content": self._masking.apply_masks(r["l0_content"], masks) if masks else r["l0_content"],
                 "status": r["status"],
+                "validity_status": r["validity_status"],
+                "validity_reason": r["validity_reason"] if include_stale else None,
                 "version": r["version"],
                 "tags": list(r["tags"] or []),
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
@@ -329,8 +418,11 @@ class MemoryService:
         # 8. Insert derived_from dependency
         await db.execute(
             """
-            INSERT INTO dependencies (dependent_id, dependency_id, dep_type)
-            VALUES ($1, $2, 'derived_from')
+            INSERT INTO dependencies (
+              dependent_id, dependency_id, dep_type, dependency_version
+            )
+            SELECT $1, $2, 'derived_from', version
+              FROM contexts WHERE id = $2
             """,
             promoted["id"],
             source["id"],
@@ -340,8 +432,13 @@ class MemoryService:
         await db.execute(
             """
             INSERT INTO change_events
-                (context_id, account_id, change_type, actor, metadata)
-            VALUES ($1, current_setting('app.account_id'), 'created', $2, $3)
+                (context_id, account_id, change_type, actor, metadata,
+                 idempotency_key, source_version, graph_scope)
+            VALUES (
+              $1, current_setting('app.account_id'), 'created', $2, $3,
+              concat('created:', $1::text, ':1'), 1, 'memory-promotion'
+            )
+            ON CONFLICT (account_id, idempotency_key) DO NOTHING
             """,
             promoted["id"],
             ctx.agent_id,

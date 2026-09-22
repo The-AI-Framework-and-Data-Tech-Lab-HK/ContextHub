@@ -62,15 +62,65 @@ class WrongDimensionEmbeddingClient:
 class SearchFlowDB:
     """Simulates DB interactions for RetrievalService tests."""
 
-    def __init__(self, rows=None, l2_rows=None, quality_rows=None):
+    def __init__(
+        self,
+        rows=None,
+        l2_rows=None,
+        quality_rows=None,
+        invalidation_rows=None,
+        upstream_rows=None,
+    ):
         self._rows = rows or []
         self._l2_rows = l2_rows or []
         self._quality_rows = quality_rows or []
+        # (context_id -> upstream_id) as returned by the unresolved-invalidation
+        # join, and the upstream context rows it points at.
+        self._invalidation_rows = invalidation_rows or []
+        self._upstream_rows = upstream_rows or []
         self.executed = []
         self.fetches = []
 
     async def fetch(self, sql, *args):
         self.fetches.append((sql, args))
+        if "context_invalidations" in sql:
+            allowed = set(args[0])
+            return [
+                row for row in self._invalidation_rows if row["context_id"] in allowed
+            ]
+        # Upstream-node read: same column prefix as candidate search but no
+        # scoring column, so it must be matched after the candidate branches.
+        if (
+            "SELECT id, uri, context_type, scope, owner_space, status," in sql
+            and "cosine_similarity" not in sql
+            and "LIKE" not in sql.upper()
+        ):
+            allowed = set(args[0])
+            return [row for row in self._upstream_rows if row["id"] in allowed]
+        if "SELECT id, version, status, validity_status" in sql:
+            allowed = set(args[0])
+            return [
+                FakeRecord(
+                    id=row["id"],
+                    version=row.get("version"),
+                    status=row.get("status"),
+                    validity_status=row.get("validity_status")
+                    or ("fresh" if row.get("status") == "active" else row.get("status")),
+                )
+                for row in self._rows
+                if row["id"] in allowed
+            ]
+        if "SELECT id, version, l2_content" in sql:
+            allowed = set(args[0])
+            by_id = {row["id"]: row for row in self._rows}
+            return [
+                FakeRecord(
+                    id=row["id"],
+                    version=by_id[row["id"]].get("version"),
+                    l2_content=row["l2_content"],
+                )
+                for row in self._l2_rows
+                if row["id"] in allowed
+            ]
         if "visible_teams" in sql:
             return [
                 FakeRecord(path="engineering/backend"),
@@ -182,7 +232,7 @@ async def test_keyword_fallback_returns_visible_results_and_updates_active_count
 
     assert response.total == 1
     assert response.results[0].uri == "ctx://datalake/prod/orders"
-    assert len(db.executed) == 1
+    assert len(db.executed) == 2
     assert "active_count = active_count + 1" in db.executed[0][0]
     assert db.executed[0][1][0] == [visible_id]
 
@@ -208,7 +258,11 @@ async def test_search_penalizes_stale_results_after_rerank():
     svc = _make_retrieval_service()
     ctx = RequestContext(account_id="acme", agent_id="query-agent")
 
-    response = await svc.search(db, SearchRequest(query="database query", top_k=2), ctx)
+    response = await svc.search(
+        db,
+        SearchRequest(query="database query", top_k=2, include_stale=True),
+        ctx,
+    )
 
     assert [r.uri for r in response.results] == ["active", "stale"]
     assert response.results[0].score > response.results[1].score
@@ -360,7 +414,7 @@ def test_search_request_defaults():
     req = SearchRequest(query="test")
     assert req.top_k == 10
     assert req.level == ContextLevel.L1
-    assert req.include_stale is True
+    assert req.include_stale is False
     assert req.scope is None
     assert req.context_type is None
 
@@ -504,6 +558,353 @@ async def test_search_returns_non_empty_retrieval_id():
 
     assert response.retrieval_id
     assert uuid.UUID(response.retrieval_id)
+
+
+@pytest.mark.asyncio
+async def test_default_search_filters_all_unserviceable_validity_states_with_trace():
+    ids = {name: uuid.uuid4() for name in ("fresh", "stale", "superseded", "recomputing")}
+    rows = [
+        FakeRecord(
+            id=ids[name],
+            uri=name,
+            context_type="memory",
+            scope="datalake",
+            owner_space=None,
+            status="active" if name != "stale" else "stale",
+            validity_status=name,
+            validity_reason=f"{name} test",
+            version=2,
+            l0_content="shared retrieval phrase",
+            l1_content="shared retrieval phrase",
+            tags=[],
+            cosine_similarity=0.9,
+        )
+        for name in ids
+    ]
+    db = SearchFlowDB(rows)
+    response = await _make_retrieval_service().search(
+        db,
+        SearchRequest(query="shared retrieval", top_k=10),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    assert [result.uri for result in response.results] == ["fresh"]
+    filtered = {
+        item["validity_status"]: item["filter_reasons"]
+        for item in response.trace["candidates"]
+        if item["filtered"]
+    }
+    assert "validity:stale" in filtered["stale"]
+    assert "validity:superseded" in filtered["superseded"]
+    assert "validity:recomputing" in filtered["recomputing"]
+    assert len(response.trace["context_hash"]) == 64
+
+
+def _stale_notice_fixture():
+    """A stale node plus the immediate upstream that invalidated it."""
+    stale_id = uuid.uuid4()
+    upstream_id = uuid.uuid4()
+    root_id = uuid.uuid4()
+    rows = [
+        FakeRecord(
+            id=stale_id,
+            uri="ctx://agent/eval/memories/cur-fitness_facility-aaa111",
+            context_type="memory",
+            scope="datalake",
+            owner_space=None,
+            status="stale",
+            validity_status="stale",
+            validity_reason="health_condition: lactose intolerance -> high blood pressure",
+            version=4,
+            l0_content="The user works out at Sunrise Gym.",
+            l1_content="The user works out at Sunrise Gym.",
+            tags=[],
+            cosine_similarity=0.9,
+        ),
+    ]
+    upstream_rows = [
+        FakeRecord(
+            id=upstream_id,
+            uri="ctx://agent/eval/memories/cur-work_location-bbb222",
+            context_type="memory",
+            scope="datalake",
+            owner_space=None,
+            status="stale",
+            version=2,
+            l0_content="The user works at the Portland office.",
+            l1_content="The user works at the Portland office.",
+        )
+    ]
+    invalidation_rows = [
+        FakeRecord(context_id=stale_id, upstream_id=upstream_id),
+    ]
+    return stale_id, upstream_id, root_id, rows, upstream_rows, invalidation_rows
+
+
+@pytest.mark.asyncio
+async def test_stale_notices_report_withheld_node_reason_and_nearest_upstream():
+    stale_id, _, _, rows, upstream_rows, invalidation_rows = _stale_notice_fixture()
+    fresh_id = uuid.uuid4()
+    rows.append(
+        FakeRecord(
+            id=fresh_id,
+            uri="fresh-note",
+            context_type="memory",
+            scope="datalake",
+            owner_space=None,
+            status="active",
+            validity_status="fresh",
+            validity_reason=None,
+            version=1,
+            l0_content="The user works out at Sunrise Gym on weekends.",
+            l1_content="The user works out at Sunrise Gym on weekends.",
+            tags=[],
+            cosine_similarity=0.7,
+        )
+    )
+    db = SearchFlowDB(
+        rows, invalidation_rows=invalidation_rows, upstream_rows=upstream_rows
+    )
+    response = await _make_retrieval_service().search(
+        db,
+        SearchRequest(query="works out", top_k=10, include_stale_notices=True),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+
+    # The withheld node is still withheld: notices explain, they don't serve.
+    assert [result.uri for result in response.results] == ["fresh-note"]
+    assert len(response.stale_notices) == 1
+    notice = response.stale_notices[0]
+    assert notice.uri == rows[0]["uri"]
+    assert notice.validity_status == "stale"
+    assert notice.stale_content == "The user works out at Sunrise Gym."
+    assert notice.reason == (
+        "health_condition: lactose intolerance -> high blood pressure"
+    )
+    assert notice.source_uri == upstream_rows[0]["uri"]
+    assert notice.source_content == "The user works at the Portland office."
+    assert notice.version == 4
+    assert str(stale_id) not in [result.uri for result in response.results]
+    # Same payload is auditable in the trace.
+    assert response.trace["stale_notices"][0]["source_uri"] == upstream_rows[0]["uri"]
+
+
+@pytest.mark.asyncio
+async def test_stale_notices_are_off_by_default():
+    _, _, _, rows, upstream_rows, invalidation_rows = _stale_notice_fixture()
+    db = SearchFlowDB(
+        rows, invalidation_rows=invalidation_rows, upstream_rows=upstream_rows
+    )
+    response = await _make_retrieval_service().search(
+        db,
+        SearchRequest(query="works out", top_k=10),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    assert response.results == []
+    assert response.stale_notices == []
+    # No invalidation lookup happens when notices were not asked for.
+    assert not any("context_invalidations" in sql for sql, _ in db.fetches)
+
+
+@pytest.mark.asyncio
+async def test_stale_notices_suppressed_when_include_stale_serves_the_node():
+    _, _, _, rows, upstream_rows, invalidation_rows = _stale_notice_fixture()
+    db = SearchFlowDB(
+        rows, invalidation_rows=invalidation_rows, upstream_rows=upstream_rows
+    )
+    response = await _make_retrieval_service().search(
+        db,
+        SearchRequest(
+            query="works out", include_stale=True, include_stale_notices=True
+        ),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    # Nothing was withheld, so there is nothing to explain.
+    assert [result.uri for result in response.results] == [rows[0]["uri"]]
+    assert response.stale_notices == []
+
+
+@pytest.mark.asyncio
+async def test_stale_notice_falls_back_to_upstream_uri_for_generic_closure_reason():
+    """Closure descendants get a reason naming a raw uuid; name the upstream."""
+    _, upstream_id, root_id, rows, upstream_rows, invalidation_rows = (
+        _stale_notice_fixture()
+    )
+    rows[0]["validity_status"] = "invalid"
+    rows[0]["validity_reason"] = f"dependency closure invalidated by {root_id}"
+    db = SearchFlowDB(
+        rows, invalidation_rows=invalidation_rows, upstream_rows=upstream_rows
+    )
+    response = await _make_retrieval_service().search(
+        db,
+        SearchRequest(query="works out", include_stale_notices=True),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    notice = response.stale_notices[0]
+    assert str(root_id) not in (notice.reason or "")
+    assert notice.reason == (
+        f"an upstream note it depends on changed: {upstream_rows[0]['uri']}"
+    )
+    assert notice.source_uri == upstream_rows[0]["uri"]
+
+
+@pytest.mark.asyncio
+async def test_stale_notice_omits_upstream_when_none_is_recorded():
+    _, _, _, rows, _, _ = _stale_notice_fixture()
+    db = SearchFlowDB(rows, invalidation_rows=[], upstream_rows=[])
+    response = await _make_retrieval_service().search(
+        db,
+        SearchRequest(query="works out", include_stale_notices=True),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    notice = response.stale_notices[0]
+    assert notice.source_uri is None
+    assert notice.source_content is None
+    # The rule's own recorded wording still survives.
+    assert notice.reason == (
+        "health_condition: lactose intolerance -> high blood pressure"
+    )
+
+
+@pytest.mark.asyncio
+async def test_stale_notice_masks_content_under_field_masks(monkeypatch):
+    _, _, _, rows, upstream_rows, invalidation_rows = _stale_notice_fixture()
+    db = SearchFlowDB(
+        rows, invalidation_rows=invalidation_rows, upstream_rows=upstream_rows
+    )
+    service = _make_retrieval_service()
+
+    async def fake_filter(db_, contexts, ctx):
+        return [(c, ["Sunrise", "Portland"]) for c in contexts]
+
+    monkeypatch.setattr(service._acl, "filter_visible_with_acl", fake_filter)
+    response = await service.search(
+        db,
+        SearchRequest(query="works out", include_stale_notices=True),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    notice = response.stale_notices[0]
+    assert "Sunrise" not in notice.stale_content
+    assert "Portland" not in notice.source_content
+
+
+@pytest.mark.asyncio
+async def test_stale_notice_drops_node_the_caller_cannot_read(monkeypatch):
+    _, _, _, rows, upstream_rows, invalidation_rows = _stale_notice_fixture()
+    db = SearchFlowDB(
+        rows, invalidation_rows=invalidation_rows, upstream_rows=upstream_rows
+    )
+    service = _make_retrieval_service()
+
+    async def deny_all(db_, contexts, ctx):
+        return []
+
+    monkeypatch.setattr(service._acl, "filter_visible_with_acl", deny_all)
+    response = await service.search(
+        db,
+        SearchRequest(query="works out", include_stale_notices=True),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    assert response.stale_notices == []
+
+
+@pytest.mark.asyncio
+async def test_stale_notice_omits_upstream_the_caller_cannot_read(monkeypatch):
+    """An invisible upstream is dropped from the notice, not leaked."""
+    stale_id, _, _, rows, upstream_rows, invalidation_rows = _stale_notice_fixture()
+    db = SearchFlowDB(
+        rows, invalidation_rows=invalidation_rows, upstream_rows=upstream_rows
+    )
+    service = _make_retrieval_service()
+
+    async def hide_upstream(db_, contexts, ctx):
+        return [(c, None) for c in contexts if c["id"] == stale_id]
+
+    monkeypatch.setattr(service._acl, "filter_visible_with_acl", hide_upstream)
+    response = await service.search(
+        db,
+        SearchRequest(query="works out", include_stale_notices=True),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    notice = response.stale_notices[0]
+    assert notice.source_uri is None
+    assert notice.source_content is None
+
+
+@pytest.mark.asyncio
+async def test_debug_search_explicitly_includes_invalid_rows_with_status():
+    row_id = uuid.uuid4()
+    db = SearchFlowDB(
+        [
+            FakeRecord(
+                id=row_id,
+                uri="debug-stale",
+                context_type="memory",
+                scope="datalake",
+                owner_space=None,
+                status="stale",
+                validity_status="invalid",
+                validity_reason="upstream stale",
+                version=3,
+                l0_content="debug phrase",
+                l1_content="debug phrase",
+                tags=[],
+                cosine_similarity=0.8,
+            )
+        ]
+    )
+    response = await _make_retrieval_service().search(
+        db,
+        SearchRequest(query="debug phrase", include_stale=True),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    assert response.results[0].validity_status == "invalid"
+    assert response.trace["unsafe_debug_read"] is True
+
+
+@pytest.mark.asyncio
+async def test_concurrent_invalidation_between_candidate_and_materialization_is_filtered():
+    row_id = uuid.uuid4()
+
+    class ConcurrentInvalidationDB(SearchFlowDB):
+        async def fetch(self, sql, *args):
+            if "SELECT id, version, status, validity_status" in sql:
+                return [
+                    FakeRecord(
+                        id=row_id,
+                        version=1,
+                        status="active",
+                        validity_status="invalid",
+                    )
+                ]
+            return await super().fetch(sql, *args)
+
+    db = ConcurrentInvalidationDB(
+        [
+            FakeRecord(
+                id=row_id,
+                uri="racy",
+                context_type="memory",
+                scope="datalake",
+                owner_space=None,
+                status="active",
+                validity_status="fresh",
+                version=1,
+                l0_content="race phrase",
+                l1_content="race phrase",
+                tags=[],
+                cosine_similarity=0.9,
+            )
+        ]
+    )
+    response = await _make_retrieval_service().search(
+        db,
+        SearchRequest(query="race phrase"),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    assert response.results == []
+    assert "materialization_validity:invalid" in response.trace["candidates"][0][
+        "filter_reasons"
+    ]
 
 
 class QueryCaptureDB:

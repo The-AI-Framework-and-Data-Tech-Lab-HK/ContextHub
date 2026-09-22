@@ -61,7 +61,13 @@ class ContextStore:
         self._lifecycle = lifecycle
 
     async def read(
-        self, db: ScopedRepo, uri: str, level: ContextLevel, ctx: RequestContext
+        self,
+        db: ScopedRepo,
+        uri: str,
+        level: ContextLevel,
+        ctx: RequestContext,
+        *,
+        include_stale: bool = False,
     ) -> str:
         if uri.startswith("ctx://user/"):
             raise BadRequestError("scope=user is not supported in Task 2 public API")
@@ -83,7 +89,7 @@ class ContextStore:
         col = LEVEL_COLUMNS[level]
         row = await db.fetchrow(
             f"""
-            SELECT id, status, {col}, file_path
+            SELECT id, status, validity_status, version, {col}, file_path
             FROM contexts
             WHERE uri = $1 AND status != 'deleted'
             """,
@@ -92,9 +98,19 @@ class ContextStore:
         if row is None:
             raise NotFoundError(f"Context {uri} not found")
 
-        if row["status"] == "stale" and self._lifecycle is not None:
-            await self._lifecycle.recover_from_stale(db, row["id"], ctx)
-        else:
+        if (
+            not include_stale
+            and (
+                row["status"] != "active"
+                or row.get("validity_status", "fresh") != "fresh"
+            )
+        ):
+            raise ConflictError(
+                f"Context {uri} is not serviceable "
+                f"(status={row['status']}, "
+                f"validity={row.get('validity_status', 'unknown')})"
+            )
+        if row["status"] == "active" and row.get("validity_status", "fresh") == "fresh":
             await db.execute(
                 "UPDATE contexts SET last_accessed_at = NOW() WHERE uri = $1", uri
             )
@@ -102,6 +118,21 @@ class ContextStore:
         if row["file_path"] and level == ContextLevel.L2:
             txt_path = Path(row["file_path"]) / "extracted.txt"
             content = txt_path.read_text(encoding="utf-8") if txt_path.exists() else ""
+            still_current = await db.fetchval(
+                """
+                SELECT 1 FROM contexts
+                 WHERE id = $1 AND version = $2 AND file_path = $3
+                   AND ($4 OR (status = 'active' AND validity_status = 'fresh'))
+                """,
+                row["id"],
+                row.get("version", 1),
+                row["file_path"],
+                include_stale,
+            )
+            if still_current is None:
+                raise ConflictError(
+                    f"Context {uri} changed while its file content was read"
+                )
         else:
             content = row[col] or ""
         if decision.field_masks:
@@ -166,7 +197,12 @@ class ContextStore:
         return row["version"]
 
     async def ls(
-        self, db: ScopedRepo, path: str, ctx: RequestContext
+        self,
+        db: ScopedRepo,
+        path: str,
+        ctx: RequestContext,
+        *,
+        include_stale: bool = False,
     ) -> list[str]:
         if path.startswith("ctx://user/"):
             raise BadRequestError("scope=user is not supported in Task 2 public API")
@@ -174,10 +210,16 @@ class ContextStore:
         prefix = path.rstrip("/") + "/"
         rows = await db.fetch(
             """
-            SELECT uri, scope, owner_space, status
-            FROM contexts WHERE uri LIKE $1 AND status != 'deleted'
+            SELECT uri, scope, owner_space, status, validity_status
+            FROM contexts
+            WHERE uri LIKE $1
+              AND (
+                ($2 AND status != 'deleted')
+                OR (NOT $2 AND status = 'active' AND validity_status = 'fresh')
+              )
             """,
             prefix + "%",
+            include_stale,
         )
         visible_with_masks = await self._acl.filter_visible_with_acl(db, rows, ctx)
 
