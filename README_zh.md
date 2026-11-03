@@ -139,7 +139,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 \q
 ```
 
-> 这套本地开发配置使用超级用户，会绕过数据库的行级安全规则。若要用独立的普通账号验证 RLS，请参考 [Deep Agents 教程](docs/setup/deepagents-integration-guide.md)，并留意其中说明的后台任务限制。
+> 上面的 SQL 给了 `contexthub` 账号数据库管理员权限。用这个账号连接时，PostgreSQL 不会按租户限制它能读取的数据，因此这套配置不能用来验证数据库层的租户隔离。若要使用普通账号验证隔离效果，请参考 [Deep Agents 教程](docs/setup/deepagents-integration-guide.md)，其中也说明了当前后台任务的限制。
 
 ### 第 3 步：安装并启动 ContextHub
 
@@ -226,49 +226,31 @@ ContextHub 可以作为 [OpenClaw](https://github.com/anthropics/openclaw) 的�
 
 ## 与 OpenClaw 集成 🦞
 
-ContextHub 设计为 [OpenClaw](https://github.com/anthropics/openclaw) 的 **context engine**——替换内置引擎，提供企业级上下文治理。
+ContextHub 通过**上下文引擎插件**，为 [OpenClaw](https://github.com/anthropics/openclaw) 提供跨会话记忆、团队共享和技能版本管理。插件替换 OpenClaw 的内置上下文引擎，通过一个 Python 辅助服务（sidecar）连接 ContextHub 服务端。
+
+**安装插件：**
 
 ```bash
-# 一条命令安装
 pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 ```
 
-**自动行为（无需修改 Agent 代码）：**
+**工作方式：** 配置好插件、sidecar 和服务端后，OpenClaw 会在每轮对话前后自动调用相应功能。Agent 也可以主动调用 ContextHub 工具。
 
 | 事件 | ContextHub 行为 |
 |------|----------------|
-| Agent 收到用户提问 | `assemble()` — 检索所有可见上下文，将相关内容注入系统提示词 |
-| Agent 完成回复 | `afterTurn()` — 提取可复用事实，存为私有记忆 |
+| Agent 收到用户提问 | `assemble()` 检索有权限查看的上下文，将相关结果加入提示词 |
+| Agent 完成回复 | `afterTurn()` 从回复中筛选候选事实，存为私有记忆 |
 
-**每个会话自动可用的 7 个 Agent 工具：**
+**可用的 8 个工具：**
 
-`ls` · `read` · `grep` · `stat` · `contexthub_store` · `contexthub_promote` · `contexthub_skill_publish`
+| 能力 | 工具 |
+|---|---|
+| 查找和读取上下文 | `ls`、`read`、`grep`、`stat` |
+| 保存和共享记忆 | `contexthub_store`、`contexthub_promote` |
+| 发布技能版本 | `contexthub_skill_publish` |
+| 反馈检索结果是否有用 | `contexthub_feedback` |
 
-### 多 Agent 协作实战
-
-```
-组织：engineering/backend ← query-agent        组织：data/analytics ← analysis-agent
-                                                     （同时也是 engineering 成员）
-```
-
-```
-1. query-agent 将一个 SQL pattern 存为私有记忆
-
-2. query-agent 晋升到 engineering 团队
-   → ctx://team/engineering/shared_knowledge/monthly-sales-pattern
-
-3. analysis-agent 提问："月度销售额应该怎么查？"
-   → ContextHub 通过 assemble() 自动召回已晋升的 pattern
-   → 零人工传递
-
-4. query-agent 发布 breaking Skill v2
-   → analysis-agent（pinned 到 v1）继续稳定使用 v1
-   → advisory："v2 已发布，包含 breaking changes"
-```
-
-> **这和共享文档有什么不同？**
-> ContextHub 强制执行可见性边界、追踪 `derived_from` 血缘、
-> 沿依赖图传播变更——而不仅仅是"谁最后编辑的就是最新版"。
+例如，一个 Agent 可以把 SQL 查询方法存为私有记忆，再共享给 `engineering` 团队。另一位团队成员随后可以通过自动召回或主动检索获取这条记忆。两种访问方式都由 ContextHub 检查可见范围和版本规则。自动召回和事实提取是否准确，仍需要独立评估。
 
 完整搭建流程请参考 [OpenClaw 集成指南](docs/setup/openclaw-integration-guide.md)。
 
@@ -276,17 +258,44 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 
 ## 与 Deep Agents 集成
 
-通过 Python SDK 为 Deep Agents 添加 ContextHub 工具：
+ContextHub 通过**原生异步工具**，为 Deep Agents 提供跨会话记忆、团队共享、技能版本管理和文档检索。适配器通过 Python SDK 直接连接 ContextHub 服务端；Deep Agents 继续负责管理对话和自身文件系统。
+
+**安装适配器：** 在仓库根目录执行，再按所选模型安装对应的 LangChain 模型接入包。
 
 ```bash
 python -m pip install -e ./sdk -e ./plugins/deepagents
 ```
 
-将 `create_contexthub_tools(client)` 传给 `create_deep_agent(tools=...)`，即可搜索和读取上下文、读取文档章节、保存和共享记忆、发布技能版本以及反馈检索效果。使用 `ainvoke` 或 `astream`，并在运行期间保持 SDK client 打开。
+**工作方式：** Agent 根据任务决定何时检索、读取或保存，通过工具调用访问 ContextHub。把工具加入 Agent 后，使用 `ainvoke` 或 `astream` 运行。这版适配不包含回合前自动召回和回合后自动保存。
 
-Deep Agents 负责管理对话状态；这版适配由 Agent 主动调用工具，不包含 OpenClaw 在回合前自动召回、回合后自动保存的机制。
+配置好模型并打开 `ContextHubClient` 后，可以这样接入：
 
-从零开始请看 [Deep Agents + ContextHub 教程](docs/setup/deepagents-integration-guide.md)：搭建独立演示环境、配置模型、保存和检索记忆、跨 Agent 共享，以及按章节读取文档。已有 Agent 的接入代码、全部十个工具和测试方法见[适配器参考](plugins/deepagents/README.md)。
+```python
+from contexthub_deepagents import CONTEXTHUB_INSTRUCTIONS, create_contexthub_tools
+from deepagents import create_deep_agent
+
+async def answer(question, model, client):
+    agent = create_deep_agent(
+        model=model,
+        tools=create_contexthub_tools(client),
+        system_prompt=CONTEXTHUB_INSTRUCTIONS,
+    )
+    return await agent.ainvoke({"messages": [{"role": "user", "content": question}]})
+```
+
+**可用的 10 个工具：**
+
+| 能力 | 工具 |
+|---|---|
+| 查找和读取上下文 | `contexthub_ls`、`contexthub_read`、`contexthub_search`、`contexthub_stat` |
+| 读取文档章节 | `contexthub_sections`、`contexthub_read_section` |
+| 保存和共享记忆 | `contexthub_store`、`contexthub_promote` |
+| 发布技能版本 | `contexthub_skill_publish` |
+| 反馈检索结果是否有用 | `contexthub_feedback` |
+
+例如，一个 Agent 可以把 SQL 查询方法存为私有记忆，再共享给 `engineering` 团队。另一位团队成员随后调用 `contexthub_search` 和 `contexthub_read` 获取并使用它。每个 SDK 客户端绑定账号和 Agent 身份，由 ContextHub 检查可见范围和版本规则。
+
+完整搭建流程请参考 [Deep Agents + ContextHub 教程](docs/setup/deepagents-integration-guide.md)，其中包括模型配置、记忆保存与共享、文档章节读取。工具参数、客户端的打开与关闭以及测试方法见[适配器参考](plugins/deepagents/README.md)。
 
 ---
 

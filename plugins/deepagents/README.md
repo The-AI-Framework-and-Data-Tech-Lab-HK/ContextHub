@@ -104,8 +104,9 @@ ContextHub stores the shared context accessed through these tools. ContextHub
 skills are read/published records here, not automatically mounted Deep Agents
 `SKILL.md` directories. SQL execution and benchmark adapters are separate work.
 
-Automatic recall/capture accuracy is tracked as an
-[independent evaluation question](docs/automatic-memory-evaluation.md).
+Automatic recall/capture accuracy remains a separate evaluation question.
+It requires measuring which facts are saved and recalled correctly across
+conversations; passing explicit-tool checks does not establish that accuracy.
 
 ## Run the example
 
@@ -177,20 +178,11 @@ inspection. Delete the disposable database and document-store directory after
 review. Do not run the repository's DB integration suite against an existing
 research database: its fixtures truncate business tables.
 
-See the [2026-11-03 live validation report](docs/live-validation-2026-11-03.md)
-for results, the server-side SQL fix, and known model-provider limitations.
-The [updated-model rerun](docs/live-validation-2026-11-03-updated-model.md) passed
-the adapter checks with DashScope `deepseek-v4-pro-0813`, but identified separate
-[model-generated document section issues](docs/document-tree-generation-followup.md).
-Those observed defects are now fixed; see the
-[section-tree fix and real-model validation](docs/document-tree-fix-2026-11-03.md)
-and the [server configuration guide](../../docs/setup/document-section-generation.md).
-Document tool success alone does not establish that the model generated the
-sections or that its source ranges are correct.
-
-The [pre-PR review](docs/pre-pr-review-2026-11-03.md) records the final real-model
-run, tutorial verification, full-suite baseline comparison, and the existing
-background-worker limitation documented in the tutorial.
+For document model settings and fallback behavior, see
+[document section generation](../../docs/setup/document-section-generation.md).
+The [tutorial](../../docs/setup/deepagents-integration-guide.md) describes the
+demo server configuration and its background-worker limitation. A successful
+document tool call alone does not establish model section accuracy.
 
 ## References
 

@@ -21,7 +21,7 @@ dev = ["pytest>=8", "pytest-asyncio>=0.24", "respx>=0.22"]
 packages = ["src/contexthub_deepagents"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "examples", "docs", "README.md", "pyproject.toml"]
+include = ["src", "tests", "examples", "README.md", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"

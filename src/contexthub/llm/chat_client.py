@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class BaseChatClient(ABC):
     @abstractmethod
     async def complete(self, prompt: str, max_tokens: int = 2000) -> str:
-        """通用文本生成接口。"""
+        """Generate text from a prompt."""
 
 
 class OpenAIChatClient(BaseChatClient):

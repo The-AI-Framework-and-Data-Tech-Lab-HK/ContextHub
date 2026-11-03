@@ -139,7 +139,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 \q
 ```
 
-> This local-development setup uses a superuser, which bypasses row-level security. For a demo that exercises RLS with a separate application role, see the [Deep Agents tutorial](docs/setup/deepagents-integration-guide.md), including its background-worker limitation.
+> The SQL above gives the `contexthub` account PostgreSQL administrator privileges. PostgreSQL therefore does not restrict which tenants' rows that account can read, so this setup cannot verify database-level tenant isolation. For a demo using an ordinary application account, see the [Deep Agents tutorial](docs/setup/deepagents-integration-guide.md), which also explains the current background-worker limitation.
 
 ### Step 3: Install & Start ContextHub
 
@@ -226,49 +226,31 @@ For the full E2E demo and integration tests, see [Local Setup & E2E Verification
 
 ## Integration with OpenClaw 🦞
 
-ContextHub is designed as the **context engine** for [OpenClaw](https://github.com/anthropics/openclaw) — replacing its built-in engine with enterprise-grade context governance.
+ContextHub gives [OpenClaw](https://github.com/anthropics/openclaw) persistent memories, team sharing, and versioned skills through a **context-engine plugin**. The plugin replaces OpenClaw's built-in context engine and connects to the ContextHub server through a Python sidecar.
+
+**Install the plugin:**
 
 ```bash
-# One-command install
 pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 ```
 
-**What happens automatically (no agent code changes):**
+**How it works:** once the plugin, sidecar, and server are configured, OpenClaw invokes the lifecycle hooks automatically. The agent can also call ContextHub tools explicitly.
 
 | Event | ContextHub Action |
 |-------|-------------------|
-| Agent receives a prompt | `assemble()` — searches all visible contexts and injects relevant ones into the system prompt |
-| Agent completes a response | `afterTurn()` — extracts reusable facts and stores them as private memories |
+| Agent receives a prompt | `assemble()` searches visible contexts and adds relevant results to the prompt |
+| Agent completes a response | `afterTurn()` selects candidate facts from the response and stores them as private memories |
 
-**7 agent tools available in every session:**
+**8 available tools:**
 
-`ls` · `read` · `grep` · `stat` · `contexthub_store` · `contexthub_promote` · `contexthub_skill_publish`
+| Capability | Tools |
+|---|---|
+| Find and read context | `ls`, `read`, `grep`, `stat` |
+| Save and share memories | `contexthub_store`, `contexthub_promote` |
+| Publish skill versions | `contexthub_skill_publish` |
+| Report retrieval usefulness | `contexthub_feedback` |
 
-### Multi-Agent Collaboration in Action
-
-```
-Org: engineering/backend  ← query-agent        Org: data/analytics  ← analysis-agent
-                                                     (also engineering member)
-```
-
-```
-1. query-agent stores a SQL pattern as private memory
-
-2. query-agent promotes it to engineering team
-   → ctx://team/engineering/shared_knowledge/monthly-sales-pattern
-
-3. analysis-agent asks "How to query monthly sales?"
-   → ContextHub auto-recalls the promoted pattern via assemble()
-   → zero manual sharing needed
-
-4. query-agent publishes breaking Skill v2
-   → analysis-agent (pinned to v1) continues using v1 stably
-   → advisory: "v2 available with breaking changes"
-```
-
-> **What makes this different from a shared document?**
-> ContextHub enforces visibility boundaries, tracks `derived_from` lineage,
-> and propagates changes through dependency graphs — not just "latest version wins."
+For example, one agent can save a SQL pattern privately and promote it to the `engineering` team. Another team member can then retrieve it through automatic recall or an explicit search. ContextHub applies the configured visibility and version rules to both paths. Recall and fact-capture accuracy still need separate evaluation.
 
 For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/openclaw-integration-guide.md).
 
@@ -276,23 +258,44 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
 
 ## Integration with Deep Agents
 
-Add ContextHub tools to a Deep Agent through the Python SDK:
+ContextHub gives Deep Agents persistent memories, team sharing, versioned skills, and document retrieval through **native async tools**. The adapter connects directly to the ContextHub server through the Python SDK; Deep Agents continues to manage conversations and its own filesystem.
+
+**Install the adapter** from the repository root, then install the LangChain provider package for your model:
 
 ```bash
 python -m pip install -e ./sdk -e ./plugins/deepagents
 ```
 
-Pass `create_contexthub_tools(client)` to `create_deep_agent(tools=...)` to search
-and read context, access document sections, save and share memories, publish
-skills, and report retrieval feedback. Use `ainvoke` or `astream` with an open
-SDK client. Deep Agents manages conversation state; this adapter provides explicit
-tool access rather than OpenClaw's automatic recall/capture lifecycle.
+**How it works:** the agent chooses when to search, read, or save through tool calls. Add the tools to your agent and use `ainvoke` or `astream`. This integration does not add automatic pre-turn recall or post-turn capture.
 
-Start with the [Deep Agents + ContextHub tutorial](docs/setup/deepagents-integration-guide.md):
-set up a demo server, configure the models, save and retrieve a memory, share it
-with another agent, and read a document by section. For an existing agent, see
-the [adapter reference](plugins/deepagents/README.md) for the Python integration,
-all ten tools, identity handling, and tests.
+With your model and an open `ContextHubClient` already configured:
+
+```python
+from contexthub_deepagents import CONTEXTHUB_INSTRUCTIONS, create_contexthub_tools
+from deepagents import create_deep_agent
+
+async def answer(question, model, client):
+    agent = create_deep_agent(
+        model=model,
+        tools=create_contexthub_tools(client),
+        system_prompt=CONTEXTHUB_INSTRUCTIONS,
+    )
+    return await agent.ainvoke({"messages": [{"role": "user", "content": question}]})
+```
+
+**10 available tools:**
+
+| Capability | Tools |
+|---|---|
+| Find and read context | `contexthub_ls`, `contexthub_read`, `contexthub_search`, `contexthub_stat` |
+| Read document sections | `contexthub_sections`, `contexthub_read_section` |
+| Save and share memories | `contexthub_store`, `contexthub_promote` |
+| Publish skill versions | `contexthub_skill_publish` |
+| Report retrieval usefulness | `contexthub_feedback` |
+
+For example, one agent can save a SQL pattern privately and promote it to the `engineering` team. Another team member can then call `contexthub_search` and `contexthub_read` to use it. Each SDK client binds the account and agent identity; ContextHub applies the configured visibility and version rules.
+
+For full setup instructions, follow the [Deep Agents + ContextHub tutorial](docs/setup/deepagents-integration-guide.md). It covers model configuration, saving and sharing memories, and reading document sections. See the [adapter reference](plugins/deepagents/README.md) for tool details, client lifetime, and tests.
 
 ---
 
