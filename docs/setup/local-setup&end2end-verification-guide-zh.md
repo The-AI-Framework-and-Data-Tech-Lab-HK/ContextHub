@@ -1,12 +1,14 @@
 # ContextHub MVP — 本地环境搭建与端到端验证指南
 
 > 无需 Docker。使用 Homebrew 在 macOS 本地安装 PostgreSQL + pgvector。
+>
+> 本指南搭建共用的 ContextHub 服务端。Agent 接入可选择 [OpenClaw 指南](openclaw-integration-guide-zh.md)或 [Deep Agents 教程](deepagents-integration-guide.md)；Deep Agents 不需要 bridge 或 sidecar。
 
 ## 前置条件
 
 - **macOS**，已安装 [Homebrew](https://brew.sh)
 - **Python 3.12+**
-- **Node.js 18+**（仅 Bridge / Part B 验证需要）
+- **Node.js**（仅 OpenClaw 需要，版本要求见其[集成指南](openclaw-integration-guide-zh.md)）
 - 运行项目命令前需**退出 Conda 环境**
 
 ---
@@ -50,8 +52,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 \q
 ```
 
-> **说明**：`SUPERUSER` 权限是必需的，因为数据库 schema 使用了 `FORCE ROW LEVEL SECURITY`。
-> 本地开发环境使用 superuser 没有问题。
+> 上面的本地演示账号拥有数据库管理员权限，PostgreSQL 不会按租户限制它能读取的数据，因此不能用它验证数据库层的租户隔离。`FORCE ROW LEVEL SECURITY` 并不要求使用超级用户。[Deep Agents 教程](deepagents-integration-guide.md)演示了普通应用账号的配置，并说明当前后台任务的限制。
 
 验证连接：
 
@@ -89,9 +90,16 @@ pip install greenlet
 
 # SDK
 pip install -e sdk/
+```
 
-# OpenClaw Plugin
-pip install -e plugins/openclaw/
+按需要安装所选适配器：
+
+```bash
+# OpenClaw
+pip install -e ./plugins/openclaw
+
+# Deep Agents（另需所选模型的接入包）
+pip install -e ./plugins/deepagents langchain-openai
 ```
 
 ---
@@ -102,14 +110,7 @@ pip install -e plugins/openclaw/
 alembic upgrade head
 ```
 
-预期输出：
-
-```
-INFO  [alembic.runtime.migration] Running upgrade  -> 001, Initial schema...
-INFO  [alembic.runtime.migration] Running upgrade 001 -> 002, Force row level security
-```
-
-此步骤会创建所有数据表，并插入种子数据（团队层级 + Agent 成员关系）。
+此步骤应用全部迁移，并插入种子数据（团队层级 + Agent 成员关系）。随后运行 `alembic current`，确认已到迁移的 head；迁移列表会随数据库结构演进而增加。
 
 ---
 
@@ -171,7 +172,7 @@ Demo 脚本会自动确保 `query-agent` 拥有 `engineering` 团队的写权限
   MVP Demo Complete
 ============================================================
   - Private memory created: ctx://agent/query-agent/memories/...
-  - Promoted to team: ctx://team/engineering/shared_knowledge/...
+  - Promoted to team: ctx://team/engineering/memories/shared_knowledge/...
   - Skill v1 + v2 published, breaking propagation triggered
   - Cross-agent visibility verified
   - Catalog sync + sql-context demonstrated
@@ -187,9 +188,11 @@ Demo 脚本会自动确保 `query-agent` 拥有 `engineering` 团队的写权限
 pytest tests/ -v
 ```
 
-所有非集成测试会运行，集成测试会被自动跳过。
+依赖数据库 fixture 的测试默认跳过。此命令不收集可选的 Deep Agents 测试，需按下文单独运行。部分研究测试还需要 Git 中未提供的本地产物；遇到文件缺失时，应先检查报错路径，不能直接归因于适配器。
 
 ### 7b. 数据库集成测试（需要 PostgreSQL 运行中）
+
+只能使用可清空的测试数据库。当前 fixture 使用固定测试凭据连接本机 5432 端口的 `contexthub` 数据库，并清空业务表；设置 `DATABASE_URL` 不会改变这些 fixture 的连接目标。不要对已有研究数据库启用这些测试。
 
 ```bash
 CONTEXTHUB_INTEGRATION=1 pytest \
@@ -202,15 +205,16 @@ CONTEXTHUB_INTEGRATION=1 pytest \
 
 ---
 
-## 8. Bridge 验证（Part B）
+## 8. Agent 适配器验证
+
+8a–8b 用于 OpenClaw；Deep Agents 请直接看 8c。
 
 ### 8a. TypeScript 编译
 
 ```bash
 cd bridge
-npm install
-npx tsc --noEmit   # 仅类型检查
-npx tsc            # 完整编译 → dist/
+npm ci
+npm test          # 编译 dist/，检查工具注册和调用转发
 cd ..
 ```
 
@@ -234,13 +238,26 @@ curl http://localhost:9100/info
 # 预期: ContextEngine info JSON
 
 curl http://localhost:9100/tools
-# 预期: tool definitions 列表
+# 预期: 8 个工具，名称均以 contexthub_ 开头
+
+curl -X POST http://localhost:9100/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"name": "contexthub_ls", "args": {"path": "ctx://"}}'
 
 curl -X POST http://localhost:9100/assemble \
   -H "Content-Type: application/json" \
   -d '{"sessionId": "test", "messages": [], "tokenBudget": 4000}'
 # 预期: 包含 systemPromptAddition 的 JSON
 ```
+
+### 8c. Deep Agents
+
+```bash
+python -m pip install -e './plugins/deepagents[dev]'
+python -m pytest plugins/deepagents/tests
+```
+
+这些测试使用模拟 HTTP 响应和预设模型回复。真实服务和模型的验证见 [Deep Agents 教程](deepagents-integration-guide.md)，其中包含可选的联调脚本。Deep Agents 提供与 OpenClaw 相同的 8 个操作名称，另有 2 个文档章节工具；接入方式对比见[开发指南](../design%20and%20development/development-guide-zh.md#agent-接入方式)。
 
 ---
 
@@ -319,12 +336,13 @@ brew services restart postgresql@16  # 重启
 | 3 | Server 启动 | `uvicorn contexthub.main:app --port 8000` | 监听 :8000 |
 | 4 | 健康检查 | `curl localhost:8000/health` | `{"status":"ok"}` |
 | 5 | API 文档可见 | 浏览器打开 `localhost:8000/docs` | 可看到 datalake 路由 |
-| 6 | 单元测试通过 | `pytest tests/ -v` | 全部 PASSED |
+| 6 | 单元测试 | `pytest tests/ -v` | 数据库测试跳过；检查失败及缺失的研究产物 |
 | 7 | 集成测试通过 | `CONTEXTHUB_INTEGRATION=1 pytest ...` | 全部 PASSED |
 | 8 | E2E Demo 完成 | `python scripts/demo_e2e.py` | 7 步全部成功 |
 | 9 | TS Bridge 编译通过 | `cd bridge && npx tsc` | 无报错 |
 | 10 | Sidecar 启动 | `python bridge/src/sidecar.py` | 监听 :9100 |
 | 11 | Sidecar 健康检查 | `curl localhost:9100/health` | `{"status":"ok"}` |
+| 12 | Deep Agents 工具 | `python -m pytest plugins/deepagents/tests` | 安装适配器测试依赖后全部 PASSED |
 
 ---
 
@@ -332,11 +350,7 @@ brew services restart postgresql@16  # 重启
 
 ### `unrecognized configuration parameter "app.account_id"`
 
-`contexthub` 数据库用户不是 superuser。修复方法：
-
-```bash
-psql postgres -c "ALTER USER contexthub WITH SUPERUSER;"
-```
+报错的数据库连接没有设置行级安全规则所需的租户身份。请求中的查询应通过 `repo.session(account_id)` 绑定 `app.account_id`。当前传播任务读取依赖时仍有一处未绑定身份；若用普通账号只验证适配器，可按 [Deep Agents 教程](deepagents-integration-guide.md)关闭传播和生命周期后台任务。授予超级用户权限会绕过隔离检查，并没有修复租户身份绑定。
 
 ### `No module named 'greenlet'`
 

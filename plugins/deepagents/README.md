@@ -75,6 +75,8 @@ All names have a `contexthub_` prefix so Deep Agents' built-in filesystem tools
 keep their own names and meaning. To expose only selected operations, filter the
 returned list by `tool.name` before passing it to the agent.
 
+The OpenClaw adapter uses the same eight operation names, with framework-specific parameter schemas. Deep Agents additionally exposes `contexthub_sections` and `contexthub_read_section`. SDK method names and server HTTP paths remain unchanged; see the [integration comparison and API overview](../../docs/design%20and%20development/development-guide.md#agent-integrations).
+
 Search results identify sources by URI. For a long document, call
 `contexthub_stat(uri)` to obtain its `id`, then use that ID as `context_id` with
 the section tools. The search result's `section_id`, when present, can be passed
@@ -121,7 +123,7 @@ export CONTEXTHUB_AGENT_ID=query-agent
 # Set the credentials required by the provider chosen with --model.
 python plugins/deepagents/examples/query.py \
   "Search ContextHub for the team's deployment procedure and cite the source." \
-  --model anthropic:claude-sonnet-4-6
+  --model openai:your-tool-capable-model
 ```
 
 ## Test

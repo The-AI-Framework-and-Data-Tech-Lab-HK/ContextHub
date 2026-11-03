@@ -4,6 +4,7 @@
 >
 > 本地开发环境搭建请参考 [本地部署与端到端验证指南](../setup/local-setup&end2end-verification-guide-zh.md)。
 > OpenClaw 集成请参考 [OpenClaw 集成指南](../setup/openclaw-integration-guide-zh.md)。
+> Deep Agents 接入请参考[集成教程](../setup/deepagents-integration-guide.md)和[适配器参考](../../plugins/deepagents/README.md)。
 
 ## 快速开始
 
@@ -18,7 +19,7 @@
 ```bash
 git clone https://github.com/The-AI-Framework-and-Data-Tech-Lab-HK/ContextHub.git
 cd ContextHub
-pip install -e ".[dev]"
+pip install -e ".[dev]" -e ./sdk greenlet
 ```
 
 ### 2. 启动 PostgreSQL
@@ -47,30 +48,47 @@ API 地址：`http://localhost:8000`，OpenAPI 文档：`/docs`。
 
 ## Python SDK
 
-无需 OpenClaw，直接通过编程方式访问：
+两种 Agent 适配器都使用同一套异步 SDK，也可以直接调用 SDK。创建客户端时绑定账号和 Agent 身份，调用期间保持客户端打开：
 
 ```python
-from contexthub_sdk import ContextHubClient
+import asyncio
+from contexthub_sdk import ContextHubClient, Scope
 
-client = ContextHubClient(base_url="http://localhost:8000", api_key="...")
+async def main():
+    async with ContextHubClient(
+        url="http://localhost:8000",
+        api_key="changeme",
+        account_id="acme",
+        agent_id="query-agent",
+    ) as client:
+        memory = await client.memory.add(
+            content="比较月度销售额之前，先按月份汇总销售数据。",
+            tags=["sql", "sales"],
+        )
+        await client.memory.promote(uri=memory.uri, target_team="engineering")
+        results = await client.search(
+            "月度销售额统计", scope=[Scope.TEAM], top_k=5,
+        )
+        print(results.model_dump_json(indent=2))
 
-# 语义检索所有可见上下文
-results = await client.search("月度销售额统计", scope=["datalake"], top_k=5)
-
-# 记录成功案例为私有记忆
-memory = await client.add_memory(content="SELECT ... GROUP BY month", tags=["sql", "sales"])
-
-# 晋升为团队共享记忆
-promoted = await client.promote_memory(uri=memory.uri, target_team="engineering/backend")
-
-# 发布 Skill 新版本
-version = await client.publish_skill_version(
-    skill_uri="ctx://team/engineering/skills/sql-generator",
-    content="...",
-    changelog="新增 window function 支持",
-    is_breaking=True,
-)
+asyncio.run(main())
 ```
+
+示例使用数据库预置的 `acme` 账号和 `query-agent`；请将 `api_key` 改为运行中服务端的 `API_KEY`。更新已有技能版本使用 `client.skill.publish(skill_uri=..., content=..., changelog=..., is_breaking=...)`。上传文档和读取章节使用 `client.document` 下的方法。
+
+## Agent 接入方式
+
+| 项目 | OpenClaw | Deep Agents |
+|---|---|---|
+| 调用链 | 上下文引擎插件 → TypeScript bridge → Python sidecar → SDK | 原生异步工具 → SDK |
+| ContextHub 工具 | 8 个工具 | 使用相同的 8 个操作名称，另有 `contexthub_sections` 和 `contexthub_read_section` |
+| 检索和保存 | 回合前后自动调用，也支持 Agent 主动调用工具 | Agent 主动调用工具，没有自动召回和自动保存机制 |
+| 对话状态 | OpenClaw 管理历史和上下文压缩 | Deep Agents 管理对话状态和自身文件系统 |
+| 搭建说明 | [OpenClaw 指南](../setup/openclaw-integration-guide-zh.md) | [Deep Agents 教程](../setup/deepagents-integration-guide.md) |
+
+两边共有的工具名是 `contexthub_ls`、`contexthub_read`、`contexthub_search`、`contexthub_stat`、`contexthub_store`、`contexthub_promote`、`contexthub_skill_publish` 和 `contexthub_feedback`。具体参数和返回格式由各自适配器定义，名称一致不代表参数完全相同。OpenClaw 不再接受没有前缀的旧工具名；更新后需要重新构建 bridge、重启 OpenClaw 和 sidecar，并修改自定义提示词或工具白名单中的名称。
+
+Deep Agents 适配器可通过 `python -m pip install -e ./sdk -e ./plugins/deepagents` 安装，另需安装所选模型对应的 LangChain 接入包。将 `create_contexthub_tools(client)` 交给 `create_deep_agent`，在客户端打开期间使用 `ainvoke` 或 `astream`。ContextHub 的 Agent 身份绑定在客户端上，切换对话线程不会切换该身份。
 
 ## API 概览
 
@@ -91,7 +109,11 @@ version = await client.publish_skill_version(
 | POST | `/api/v1/memories/promote` | 晋升记忆到团队范围 |
 | POST | `/api/v1/skills/versions` | 发布 Skill 新版本 |
 | POST | `/api/v1/skills/subscribe` | 订阅 Skill |
-| POST | `/api/v1/tools/{ls,read,grep,stat}` | Agent 工具调用端点 |
+| POST | `/api/v1/tools/{ls,read,grep,stat}` | 文件式操作的 HTTP 端点，路径名称不是 Agent 工具名 |
+| POST | `/api/v1/documents/ingest` | 上传文档并生成章节 |
+| GET | `/api/v1/documents/{context_id}/sections` | 列出文档章节 |
+| GET | `/api/v1/documents/{context_id}/section/{section_id}` | 读取章节原文 |
+| POST | `/api/v1/feedback` | 反馈检索结果是否有用 |
 
 ## 与现有方案的差异
 
@@ -119,8 +141,8 @@ version = await client.publish_skill_version(
 ## 设计原则
 
 - **URI 是逻辑地址，不是物理路径。** `ctx://datalake/prod/orders` 对应 PostgreSQL 中的一行，而非磁盘上的文件。Agent 感知到文件语义，系统提供数据库保证。
-- **元数据和内容同库。** L0/L1/L2 内容存在 PostgreSQL TEXT 列中（TOAST 自动处理大文本），与元数据在同一事务中原子更新。
-- **只有 L0 被向量化。** L0 摘要（~100 tokens）用于语义检索。L1/L2 通过 URI 从同一张表读取——无跨系统开销。
+- **上下文记录存入 PostgreSQL。** 普通上下文的 L0/L1/L2 内容和元数据同库。长文档的原文件和提取文本存放在 `DOC_STORE_ROOT`，章节元数据和字符范围存入 PostgreSQL；见[章节生成说明](../setup/document-section-generation.md)。
+- **只有 L0 被向量化。** L0 摘要（~100 tokens）用于语义检索。需要完整上下文时按 URI 读取，需要文档中的具体原文时调用章节接口。
 
 ## 项目结构
 
@@ -139,10 +161,10 @@ contexthub/
 │   └── connectors/       # Catalog 连接器（MVP 使用 Mock）
 ├── sdk/                  # Python SDK（typed HTTP 客户端）
 ├── plugins/openclaw/     # OpenClaw context-engine 插件
+├── plugins/deepagents/   # 原生异步工具、示例和适配器测试
 ├── bridge/               # TS bridge + Python sidecar（OpenClaw ↔ ContextHub）
 ├── alembic/              # 数据库迁移
-├── tests/                # 集成测试（可见性、传播、检索等）
-├── plan/                 # 设计文档（15 篇，从不变式到实施计划）
+├── tests/                # 单元测试和数据库集成测试
 └── docs/                 # 部署指南、验证计划、集成指南
 ```
 
@@ -177,9 +199,25 @@ bridge/
 
 Bridge 采用**双进程架构**：TS bridge 运行在 OpenClaw 的 Node.js gateway 内，通过 HTTP 将 context engine 调用转发到 Python sidecar。Sidecar 托管实际的 `ContextHubContextEngine` 插件，使用 Python SDK 与 ContextHub server 通信。这一设计避免了在 Node.js 中嵌入 Python，同时保持了插件接口的清晰。
 
+## 验证改动
+
+```bash
+python -m pytest tests/test_sdk.py tests/test_plugin.py
+cd bridge
+npm ci
+npm test
+cd ..
+
+# 修改 Deep Agents 适配器时，单独安装并运行它的测试
+python -m pip install -e './plugins/deepagents[dev]'
+python -m pytest plugins/deepagents/tests
+```
+
+默认跳过依赖数据库的测试。只有准备好可清空的测试数据库后，才设置 `CONTEXTHUB_INTEGRATION=1`；当前数据库 fixture 固定连接本机 5432 端口上的 `contexthub` 数据库，并会清空业务表。不要对已有研究数据库运行。Deep Agents 的测试目录不在根目录默认收集范围内，需显式指定。
+
 ## 设计文档
 
-`plan/` 目录包含 15 篇设计文档，覆盖完整系统设计：
+部分开发环境还保留了本地 `plan/` 设计笔记；该目录被 Git 忽略，不随仓库分发，也不是运行项目的必要条件。下表是这些笔记的主题索引：
 
 | 文档 | 主题 |
 |------|------|

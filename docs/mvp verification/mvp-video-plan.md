@@ -1,5 +1,7 @@
 #### DEMO：多 Agent 协作全景（10 步）
 
+本演示使用 [OpenClaw 接入](../setup/openclaw-integration-guide-zh.md)和当前的 `contexthub_` 工具名。若改用 [Deep Agents](../setup/deepagents-integration-guide.md)，应明确要求 Agent 调用保存和检索工具；该适配器不包含回合前自动召回或回合后自动保存。
+
 > 本 demo 是独立的完整演示流程，一次性覆盖三个核心能力：
 >
 > | 能力 | 含义 | 对应步骤 |
@@ -532,5 +534,5 @@ curl "http://localhost:8000/api/v1/admin/audit?limit=20" \
 >
 > Phase E 的 TUI 步骤受模型 tool-use 决策影响。如果 agent 没有主动
 > 调用 `contexthub_read` 工具，可以更直接地说：
-> "请调用 read 工具，URI 是 ctx://team/engineering/docs/supplier-costs"。
+> "请调用 contexthub_read 工具，URI 是 ctx://team/engineering/docs/supplier-costs"。
 > curl 步骤是确定性的，TUI 步骤是演示性的——两者互补。

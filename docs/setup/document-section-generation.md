@@ -29,3 +29,7 @@ If the complete numbered source would exceed the 120,000-character prompt limit,
 Enable INFO logging for `contexthub.services.document_ingester` to distinguish `source=llm`, `source=markdown_headings`, and `source=sequential_chunks`. Invalid model output is also logged as a warning. A successful ingestion alone does not show which path was used.
 
 These checks make source boundaries deterministic for accepted anchors; they do not prove that a model identified every semantically appropriate section. Broad document-quality evaluation remains separate.
+
+## Verification
+
+Follow the [manual long-document checks](../../scripts/task6_manual_verification.md#verify-model-generation-and-source-boundaries) to inspect generation logs, compare section ranges with extracted source text, and exercise deterministic fallback separately. The [Deep Agents tutorial](deepagents-integration-guide.md#6-upload-and-read-a-document) verifies section reads through the adapter. A successful tool call and an accurate section boundary are separate checks.

@@ -3,6 +3,8 @@
 OpenClaw context-engine plugin that connects ContextHub (enterprise context
 management) to the OpenClaw agent runtime.
 
+For complete setup, follow the [OpenClaw integration guide](../docs/setup/openclaw-integration-guide.md). For a Python-only Deep Agents connection, use the [Deep Agents tutorial](../docs/setup/deepagents-integration-guide.md); it does not need this bridge or sidecar.
+
 ## Architecture
 
 ```
@@ -24,13 +26,16 @@ OpenClaw Runtime (TS)
 - **Node.js ≥ 22.12** (required by OpenClaw)
 - **pnpm** for OpenClaw monorepo
 
+The quick start below runs the server and sidecar in one environment, which needs Python 3.12+ because of the server's requirements.
+
 ## Quick Start
 
 ### 1. Start ContextHub
 
 ```bash
 cd ContextHub
-docker-compose up -d          # PostgreSQL + pgvector
+python -m pip install -e . -e ./sdk -e ./plugins/openclaw greenlet
+docker compose up -d         # PostgreSQL + pgvector
 alembic upgrade head          # Run migrations
 uvicorn contexthub.main:app --port 8000
 ```
@@ -50,7 +55,7 @@ to use different ContextHub agent identities.
 ```bash
 # Build the TS bridge
 cd ContextHub/bridge
-npm install
+npm ci
 npm run build
 
 # Install as a local OpenClaw plugin (link mode for development)

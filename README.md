@@ -218,7 +218,7 @@ async def main():
 asyncio.run(main())
 ```
 
-ContextHub connects to [OpenClaw](https://github.com/anthropics/openclaw) as a context engine and to Deep Agents through native Python tools. See the integration sections below for each setup.
+ContextHub connects to [OpenClaw](https://github.com/openclaw/openclaw) as a context engine and to [Deep Agents](https://www.langchain.com/deep-agents) through native Python tools. See the integration sections below for each setup.
 
 For the full E2E demo and integration tests, see [Local Setup & E2E Verification Guide](docs/setup/local-setup&end2end-verification-guide.md).
 
@@ -226,7 +226,7 @@ For the full E2E demo and integration tests, see [Local Setup & E2E Verification
 
 ## Integration with OpenClaw 🦞
 
-ContextHub gives [OpenClaw](https://github.com/anthropics/openclaw) persistent memories, team sharing, and versioned skills through a **context-engine plugin**. The plugin replaces OpenClaw's built-in context engine and connects to the ContextHub server through a Python sidecar.
+ContextHub gives [OpenClaw](https://github.com/openclaw/openclaw) persistent memories, team sharing, and versioned skills through a **context-engine plugin**. The plugin replaces OpenClaw's built-in context engine and connects to the ContextHub server through a Python sidecar.
 
 **Install the plugin:**
 
@@ -254,11 +254,13 @@ For example, one agent can save a SQL pattern privately and promote it to the `e
 
 For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/openclaw-integration-guide.md).
 
+When upgrading from the old tool names, rebuild the bridge and restart OpenClaw and the sidecar. Update custom prompts and tool allowlists to use `contexthub_ls`, `contexthub_read`, `contexthub_search`, and `contexthub_stat`; the old names are no longer accepted.
+
 ---
 
 ## Integration with Deep Agents
 
-ContextHub gives Deep Agents persistent memories, team sharing, versioned skills, and document retrieval through **native async tools**. The adapter connects directly to the ContextHub server through the Python SDK; Deep Agents continues to manage conversations and its own filesystem.
+ContextHub gives [Deep Agents](https://www.langchain.com/deep-agents) persistent memories, team sharing, versioned skills, and document retrieval through **native async tools**. The adapter connects directly to the ContextHub server through the Python SDK; Deep Agents continues to manage conversations and its own filesystem.
 
 **Install the adapter** from the repository root, then install the LangChain provider package for your model:
 
@@ -304,7 +306,7 @@ For full setup instructions, follow the [Deep Agents + ContextHub tutorial](docs
 - [x] **Phase 1 — Core Engine** ✅
   - The foundation: unified `ctx://` address scheme for all context types, core services for memory storage & sharing, skill versioning & subscription, semantic search, and automatic change propagation. 
   - Team-hierarchy visibility with PostgreSQL row-level tenant isolation. 
-  - Python SDK and OpenClaw context-engine plugin. 
+  - Python SDK, OpenClaw context-engine plugin, and Deep Agents tools.
   - 17 integration tests covering propagation correctness, multi-agent collaboration, and access isolation.
 - [x] **Phase 2 — Fine-Grained Access Control & Audit** ✅
   - Explicit permission rules beyond default team visibility: 
@@ -344,6 +346,7 @@ The cheap-first, escalate-only-when-needed policy lives in core as a confidence 
 | [OpenClaw Integration Guide](docs/setup/openclaw-integration-guide.md) | Full 5-terminal setup for ContextHub + OpenClaw |
 | [Deep Agents + ContextHub Tutorial](docs/setup/deepagents-integration-guide.md) | Demo setup, model configuration, memory sharing, and document section reads |
 | [Deep Agents Adapter Reference](plugins/deepagents/README.md) | Native async tools, team identities, and tests |
+| [Document Section Generation](docs/setup/document-section-generation.md) | Model configuration, source boundaries, fallback behavior, and manual verification |
 | [Local Setup & E2E Verification](docs/setup/local-setup&end2end-verification-guide.md) | Dev environment, migrations, E2E demo |
 | [MVP Verification Plan](docs/mvp%20verification/mvp-verification-plan.md) | Three-layer verification: tests → API demo → runtime contract |
 | [Developer Guide](docs/design%20and%20development/development-guide.md) | API overview, SDK reference, tech stack, project structure |

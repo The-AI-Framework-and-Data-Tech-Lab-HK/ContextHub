@@ -218,7 +218,7 @@ async def main():
 asyncio.run(main())
 ```
 
-ContextHub 可以作为 [OpenClaw](https://github.com/anthropics/openclaw) 的上下文引擎，也可以通过原生 Python 工具接入 [Deep Agents](https://www.langchain.com/deep-agents)。两种接入方式的配置见下方集成章节。
+ContextHub 可以作为 [OpenClaw](https://github.com/openclaw/openclaw) 的上下文引擎，也可以通过原生 Python 工具接入 [Deep Agents](https://www.langchain.com/deep-agents)。两种接入方式的配置见下方集成章节。
 
 完整的端到端 demo 和集成测试，请参阅[本地部署与端到端验证指南](docs/setup/local-setup&end2end-verification-guide-zh.md)。
 
@@ -226,7 +226,7 @@ ContextHub 可以作为 [OpenClaw](https://github.com/anthropics/openclaw) 的�
 
 ## 与 OpenClaw 集成 🦞
 
-ContextHub 通过**上下文引擎插件**，为 [OpenClaw](https://github.com/anthropics/openclaw) 提供跨会话记忆、团队共享和技能版本管理。插件替换 OpenClaw 的内置上下文引擎，通过一个 Python 辅助服务（sidecar）连接 ContextHub 服务端。
+ContextHub 通过**上下文引擎插件**，为 [OpenClaw](https://github.com/openclaw/openclaw) 提供跨会话记忆、团队共享和技能版本管理。插件替换 OpenClaw 的内置上下文引擎，通过一个 Python 辅助服务（sidecar）连接 ContextHub 服务端。
 
 **安装插件：**
 
@@ -252,13 +252,15 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 
 例如，一个 Agent 可以把 SQL 查询方法存为私有记忆，再共享给 `engineering` 团队。另一位团队成员随后可以通过自动召回或主动检索获取这条记忆。两种访问方式都由 ContextHub 检查可见范围和版本规则。自动召回和事实提取是否准确，仍需要独立评估。
 
-完整搭建流程请参考 [OpenClaw 集成指南](docs/setup/openclaw-integration-guide.md)。
+完整搭建流程请参考 [OpenClaw 集成指南](docs/setup/openclaw-integration-guide-zh.md)。
+
+从旧工具名升级时，请重新构建 bridge，并重启 OpenClaw 和 sidecar。自定义提示词和工具白名单中的名称也要改为 `contexthub_ls`、`contexthub_read`、`contexthub_search` 和 `contexthub_stat`；旧名称不再支持。
 
 ---
 
 ## 与 Deep Agents 集成
 
-ContextHub 通过**原生异步工具**，为 Deep Agents 提供跨会话记忆、团队共享、技能版本管理和文档检索。适配器通过 Python SDK 直接连接 ContextHub 服务端；Deep Agents 继续负责管理对话和自身文件系统。
+ContextHub 通过**原生异步工具**，为 [Deep Agents](https://www.langchain.com/deep-agents) 提供跨会话记忆、团队共享、技能版本管理和文档检索。适配器通过 Python SDK 直接连接 ContextHub 服务端；Deep Agents 继续负责管理对话和自身文件系统。
 
 **安装适配器：** 在仓库根目录执行，再按所选模型安装对应的 LangChain 模型接入包。
 
@@ -304,7 +306,7 @@ async def answer(question, model, client):
 - [x] **Phase 1 — 核心功能** ✅
   - 基础框架：使用统一的 `ctx://` 地址体系覆盖所有上下文类型，包括记忆存储与共享、技能版本管理与订阅、语义检索、自动变更传播等核心服务。
   - 基于 PostgreSQL 行级安全的团队层级可见性与租户隔离。
-  - Python SDK 与 OpenClaw 上下文引擎插件。
+  - Python SDK、OpenClaw 上下文引擎插件和 Deep Agents 工具。
   - 17 项集成测试覆盖传播正确性、多 Agent 协作和访问隔离。
 - [x] **Phase 2 — 细粒度访问控制与审计** ✅
   - 在默认团队可见性之上增加显式权限规则：
@@ -341,9 +343,10 @@ async def answer(question, model, client):
 
 | 文档 | 说明 |
 |------|------|
-| [OpenClaw 集成指南](docs/setup/openclaw-integration-guide.md) | 将 ContextHub 作为 OpenClaw context engine 的完整 5 终端搭建 |
+| [OpenClaw 集成指南](docs/setup/openclaw-integration-guide-zh.md) | 将 ContextHub 作为 OpenClaw context engine 的完整 5 终端搭建 |
 | [Deep Agents + ContextHub 教程](docs/setup/deepagents-integration-guide.md) | 演示环境、模型配置、记忆共享和文档章节读取 |
 | [Deep Agents 适配器参考](plugins/deepagents/README.md) | 原生异步工具、团队身份配置和测试方法 |
+| [文档章节生成说明](docs/setup/document-section-generation.md) | 模型配置、原文位置、回退行为和手动验证方法 |
 | [本地部署与端到端验证](docs/setup/local-setup&end2end-verification-guide-zh.md) | 开发环境搭建、数据库迁移、端到端 demo |
 | [MVP 验证计划](docs/mvp%20verification/mvp-verification-plan.md) | 三层验证：自动化测试 → API 闭环 → 运行时合同 |
 | [开发者指南](docs/design%20and%20development/development-guide-zh.md) | API 概览、SDK 参考、技术选型、项目结构 |

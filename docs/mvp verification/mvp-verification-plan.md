@@ -1,5 +1,7 @@
 # ContextHub MVP 验证实施计划
 
+本文的交互演示使用 OpenClaw；历史 PASS 记录不代表 Deep Agents 已通过同一轮验证。Deep Agents 的真实模型验证请按[集成教程](../setup/deepagents-integration-guide.md)运行。两边共用 `contexthub_` 工具名称，但只有 OpenClaw 接入了自动召回和自动保存机制。
+
 > 本文档是最短路径的验证计划。目标：以最小投入证明 ContextHub 作为企业级
 > 多 Agent 协作上下文中间件的核心价值。
 >
@@ -138,7 +140,7 @@
 
 ### 前置准备
 
-1. **启动服务**：PostgreSQL + ContextHub Server（参考 `docs/openclaw-integration-guide.md`）
+1. **启动服务**：PostgreSQL + ContextHub Server（参考 [OpenClaw 集成指南](../setup/openclaw-integration-guide-zh.md)）
 
 2. **确保 team membership**：`demo_e2e.py` 会自动补 `query-agent` 到
    `engineering` 团队的 membership（见脚本 `_ensure_team_membership()`）。
@@ -258,7 +260,7 @@ OpenClaw runtime 能通过 sidecar 的 `dispatch` / `assemble` 接口
 1. **先完成第二层**（即先跑 `demo_e2e.py`）。跑完后数据库里已经有了
    skill context、v1/v2 版本、pinned subscription 等数据 —— 这就是
    "预置"，不需要手动插入任何东西。
-2. 启动完整 5 终端栈（参考 `docs/openclaw-integration-guide.md`）：
+2. 启动完整 5 终端栈（参考 [OpenClaw 集成指南](../setup/openclaw-integration-guide-zh.md)）：
    PostgreSQL、ContextHub Server、Python Sidecar、OpenClaw Gateway、TUI
 
 ### 当前工具面限制
@@ -930,7 +932,7 @@ curl "http://localhost:8000/api/v1/admin/audit?limit=20" \
    演示 ACL deny、关键字遮蔽、免复制共享和审计日志，推荐在 Phase D 之后录制
 5. 如果模型没有主动调用工具，不代表产品失败 —— 这是 prompt
    问题，不是 ContextHub 问题。可以更直接地说
-   "请调用 read 工具，URI 是 ctx://..."
+   "请调用 contexthub_read 工具，URI 是 ctx://..."
 
 ### 产出物
 

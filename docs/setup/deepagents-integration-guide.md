@@ -18,6 +18,8 @@ still manages conversations and its own filesystem. ContextHub handles persisten
 context, permissions, versions, and sharing. Automatic recall/capture, SQL
 execution, and benchmark integrations are outside this adapter's scope.
 
+The [tool reference](../../plugins/deepagents/README.md#tools) lists all ten tools. Eight names are shared with the [OpenClaw integration](openclaw-integration-guide.md), including `contexthub_ls`, `contexthub_read`, `contexthub_search`, and `contexthub_stat`. Deep Agents also provides `contexthub_sections` and `contexthub_read_section`. These ContextHub tools are separate from Deep Agents' built-in filesystem tools.
+
 Already running ContextHub? Install the SDK and adapter from step 1, then go to
 step 4 with your server URL, API key, account, and existing agent memberships.
 The `acme` identities below belong to the fresh demo database.

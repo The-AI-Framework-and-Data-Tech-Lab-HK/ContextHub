@@ -2,6 +2,8 @@
 
 > Step-by-step instructions for running ContextHub as the context engine
 > inside an OpenClaw agent runtime — fully local, no Docker required.
+>
+> For Deep Agents, use the [separate tutorial](deepagents-integration-guide.md). It connects directly through the SDK and does not require the OpenClaw bridge or lifecycle hooks.
 
 ## Overview
 
@@ -72,6 +74,8 @@ psql postgresql://contexthub:contexthub@localhost:5432/contexthub -c "
 "
 ```
 
+The demo account above has database administrator privileges and bypasses PostgreSQL's tenant row restrictions. `FORCE ROW LEVEL SECURITY` does not require superuser access. To exercise database-level isolation with an ordinary account, see the [Deep Agents tutorial](deepagents-integration-guide.md), including its background-worker limitation.
+
 ### 3. ContextHub Python environment (one-time)
 
 ```bash
@@ -101,7 +105,7 @@ alembic upgrade head
 
 ```bash
 cd /path/to/ContextHub/bridge
-npm install
+npm ci
 npm run build
 ```
 
@@ -406,9 +410,7 @@ Ensure the bridge `package.json` has `"name": "contexthub"` (matching the
 
 ### `unrecognized configuration parameter "app.account_id"`
 
-```bash
-psql postgres -c "ALTER USER contexthub WITH SUPERUSER;"
-```
+The failing database connection has no tenant context. Request-scoped queries should bind `app.account_id` through `repo.session(account_id)`. The current propagation worker has an unbound dependency read; an adapter-only demo using an ordinary database account can disable propagation and lifecycle sweeps as described in the [Deep Agents tutorial](deepagents-integration-guide.md). Making the database user a superuser bypasses isolation rather than fixing tenant binding.
 
 ### Sidecar can't connect to ContextHub Server
 

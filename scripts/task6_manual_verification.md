@@ -1,6 +1,6 @@
-# Task 6 Manual Verification
+# Long-document ingestion and retrieval verification (Task 6)
 
-This document explains how to manually verify the Task 6 long-document retrieval flow after you have a valid LLM configuration in `ContextHub/.env`.
+This document explains how to manually verify the long-document retrieval flow after configuring the server models in `ContextHub/.env`. For how section boundaries are generated and validated, see [document section generation](../docs/setup/document-section-generation.md). To verify the same document operations through an agent, use the [Deep Agents tutorial](../docs/setup/deepagents-integration-guide.md).
 
 The goal is to confirm that ContextHub can:
 
@@ -10,7 +10,7 @@ The goal is to confirm that ContextHub can:
 4. return the ingested document with:
    - non-empty `snippet`
    - `retrieval_strategy == "tree"` or `retrieval_strategy == "keyword"` when fallback activates
-   - non-empty `section_id` for `tree`, or a focused snippet for `keyword`
+   - non-empty `section_id` (required by the current smoke script for both strategies)
 
 
 ## What you need
@@ -21,7 +21,7 @@ Before running the manual smoke script, make sure you have:
 2. database migrations applied
 3. a valid LLM setup in `ContextHub/.env`
 
-You do not need to start the HTTP server for this verification.
+You do not need to start the HTTP server: the script starts the FastAPI application lifespan in-process. It adds root-team write membership for the selected agent, ingests a document, and leaves database records and document files for inspection. Use a disposable demo database; the default `acme` account and `query-agent` match the seeded root-team ID used by the script. For an ordinary database account, configure the background-worker flags described in the [Deep Agents tutorial](../docs/setup/deepagents-integration-guide.md).
 
 
 ## Minimum setup
@@ -49,15 +49,7 @@ What these defaults mean:
 - `OPENAI_BASE_URL` can be changed if you want to target an OpenAI-compatible endpoint instead of the official OpenAI API.
 - `EMBEDDING_DIMENSIONS` is the stored vector size used by ContextHub. Exact matches are accepted directly; if your provider returns a shorter compatible embedding, ContextHub pads it with trailing zeros before writing/querying pgvector.
 
-Example: switching to another compatible endpoint while keeping the same smoke script:
-
-```bash
-OPENAI_API_KEY=your_provider_key
-OPENAI_BASE_URL=https://your-compatible-endpoint.example/v1
-CHAT_MODEL=your-chat-model
-EMBEDDING_MODEL=your-embedding-model
-EMBEDDING_DIMENSIONS=1536
-```
+For another compatible endpoint, replace the base URL, key, and both model names together. For endpoints that support `enable_thinking`, `CHAT_ENABLE_THINKING=false` can keep thinking from consuming the short output budget. Leave it unset when unsupported. These settings belong to the ContextHub server, independently of the Deep Agent's model.
 
 
 ## Fastest path
@@ -159,7 +151,7 @@ The script should print all of the following stages:
 The most important fields in the final search result are:
 
 - `retrieval_strategy:` usually `tree`, but `keyword` is also acceptable when tree falls back
-- `section_id:` non-empty for `tree`; `keyword` fallback may leave this empty
+- `section_id:` non-empty; the current script rejects a missing ID for either strategy
 - `snippet preview:` non-empty
 
 
@@ -178,6 +170,39 @@ The script now verifies the Task 6 runtime path end to end:
    - `retrieval_strategy == "tree"` or `retrieval_strategy == "keyword"`
 
 
+## Verify model generation and source boundaries
+
+The smoke script checks ingestion and retrieval, but does not compare every section against the source. `retrieval_strategy: tree` describes how the search selected a section; the section tree itself could have come from a deterministic fallback.
+
+To see which generation path was used, run the sample with INFO logging:
+
+```bash
+python - <<'PY'
+import logging
+import runpy
+
+logging.basicConfig(level=logging.INFO)
+runpy.run_path("scripts/manual_longdoc_smoke.py", run_name="__main__")
+PY
+```
+
+Look for `Document section tree generated: source=llm`. `source=markdown_headings` or `source=sequential_chunks` means deterministic sectioning was used. Invalid anchors or empty model output produce a warning before fallback. A numbered prompt over 120,000 characters skips model generation entirely.
+
+Inspect a document with repeated headings, nested sections, and Chinese or other non-ASCII text. Compare the reported `start_offset` and `end_offset` against the stored `extracted.txt`, not against PDF page positions or file bytes:
+
+1. Read the extracted text as UTF-8, preserving newlines (`open(path, encoding="utf-8", newline="")`).
+2. Slice `text[start_offset:end_offset]`. These are character indices, with an exclusive end.
+3. For sections anchored to headings, check that the slice starts at the intended heading and repeated headings select the right occurrence. Check that each parent's range contains its children. Generated chunk/part nodes may start within body text.
+4. With the server running, use `client.document.sections(context_id)` and `client.document.read_section(context_id, section_id)` to compare returned section content with that slice. Deep Agents exposes these operations as `contexthub_sections` and `contexthub_read_section`.
+
+To separately check the deterministic path:
+
+```bash
+python scripts/manual_longdoc_smoke.py --disable-llm-tree
+```
+
+This disables model-based tree construction only; summary generation, embeddings, and retrieval can still call models. A successful fallback does not validate model-generated sections or overall answer quality.
+
 ## Common failures
 
 ### 1. Missing or invalid LLM configuration
@@ -194,6 +219,8 @@ Check:
 - `OPENAI_BASE_URL` points to a reachable OpenAI-compatible endpoint
 - `CHAT_MODEL` and `EMBEDDING_MODEL` are valid for that endpoint
 - `EMBEDDING_DIMENSIONS` is large enough for the chosen embedding model output
+
+An `empty content` error with a length-related finish reason means the provider returned no final answer within the output budget. Check the supported thinking setting and model availability; inspect generation logs even if ingestion succeeds through fallback. If the provider reports exhausted credit or quota, update the model configuration before retrying.
 
 
 ### 2. PostgreSQL not running
@@ -246,18 +273,18 @@ Possible causes:
 - tree selection degraded unexpectedly
 
 
-### 5. `retrieval_strategy` is not `tree`
+### 5. Unsupported retrieval strategy
 
 Typical symptom:
 
 - the script raises:
-  `Expected retrieval_strategy='tree'`
+  `Expected retrieval_strategy to be 'tree' or 'keyword'`
 
 Why this matters:
 
 - default runtime behavior should try `tree` first
 
-If the final result uses `keyword`, that means tree retrieval ran first but the runtime judged the tree snippet to be low confidence and switched to keyword fallback. This is acceptable as long as the final snippet is focused and non-empty.
+If the final result uses `keyword`, tree retrieval fell back to keyword selection. The current script also requires a non-empty snippet and section ID. Check the generation logs separately to determine how the tree was built.
 
 
 ## Suggested first run
@@ -277,4 +304,4 @@ python scripts/manual_longdoc_smoke.py --source /absolute/path/to/your.pdf
 
 ## Optional next step
 
-If you later want a more production-like manual check, add an HTTP-level verification using the `/search` endpoint after starting the server. That is not required for the Task 6 smoke script itself.
+For HTTP-level verification, start the server and call `POST /api/v1/search`, then the document section endpoints listed in the [developer guide](../docs/design%20and%20development/development-guide.md#api-overview). For agent-level validation, use the [Deep Agents live check](../plugins/deepagents/README.md#live-acceptance-check); it tests tool calls but does not establish section-boundary accuracy by itself.

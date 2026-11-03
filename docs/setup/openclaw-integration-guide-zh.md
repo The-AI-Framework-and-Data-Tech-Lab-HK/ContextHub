@@ -1,6 +1,8 @@
 # ContextHub + OpenClaw 端到端集成指南
 
 > 将 ContextHub 作为 context engine 接入 OpenClaw agent 运行时的完整步骤。
+>
+> Deep Agents 请参考[独立教程](deepagents-integration-guide.md)。它直接通过 SDK 连接，不需要 OpenClaw bridge，也不接入 OpenClaw 的回合前后自动处理机制。
 > 全部本地运行，不需要 Docker。
 
 ## 总览
@@ -72,7 +74,7 @@ psql postgresql://contexthub:contexthub@localhost:5432/contexthub -c "
 "
 ```
 
-> **说明**：`SUPERUSER` 是因为 schema 使用了 `FORCE ROW LEVEL SECURITY`。本地开发环境没问题。
+> 上面的演示账号拥有数据库管理员权限，PostgreSQL 不会按租户限制它能读取的数据。`FORCE ROW LEVEL SECURITY` 并不要求使用超级用户。若要用普通账号验证数据库层的隔离效果，请参考 [Deep Agents 教程](deepagents-integration-guide.md)，其中也说明了当前后台任务的限制。
 
 ### 第 3 步：创建 Python 虚拟环境并安装依赖
 
@@ -100,18 +102,13 @@ source .venv/bin/activate
 alembic upgrade head
 ```
 
-预期输出：
-
-```
-INFO  [alembic.runtime.migration] Running upgrade  -> 001, Initial schema...
-INFO  [alembic.runtime.migration] Running upgrade 001 -> 002, Force row level security
-```
+运行 `alembic current` 确认已到迁移的 head；迁移列表会随数据库结构演进而增加。
 
 ### 第 5 步：编译 TypeScript Bridge
 
 ```bash
 cd /path/to/ContextHub/bridge
-npm install
+npm ci
 npm run build
 ```
 
@@ -182,29 +179,7 @@ pnpm openclaw configure
 }
 ```
 
-### 注意：如果intergration翻车了，需要洗掉数据库里已存的上下文的话，可以这样执行：
-```bash
-# 删库
-dropdb contexthub
-# 重建库（指定 owner）
-psql postgres -c "CREATE DATABASE contexthub OWNER contexthub;"
-# 重建 extensions
-psql postgresql://contexthub:contexthub@localhost:5432/contexthub -c "
-  CREATE EXTENSION IF NOT EXISTS vector;
-  CREATE EXTENSION IF NOT EXISTS pgcrypto;
-"
-# 重建 schema + seed 数据
-cd /path/to/ContextHub
-source .venv/bin/activate
-alembic upgrade head
-```
-
-另外需要清掉OpenClaw 的会话历史（不然OpenClaw又会基于会话历史自由发挥了）
-在 ~/.openclaw/agents/main/sessions/ 下面
-```bash
-# 先 Ctrl+C 停掉 TUI 和 Gateway，然后：
-rm -rf ~/.openclaw/agents/main/sessions/*
-```
+更新工具定义并重启后，用新对话验证当前工具名，避免旧对话中的提示和结果干扰判断；无需删除已有会话文件。
 
 ---
 
@@ -471,11 +446,7 @@ git config --global --unset url."https://github.com/".insteadOf
 
 ### `unrecognized configuration parameter "app.account_id"`
 
-数据库用户不是 superuser，需要修复：
-
-```bash
-psql postgres -c "ALTER USER contexthub WITH SUPERUSER;"
-```
+报错的数据库连接没有设置租户身份。请求中的查询应通过 `repo.session(account_id)` 绑定 `app.account_id`。当前传播任务读取依赖时仍有一处未绑定身份；若用普通账号只验证适配器，可按 [Deep Agents 教程](deepagents-integration-guide.md)关闭传播和生命周期后台任务。授予超级用户权限会绕过隔离检查，并没有修复租户身份绑定。
 
 ### Sidecar 连不上 ContextHub Server
 
