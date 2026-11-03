@@ -33,6 +33,24 @@ async def test_c1_memory_promote(acme_session, services, query_agent_ctx):
     assert dep is not None
     assert dep["dependency_id"] == mem.id
 
+    # Both writes must persist their creation events with UUID-based keys.
+    # Executing the SQL against PostgreSQL catches conflicting bind types that
+    # fake repositories cannot detect.
+    events = await acme_session.fetch(
+        "SELECT context_id, idempotency_key, source_version, graph_scope "
+        "FROM change_events WHERE context_id = ANY($1::uuid[])",
+        [mem.id, promoted.id],
+    )
+    assert {
+        row["context_id"]: (
+            row["idempotency_key"], row["source_version"], row["graph_scope"]
+        )
+        for row in events
+    } == {
+        mem.id: (f"created:{mem.id}:1", 1, "memory"),
+        promoted.id: (f"created:{promoted.id}:1", 1, "memory-promotion"),
+    }
+
 
 @pytest.mark.asyncio
 async def test_c2_promoted_visible_to_other_agent(acme_session, services, query_agent_ctx, analysis_agent_ctx):

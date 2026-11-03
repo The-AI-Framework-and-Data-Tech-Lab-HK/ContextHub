@@ -91,7 +91,7 @@ class MemoryService:
             )
             VALUES (
               $1, current_setting('app.account_id'), 'created', $2,
-              concat('created:', $1::text, ':1'), 1, 'memory'
+              concat('created:', $1::uuid::text, ':1'), 1, 'memory'
             )
             ON CONFLICT (account_id, idempotency_key) DO NOTHING
             """,
@@ -436,7 +436,7 @@ class MemoryService:
                  idempotency_key, source_version, graph_scope)
             VALUES (
               $1, current_setting('app.account_id'), 'created', $2, $3,
-              concat('created:', $1::text, ':1'), 1, 'memory-promotion'
+              concat('created:', $1::uuid::text, ':1'), 1, 'memory-promotion'
             )
             ON CONFLICT (account_id, idempotency_key) DO NOTHING
             """,
