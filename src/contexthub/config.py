@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     api_key: str = "changeme"
     openai_base_url: str = "https://api.openai.com/v1"
     chat_model: str = "gpt-4o-mini"
+    # DashScope's optional request parameter; leave unset for other providers.
+    chat_enable_thinking: bool | None = None
     embedding_model: str = "text-embedding-3-small"
     propagation_enabled: bool = True
     propagation_sweep_interval: int = 30    # 秒，周期补扫间隔

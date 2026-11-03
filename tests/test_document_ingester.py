@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
@@ -28,6 +29,8 @@ from contexthub.services.document_ingester import (
     _pdf_to_markdownish_text,
     build_bounded_tree_prompt,
     doc_dir_key,
+    markdown_heading_fallback,
+    resolve_section_lines,
 )
 from contexthub.store.context_store import ContextStore
 import contexthub.main as main_module
@@ -158,22 +161,7 @@ def _make_ingester(
     max_token_per_node: int = 2000,
 ) -> LongDocumentIngester:
     return LongDocumentIngester(
-        chat_client=chat_client or ScriptedChatClient(
-            response="""
-            {
-              "sections": [
-                {
-                  "node_id": "root",
-                  "parent_node_id": null,
-                  "title": "Document",
-                  "start_offset": 0,
-                  "end_offset": 40,
-                  "summary": "Overview"
-                }
-              ]
-            }
-            """
-        ),
+        chat_client=chat_client or ScriptedChatClient(),
         embedding_client=embedding or FakeEmbedding([0.1, 0.2]),
         content_generator=ContentGenerator(),
         acl=acl or FakeACL(True),
@@ -611,330 +599,233 @@ async def test_ingest_rejects_unsupported_extension_and_oversized_file(tmp_path:
         )
 
 
-@pytest.mark.asyncio
-async def test_build_document_tree_parses_valid_json_and_code_fences(tmp_path: Path):
-    raw_json = """
-    ```json
-    {
-      "sections": [
+def _section_response(text, entries):
+    lines = text.splitlines(keepends=True)
+    return json.dumps(
         {
-          "node_id": "root",
-          "parent_node_id": null,
-          "title": "Document",
-          "start_offset": 0,
-          "end_offset": 11,
-          "summary": "Overview"
-        },
-        {
-          "node_id": "child",
-          "parent_node_id": "root",
-          "title": "Child",
-          "start_offset": 0,
-          "end_offset": 11,
-          "summary": "Child summary"
-        }
-      ]
-    }
-    ```
-    """
-    ingester = _make_ingester(tmp_path, chat_client=ScriptedChatClient(response=raw_json))
-    tree = await ingester.build_document_tree("# Child\nhello world", "hello world")
-
-    nodes = _flatten(tree)
-    assert tree.node_id == "root"
-    assert any(node.node_id == "child" for node in nodes)
-
-
-@pytest.mark.asyncio
-async def test_invalid_json_uses_heading_fallback(tmp_path: Path):
-    ingester = _make_ingester(tmp_path, chat_client=ScriptedChatClient(response="not-json"))
-    tree = await ingester.build_document_tree("# Intro\n## Details", "Intro\nDetails\nbody")
-
-    titles = [node.title for node in _flatten(tree)]
-    assert "Intro" in titles or "Details" in titles
-
-
-@pytest.mark.asyncio
-async def test_build_document_tree_can_skip_llm_and_use_deterministic_heading_fallback(tmp_path: Path):
-    chat = ScriptedChatClient(
-        response="""
-        {
-          "sections": [
-            {
-              "node_id": "root",
-              "parent_node_id": null,
-              "title": "Wrong",
-              "start_offset": 0,
-              "end_offset": 5,
-              "summary": "Wrong"
-            }
-          ]
-        }
-        """
-    )
-    ingester = _make_ingester(tmp_path, chat_client=chat)
-
-    tree = await ingester.build_document_tree(
-        "# Intro\n\n## Details\nbody",
-        "# Intro\n\n## Details\nbody",
-        allow_llm=False,
-    )
-
-    titles = [node.title for node in _flatten(tree)]
-    assert chat.prompts == []
-    assert "Intro" in titles
-    assert "Details" in titles
-
-
-@pytest.mark.asyncio
-async def test_build_document_tree_normalizes_root_to_full_document_span(tmp_path: Path):
-    text = "# Intro\nHello world\n"
-    ingester = _make_ingester(
-        tmp_path,
-        chat_client=ScriptedChatClient(
-            response="""
-            {
-              "sections": [
+            "sections": [
                 {
-                  "node_id": "root",
-                  "parent_node_id": null,
-                  "title": "Document",
-                  "start_offset": 0,
-                  "end_offset": 4,
-                  "summary": "Overview"
-                },
-                {
-                  "node_id": "intro",
-                  "parent_node_id": "root",
-                  "title": "Intro",
-                  "start_offset": 0,
-                  "end_offset": 19,
-                  "summary": "Intro section"
+                    "title": title,
+                    "start_line": line,
+                    "start_text": lines[line - 1].rstrip("\r\n"),
+                    "level": level,
+                    "summary": title + " summary",
                 }
-              ]
-            }
-            """
-        ),
-    )
-
-    tree = await ingester.build_document_tree(text, text)
-
-    assert tree.start_offset == 0
-    assert tree.end_offset == len(text)
-    assert any(node.title == "Intro" for node in _flatten(tree))
-
-
-@pytest.mark.asyncio
-async def test_invalid_schema_and_chat_errors_use_sequential_fallback(tmp_path: Path):
-    invalid_schema = """
-    {
-      "sections": [
-        {
-          "node_id": "dup",
-          "parent_node_id": null,
-          "title": "A",
-          "start_offset": 0,
-          "end_offset": 10,
-          "summary": "A"
+                for title, line, level in entries
+            ]
         },
-        {
-          "node_id": "dup",
-          "parent_node_id": null,
-          "title": "B",
-          "start_offset": 0,
-          "end_offset": 10,
-          "summary": "B"
-        }
-      ]
-    }
-    """
-    plain_text = ("paragraph one.\n\n" * 800).strip()
-    ingester_invalid = _make_ingester(tmp_path / "invalid", chat_client=ScriptedChatClient(response=invalid_schema))
-    tree_invalid = await ingester_invalid.build_document_tree("", plain_text)
-    assert any(node.node_id.startswith("seq-") for node in _flatten(tree_invalid))
-
-    ingester_error = _make_ingester(
-        tmp_path / "error",
-        chat_client=ScriptedChatClient(exc=RuntimeError("provider down")),
+        ensure_ascii=False,
     )
-    tree_error = await ingester_error.build_document_tree("", plain_text)
-    assert any(node.node_id.startswith("seq-") for node in _flatten(tree_error))
+
+
+def test_heading_fallback_grounds_repeated_and_wrapped_source_headings():
+    text = "# Repeat\nfirst\n# Repeat\nlast"
+    nodes = markdown_heading_fallback(text, text, text)
+    assert [text[n["start_offset"]:n["end_offset"]] for n in nodes[1:]] == [
+        "# Repeat\nfirst\n", "# Repeat\nlast",
+    ]
+    raw = "LONG\nTITLE\nbody\nSECOND\nmore"
+    nodes = markdown_heading_fallback("# LONG TITLE\n## SECOND", raw, raw)
+    assert raw[nodes[1]["start_offset"]:nodes[1]["end_offset"]] == raw
+    assert raw[nodes[2]["start_offset"]:nodes[2]["end_offset"]] == "SECOND\nmore"
+    assert markdown_heading_fallback("# Unmatched", raw, raw) == []
 
 
 @pytest.mark.asyncio
-async def test_split_oversized_leaf_into_bounded_siblings(tmp_path: Path):
-    plain_text = ("0123456789 " * 40).strip()
-    end_offset = len(plain_text)
+async def test_build_document_tree_parses_grounded_json_and_code_fences(
+    tmp_path, caplog
+):
+    text = "Child\nhello world"
+    response = _section_response(text, [("Child", 1, 1)])
     ingester = _make_ingester(
         tmp_path,
-        chat_client=ScriptedChatClient(
-            response=f"""
-            {{
-              "sections": [
-                {{
-                  "node_id": "root",
-                  "parent_node_id": null,
-                  "title": "Document",
-                  "start_offset": 0,
-                  "end_offset": {end_offset},
-                  "summary": "Overview"
-                }},
-                {{
-                  "node_id": "child",
-                  "parent_node_id": "root",
-                  "title": "Section",
-                  "start_offset": 0,
-                  "end_offset": {end_offset},
-                  "summary": "Section summary"
-                }}
-              ]
-            }}
-            """
-        ),
-        max_token_per_node=10,
+        chat_client=ScriptedChatClient(response="```json\n" + response + "\n```"),
+    )
+    with caplog.at_level("INFO"):
+        tree = await ingester.build_document_tree(text, text)
+    assert tree.node_id == "root"
+    assert tree.start_offset == 0 and tree.end_offset == len(text)
+    assert tree.children[0].title == "Child"
+    assert text[tree.children[0].start_offset : tree.children[0].end_offset] == text
+    assert "source=llm" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_line_anchors_preserve_unicode_crlf_repeated_titles_and_final_facts(
+    tmp_path,
+):
+    text = (
+        "# Guide\r\n\r\n## Repeat\r\nfirst:41\r\n\r\n## Recovery\r\n"
+        "### Database\r\n批准码 DB-123；暂停 23 分钟。\r\n\r\n"
+        "### Application\r\nAPP-456; wait 11 minutes.\r\n\r\n## Repeat\r\nsecond:77🚀"
+    )
+    response = _section_response(
+        text,
+        [
+            ("Guide", 1, 1),
+            ("Repeat", 3, 2),
+            ("Recovery", 6, 2),
+            ("Database", 7, 3),
+            ("Application", 10, 3),
+            ("Repeat", 13, 2),
+        ],
+    )
+    chat = ScriptedChatClient(response=response)
+    tree = await _make_ingester(tmp_path, chat_client=chat).build_document_tree(
+        text, text
+    )
+    guide = tree.children[0]
+    first, recovery, last = guide.children
+    database, application = recovery.children
+    assert (
+        text[first.start_offset : first.end_offset] == "## Repeat\r\nfirst:41\r\n\r\n"
+    )
+    assert (
+        text[database.start_offset : database.end_offset]
+        == "### Database\r\n批准码 DB-123；暂停 23 分钟。\r\n\r\n"
+    )
+    assert (
+        text[application.start_offset : application.end_offset]
+        == "### Application\r\nAPP-456; wait 11 minutes.\r\n\r\n"
+    )
+    assert recovery.end_offset == last.start_offset
+    assert text[last.start_offset : last.end_offset] == "## Repeat\r\nsecond:77🚀"
+    assert guide.end_offset == tree.end_offset == len(text)
+    assert 'L7: "### Database"' in chat.prompts[0]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"start_line": 0},
+        {"start_line": 99},
+        {"start_line": True},
+        {"start_text": "invented heading"},
+        {"level": 2},
+        {"level": True},
+        {"title": ""},
+        {"summary": None},
+        {"end_offset": 4},
+    ],
+)
+def test_invalid_model_anchors_are_rejected(change):
+    text = "Release\nTuesday\nRecovery\nPause 23 minutes."
+    payload = json.loads(_section_response(text, [("Release", 1, 1)]))
+    payload["sections"][0].update(change)
+    assert resolve_section_lines(payload, text) is None
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        [("Release", 1, 1), ("Duplicate", 1, 2)],
+        [("Recovery", 3, 1), ("Release", 1, 1)],
+        [("Release", 1, 1), ("Recovery", 3, 3)],
+    ],
+)
+def test_nonmonotonic_anchors_and_skipped_levels_are_rejected(entries):
+    text = "Release\nTuesday\nRecovery\nPause 23 minutes."
+    assert (
+        resolve_section_lines(json.loads(_section_response(text, entries)), text)
+        is None
     )
 
-    tree = await ingester.build_document_tree("# Section\n" + plain_text, plain_text)
 
-    non_root_nodes = [node for node in _flatten(tree) if node.depth > 0]
-    assert non_root_nodes
-    assert tree.start_offset == 0
-    assert tree.end_offset == end_offset
-    assert all((node.token_count or 0) <= 10 for node in non_root_nodes)
-    assert all(node.node_id != "child" for node in non_root_nodes)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response",
+    ["", "not-json", '{"sections": [{"start_offset": 0, "end_offset": 10}]}'],
+)
+async def test_empty_or_invalid_model_output_uses_observable_heading_fallback(
+    tmp_path, caplog, response
+):
+    ingester = _make_ingester(
+        tmp_path, chat_client=ScriptedChatClient(response=response)
+    )
+    with caplog.at_level("INFO"):
+        tree = await ingester.build_document_tree(
+            "# Intro\n## Details", "Intro\nDetails\nbody"
+        )
+    assert "Intro" in [node.title for node in _flatten(tree)]
+    assert "source=markdown_headings" in caplog.text
+    assert "empty or has invalid source anchors" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_build_document_tree_can_skip_llm(tmp_path):
+    chat = ScriptedChatClient(exc=AssertionError("must not call model"))
+    text = "# Intro\n\n## Details\nbody"
+    tree = await _make_ingester(tmp_path, chat_client=chat).build_document_tree(
+        text, text, allow_llm=False
+    )
+    assert chat.prompts == []
+    assert "Details" in [node.title for node in _flatten(tree)]
+
+
+@pytest.mark.asyncio
+async def test_chat_error_uses_observable_sequential_fallback(tmp_path, caplog):
+    text = "paragraph one.\n\n" * 800
+    ingester = _make_ingester(
+        tmp_path, chat_client=ScriptedChatClient(exc=RuntimeError("provider down"))
+    )
+    with caplog.at_level("INFO"):
+        tree = await ingester.build_document_tree("", text)
+    assert any(node.node_id.startswith("seq-") for node in _flatten(tree))
+    assert "source=sequential_chunks" in caplog.text
+    assert tree.end_offset == len(text)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "entries",
+    [
+        [("Chapter", 1, 1)],
+        [("Chapter", 1, 1), ("Section", 2, 2)],
+        [("Chapter", 1, 1), ("Section", 2, 2), ("Second chapter", 4, 1)],
+    ],
+)
+async def test_splitting_grounded_tree_preserves_full_span_and_bounded_nodes(
+    tmp_path, entries
+):
+    text = (
+        "Chapter\nSection\n"
+        + "0123456789 " * 60
+        + "\nSecond chapter\n"
+        + "abcdefghij " * 60
+    )
+    chat = ScriptedChatClient(response=_section_response(text, entries))
+    tree = await _make_ingester(
+        tmp_path, chat_client=chat, max_token_per_node=10
+    ).build_document_tree(text, text)
+    nodes = [n for n in _flatten(tree) if n.depth > 0]
+    assert nodes and all((n.token_count or 0) <= 10 for n in nodes)
+    assert tree.start_offset == 0 and tree.end_offset == len(text)
     assert (tree.token_count or 0) > 10
+    assert any(n.end_offset == len(text) for n in nodes)
 
 
 @pytest.mark.asyncio
-async def test_split_oversized_internal_nodes_into_bounded_groups(tmp_path: Path):
-    plain_text = ("0123456789 " * 60).strip()
-    end_offset = len(plain_text)
-    ingester = _make_ingester(
-        tmp_path,
-        chat_client=ScriptedChatClient(
-            response=f"""
-            {{
-              "sections": [
-                {{
-                  "node_id": "root",
-                  "parent_node_id": null,
-                  "title": "Document",
-                  "start_offset": 0,
-                  "end_offset": {end_offset},
-                  "summary": "Overview"
-                }},
-                {{
-                  "node_id": "chapter",
-                  "parent_node_id": "root",
-                  "title": "Chapter",
-                  "start_offset": 0,
-                  "end_offset": {end_offset},
-                  "summary": "Chapter summary"
-                }},
-                {{
-                  "node_id": "section",
-                  "parent_node_id": "chapter",
-                  "title": "Section",
-                  "start_offset": 0,
-                  "end_offset": {end_offset},
-                  "summary": "Section summary"
-                }}
-              ]
-            }}
-            """
-        ),
-        max_token_per_node=10,
+async def test_oversized_prompt_skips_model_without_dropping_document_tail(
+    tmp_path, caplog
+):
+    text = "# First\n" + "abc " * 100000 + "\n# Last\nTAIL-FACT"
+    assert build_bounded_tree_prompt(text) is None
+    small = build_bounded_tree_prompt("标题\n正文🚀")
+    assert small is not None and len(small) <= TREE_PROMPT_CHAR_LIMIT
+    assert 'L2: "正文🚀"' in small
+    chat = ScriptedChatClient(exc=AssertionError("must not send partial document"))
+    with caplog.at_level("INFO"):
+        tree = await _make_ingester(tmp_path, chat_client=chat).build_document_tree(
+            text, text
+        )
+    assert not chat.prompts
+    assert tree.end_offset == len(text)
+    assert any(
+        "TAIL-FACT" in text[n.start_offset : n.end_offset]
+        for n in _flatten(tree)
+        if not n.children
     )
-
-    tree = await ingester.build_document_tree("# Chapter\n## Section\n" + plain_text, plain_text)
-
-    all_nodes = _flatten(tree)
-    non_root_nodes = [node for node in all_nodes if node.depth > 0]
-    assert non_root_nodes
-    assert all((node.token_count or 0) <= 10 for node in non_root_nodes)
-    assert all(node.node_id not in {"chapter", "section"} for node in non_root_nodes)
-    assert tree.children
-    assert all(child.node_id.startswith("chapter-part-") for child in tree.children)
-    assert tree.start_offset == 0
-    assert tree.end_offset == end_offset
-
-
-@pytest.mark.asyncio
-async def test_root_keeps_full_document_offsets_after_internal_splitting(tmp_path: Path):
-    plain_text = ("0123456789 " * 80).strip()
-    end_offset = len(plain_text)
-    ingester = _make_ingester(
-        tmp_path,
-        chat_client=ScriptedChatClient(
-            response=f"""
-            {{
-              "sections": [
-                {{
-                  "node_id": "root",
-                  "parent_node_id": null,
-                  "title": "Document",
-                  "start_offset": 0,
-                  "end_offset": {end_offset},
-                  "summary": "Overview"
-                }},
-                {{
-                  "node_id": "chapter-1",
-                  "parent_node_id": "root",
-                  "title": "Chapter 1",
-                  "start_offset": 0,
-                  "end_offset": {end_offset // 2},
-                  "summary": "Chapter 1 summary"
-                }},
-                {{
-                  "node_id": "chapter-2",
-                  "parent_node_id": "root",
-                  "title": "Chapter 2",
-                  "start_offset": {end_offset // 2},
-                  "end_offset": {end_offset},
-                  "summary": "Chapter 2 summary"
-                }}
-              ]
-            }}
-            """
-        ),
-        max_token_per_node=10,
-    )
-
-    tree = await ingester.build_document_tree("# Chapter 1\n# Chapter 2\n" + plain_text, plain_text)
-
-    assert tree.start_offset == 0
-    assert tree.end_offset == end_offset
-    assert (tree.token_count or 0) > 10
-    assert tree.children
-
-
-@pytest.mark.asyncio
-async def test_prompt_is_bounded_for_large_inputs(tmp_path: Path):
-    huge_markdown = "\n".join(f"# Heading {i}" for i in range(5000))
-    huge_text = "abc " * 100000
-    prompt = build_bounded_tree_prompt(huge_markdown, huge_text)
-    assert len(prompt) <= TREE_PROMPT_CHAR_LIMIT
-
-    chat = ScriptedChatClient(
-        response="""
-        {
-          "sections": [
-            {
-              "node_id": "root",
-              "parent_node_id": null,
-              "title": "Document",
-              "start_offset": 0,
-              "end_offset": 100,
-              "summary": "Overview"
-            }
-          ]
-        }
-        """
-    )
-    ingester = _make_ingester(tmp_path, chat_client=chat)
-    await ingester.build_document_tree(huge_markdown, huge_text)
-    assert chat.prompts
-    assert len(chat.prompts[0]) <= TREE_PROMPT_CHAR_LIMIT
+    assert "exceeds tree prompt budget" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -1143,30 +1034,9 @@ async def test_integration_document_ingest_smoke(acme_session, services, query_a
         ROOT_TEAM_ID,
     )
 
-    chat = ScriptedChatClient(
-        response="""
-        {
-          "sections": [
-            {
-              "node_id": "root",
-              "parent_node_id": null,
-              "title": "Document",
-              "start_offset": 0,
-              "end_offset": 22,
-              "summary": "Overview"
-            },
-            {
-              "node_id": "intro",
-              "parent_node_id": "root",
-              "title": "Intro",
-              "start_offset": 0,
-              "end_offset": 22,
-              "summary": "Intro section"
-            }
-          ]
-        }
-        """
-    )
+    chat = ScriptedChatClient(response=_section_response(
+        "# Intro\nIntegration body\n", [("Intro", 1, 1)]
+    ))
     ingester = LongDocumentIngester(
         chat_client=chat,
         embedding_client=NoOpEmbeddingClient(),
