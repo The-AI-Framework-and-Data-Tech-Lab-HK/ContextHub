@@ -3,6 +3,8 @@
 OpenClaw context-engine plugin that connects ContextHub (enterprise context
 management) to the OpenClaw agent runtime.
 
+For complete setup, follow the [OpenClaw integration guide](../docs/setup/openclaw-integration-guide.md). For a Python-only Deep Agents connection, use the [Deep Agents tutorial](../docs/setup/deepagents-integration-guide.md); it does not need this bridge or sidecar.
+
 ## Architecture
 
 ```
@@ -13,7 +15,7 @@ OpenClaw Runtime (TS)
   │                       └─ ContextHubClient (sdk/)
   │                            └─ ContextHub Server API (:8000)
   │
-  └─ 7 Agent Tools (bridge/src/tools.ts)        ← ls/read/grep/stat/store/promote/skill_publish
+  └─ 8 contexthub_ Agent Tools (bridge/src/tools.ts)
        └─ HTTP ──► Python Sidecar /dispatch
 ```
 
@@ -24,13 +26,16 @@ OpenClaw Runtime (TS)
 - **Node.js ≥ 22.12** (required by OpenClaw)
 - **pnpm** for OpenClaw monorepo
 
+The quick start below runs the server and sidecar in one environment, which needs Python 3.12+ because of the server's requirements.
+
 ## Quick Start
 
 ### 1. Start ContextHub
 
 ```bash
 cd ContextHub
-docker-compose up -d          # PostgreSQL + pgvector
+python -m pip install -e . -e ./sdk -e ./plugins/openclaw greenlet
+docker compose up -d         # PostgreSQL + pgvector
 alembic upgrade head          # Run migrations
 uvicorn contexthub.main:app --port 8000
 ```
@@ -50,7 +55,7 @@ to use different ContextHub agent identities.
 ```bash
 # Build the TS bridge
 cd ContextHub/bridge
-npm install
+npm ci
 npm run build
 
 # Install as a local OpenClaw plugin (link mode for development)
@@ -102,13 +107,19 @@ pnpm openclaw
 
 | Tool | Description |
 |------|-------------|
-| `ls` | List contexts under a URI prefix |
-| `read` | Read a context by URI |
-| `grep` | Semantic search across ContextHub |
-| `stat` | Get context metadata |
-| `contexthub_store` | Write or update a context |
+| `contexthub_ls` | List contexts under a URI prefix |
+| `contexthub_read` | Read a context by URI |
+| `contexthub_search` | Search ContextHub; returns sources and a retrieval ID |
+| `contexthub_stat` | Get context metadata |
+| `contexthub_store` | Save a private memory |
 | `contexthub_promote` | Promote private memory to team scope |
 | `contexthub_skill_publish` | Publish a new skill version |
+| `contexthub_feedback` | Report whether retrieved context was useful |
+
+Tool names match the corresponding Deep Agents tools. The unprefixed tool names
+are not registered or accepted. After updating, rebuild the bridge and restart
+both the sidecar and OpenClaw; update any tool-name references in your own prompts
+or configuration.
 
 ## Multi-agent testing
 
@@ -123,6 +134,11 @@ Or use the dynamic `X-Agent-Id` header — the sidecar lazily creates separate
 SDK clients per agent identity.
 
 ## Verifying the integration
+
+Run the bridge registration/forwarding tests from `bridge/` with `npm test`.
+From the repository root, run the Python plugin and sidecar tests with
+`python -m pytest tests/test_plugin.py`. Their database integration test remains
+opt-in.
 
 ```bash
 # Check sidecar health

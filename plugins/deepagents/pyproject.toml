@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "contexthub-deepagents"
+version = "0.1.0"
+description = "ContextHub tools for Deep Agents"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "contexthub-sdk",
+    "deepagents>=0.7.32,<0.8",
+    "langchain-core>=1.7.0,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "respx>=0.22"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/contexthub_deepagents"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "examples", "README.md", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

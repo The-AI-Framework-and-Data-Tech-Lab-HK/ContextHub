@@ -25,5 +25,6 @@ def create_chat_client(settings: Settings) -> BaseChatClient:
             api_key=settings.openai_api_key,
             base_url=settings.openai_base_url,
             model=settings.chat_model,
+            enable_thinking=settings.chat_enable_thinking,
         )
     return NoOpChatClient()

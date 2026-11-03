@@ -34,10 +34,10 @@ _server_args: dict[str, str] = {}
 
 _STRING_FALLBACK_KEY: dict[str, str] = {
     "contexthub_store": "content",
-    "ls": "path",
-    "read": "uri",
-    "stat": "uri",
-    "grep": "query",
+    "contexthub_ls": "path",
+    "contexthub_read": "uri",
+    "contexthub_stat": "uri",
+    "contexthub_search": "query",
 }
 
 

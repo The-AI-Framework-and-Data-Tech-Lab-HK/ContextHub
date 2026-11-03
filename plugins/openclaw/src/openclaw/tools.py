@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
-        "name": "ls",
+        "name": "contexthub_ls",
         "description": "List children of a context path in ContextHub.",
         "parameters": {
             "type": "object",
@@ -36,7 +36,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
-        "name": "read",
+        "name": "contexthub_read",
         "description": "Read the content of a context by URI.",
         "parameters": {
             "type": "object",
@@ -56,7 +56,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
-        "name": "grep",
+        "name": "contexthub_search",
         "description": "Search ContextHub for contexts matching a query.",
         "parameters": {
             "type": "object",
@@ -87,7 +87,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
-        "name": "stat",
+        "name": "contexthub_stat",
         "description": "Get metadata/statistics for a context by URI.",
         "parameters": {
             "type": "object",
@@ -197,11 +197,11 @@ def _err(e: Exception) -> str:
 async def dispatch(client: ContextHubClient, tool_name: str, args: dict[str, Any]) -> str:
     """Dispatch a tool call to the appropriate SDK method."""
     try:
-        if tool_name == "ls":
+        if tool_name == "contexthub_ls":
             result = await client.ls(args["path"])
             return _ok(result)
 
-        if tool_name == "read":
+        if tool_name == "contexthub_read":
             kwargs: dict[str, Any] = {"uri": args["uri"]}
             if "level" in args:
                 kwargs["level"] = ContextLevel(args["level"])
@@ -210,18 +210,16 @@ async def dispatch(client: ContextHubClient, tool_name: str, args: dict[str, Any
             result = await client.read(**kwargs)
             return _ok(result)
 
-        if tool_name == "grep":
-            kwargs = {"query": args["query"]}
+        if tool_name == "contexthub_search":
+            kwargs = {"query": args["query"], "top_k": args.get("top_k", 5)}
             if "scope" in args:
                 kwargs["scope"] = [Scope(s) for s in args["scope"]]
             if "context_type" in args:
                 kwargs["context_type"] = [ContextType(ct) for ct in args["context_type"]]
-            if "top_k" in args:
-                kwargs["top_k"] = args["top_k"]
-            result = await client.grep(**kwargs)
+            result = await client.search(**kwargs)
             return _ok(result)
 
-        if tool_name == "stat":
+        if tool_name == "contexthub_stat":
             result = await client.stat(args["uri"])
             return _ok(result)
 

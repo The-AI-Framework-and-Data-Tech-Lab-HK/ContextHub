@@ -26,12 +26,12 @@ _TOOL_GUIDE = """\
 call `contexthub_store` with the content.
 - When the user asks to **share** or **promote** a memory to a team, \
 call `contexthub_promote` with the memory URI and target team name.
-- To **list** stored memories or shared knowledge, call `ls` with a URI prefix \
-(e.g. `ctx://agent/<agent_id>/memories` or `ctx://team/<team>/shared_knowledge`).
-- To **search** for relevant context, call `grep` with a keyword or question.
-- After you explicitly use context returned by `grep`, call `contexthub_feedback` \
+- To **list** stored memories or shared knowledge, call `contexthub_ls` with a URI prefix \
+(e.g. `ctx://agent/<agent_id>/memories` or `ctx://team/<team>/memories/shared_knowledge`).
+- To **search** for relevant context, call `contexthub_search` with a keyword or question.
+- After you explicitly use context returned by `contexthub_search`, call `contexthub_feedback` \
 with the `context_uri` and outcome.
-- If you directly use a context returned by `read`, you may also call \
+- If you directly use a context returned by `contexthub_read`, you may also call \
 `contexthub_feedback` with the `context_uri`; this is degraded mode when no \
 `retrieval_id` is available.
 - When available, include `SearchResponse.retrieval_id` in `contexthub_feedback`; \

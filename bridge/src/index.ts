@@ -3,7 +3,8 @@
  *
  * Loaded by OpenClaw's plugin system. Registers:
  *   1. A ContextEngine ("contexthub") — lifecycle hooks for auto-recall / auto-capture.
- *   2. Seven agent tools — ls, read, grep, stat, store, promote, skill_publish.
+ *   2. Eight contexthub_ tools — ls, read, search, stat, store, promote,
+ *      skill_publish, and feedback.
  */
 
 import { ContextHubBridge } from "./bridge.js";

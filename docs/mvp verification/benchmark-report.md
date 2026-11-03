@@ -2,6 +2,8 @@
 
 本文档说明 `scripts/benchmark_workflow.py` 的用途、如何运行，以及如何阅读终端输出（含每行每列含义）。
 
+这里的 `ls`、`read`、`stat`、`search` 是脚本中的 HTTP 操作标签，不是 Agent 注册的工具名。OpenClaw 和 Deep Agents 均使用 `contexthub_` 前缀，HTTP 路径保持不变。本脚本不验证 Agent 的工具选择或回答质量；Deep Agents 的真实模型验证见[集成教程](../setup/deepagents-integration-guide.md)。
+
 ---
 
 ## 1. 测试是什么

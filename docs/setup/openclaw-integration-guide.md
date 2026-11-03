@@ -2,6 +2,8 @@
 
 > Step-by-step instructions for running ContextHub as the context engine
 > inside an OpenClaw agent runtime — fully local, no Docker required.
+>
+> For Deep Agents, use the [separate tutorial](deepagents-integration-guide.md). It connects directly through the SDK and does not require the OpenClaw bridge or lifecycle hooks.
 
 ## Overview
 
@@ -72,6 +74,8 @@ psql postgresql://contexthub:contexthub@localhost:5432/contexthub -c "
 "
 ```
 
+The demo account above has database administrator privileges and bypasses PostgreSQL's tenant row restrictions. `FORCE ROW LEVEL SECURITY` does not require superuser access. To exercise database-level isolation with an ordinary account, see the [Deep Agents tutorial](deepagents-integration-guide.md), including its background-worker limitation.
+
 ### 3. ContextHub Python environment (one-time)
 
 ```bash
@@ -101,7 +105,7 @@ alembic upgrade head
 
 ```bash
 cd /path/to/ContextHub/bridge
-npm install
+npm ci
 npm run build
 ```
 
@@ -231,7 +235,7 @@ curl http://localhost:9100/health
 # Expected: {"status":"ok"}
 
 curl http://localhost:9100/tools
-# Expected: JSON array of 7 tool definitions
+# Expected: JSON array of 8 tool definitions
 ```
 
 ### Terminal 4 — OpenClaw Gateway
@@ -257,8 +261,14 @@ You can now chat with the agent. Behind the scenes:
   and injects it into the system prompt.
 - **Every response**: `afterTurn()` extracts reusable facts from the assistant's
   reply and writes them as private memories in ContextHub.
-- **Agent tools**: The agent can call `ls`, `read`, `grep`, `stat`,
-  `contexthub_store`, `contexthub_promote`, and `contexthub_skill_publish`.
+- **Agent tools**: The agent can call `contexthub_ls`, `contexthub_read`,
+  `contexthub_search`, `contexthub_stat`, `contexthub_store`, `contexthub_promote`,
+  `contexthub_skill_publish`, and `contexthub_feedback`.
+
+These names match the corresponding Deep Agents tools; unprefixed names are not
+supported. After updating, rebuild the bridge and restart the sidecar and
+OpenClaw so both processes load the new definitions. Update tool-name references
+in any custom prompts or configuration.
 
 ---
 
@@ -287,7 +297,7 @@ curl -X POST http://localhost:9100/assemble \
 # Simulate tool dispatch
 curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
-  -d '{"name": "ls", "args": {"path": "ctx://"}}'
+  -d '{"name": "contexthub_ls", "args": {"path": "ctx://"}}'
 ```
 
 ### Full ContextHub E2E demo (without OpenClaw)
@@ -400,9 +410,7 @@ Ensure the bridge `package.json` has `"name": "contexthub"` (matching the
 
 ### `unrecognized configuration parameter "app.account_id"`
 
-```bash
-psql postgres -c "ALTER USER contexthub WITH SUPERUSER;"
-```
+The failing database connection has no tenant context. Request-scoped queries should bind `app.account_id` through `repo.session(account_id)`. The current propagation worker has an unbound dependency read; an adapter-only demo using an ordinary database account can disable propagation and lifecycle sweeps as described in the [Deep Agents tutorial](deepagents-integration-guide.md). Making the database user a superuser bypasses isolation rather than fixing tenant binding.
 
 ### Sidecar can't connect to ContextHub Server
 
@@ -456,7 +464,7 @@ ContextHub/
 │   ├── src/
 │   │   ├── index.ts         # Plugin entry: register(api) → registerContextEngine + registerTool
 │   │   ├── bridge.ts        # ContextHubBridge: TS ContextEngine impl → HTTP → sidecar
-│   │   ├── tools.ts         # 7 MVP tool definitions (ls/read/grep/stat/store/promote/publish)
+│   │   ├── tools.ts         # 8 contexthub_ tool definitions
 │   │   └── sidecar.py       # Python HTTP wrapper for the plugin (multi-agent via X-Agent-Id)
 │   └── dist/                # Compiled JS (after npm run build)
 ├── scripts/demo_e2e.py      # Standalone E2E demo (no OpenClaw needed)

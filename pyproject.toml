@@ -32,3 +32,6 @@ research = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/contexthub"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

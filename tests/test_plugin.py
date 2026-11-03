@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, MockTransport, Response
 
 import sys
 from pathlib import Path
@@ -38,7 +39,6 @@ def mock_client():
     client.report_feedback = AsyncMock()
     client.ls = AsyncMock()
     client.read = AsyncMock()
-    client.grep = AsyncMock()
     client.stat = AsyncMock()
     client.aclose = AsyncMock()
     return client
@@ -88,10 +88,10 @@ async def _insert_context(db, uri: str):
 # ── §8.1: Tool definition completeness ─────────────────────────────────
 
 EXPECTED_TOOLS = [
-    "ls",
-    "read",
-    "grep",
-    "stat",
+    "contexthub_ls",
+    "contexthub_read",
+    "contexthub_search",
+    "contexthub_stat",
     "contexthub_store",
     "contexthub_promote",
     "contexthub_skill_publish",
@@ -138,7 +138,7 @@ class TestToolDispatch:
     @pytest.mark.asyncio
     async def test_ls_calls_client_ls(self, mock_client):
         mock_client.ls.return_value = ["a", "b"]
-        result = await dispatch(mock_client, "ls", {"path": "datalake/"})
+        result = await dispatch(mock_client, "contexthub_ls", {"path": "datalake/"})
         mock_client.ls.assert_awaited_once_with("datalake/")
         assert json.loads(result) == ["a", "b"]
 
@@ -147,24 +147,39 @@ class TestToolDispatch:
         mock_client.read.return_value = MagicMock(
             model_dump=MagicMock(return_value={"uri": "x", "level": "L1", "content": "hello"})
         )
-        result = await dispatch(mock_client, "read", {"uri": "x"})
+        result = await dispatch(mock_client, "contexthub_read", {"uri": "x"})
         mock_client.read.assert_awaited_once()
         assert "hello" in result
 
     @pytest.mark.asyncio
-    async def test_grep_calls_client_grep(self, mock_client):
-        mock_client.grep.return_value = MagicMock(
+    async def test_search_calls_client_search_with_default_limit(self, mock_client):
+        mock_client.search.return_value = MagicMock(
             model_dump=MagicMock(return_value={"results": [], "total": 0})
         )
-        result = await dispatch(mock_client, "grep", {"query": "test"})
-        mock_client.grep.assert_awaited_once()
+        result = await dispatch(mock_client, "contexthub_search", {"query": "test"})
+        mock_client.search.assert_awaited_once_with(query="test", top_k=5)
+        assert json.loads(result) == {"results": [], "total": 0}
+
+    @pytest.mark.asyncio
+    async def test_search_preserves_filters_and_requested_limit(self, mock_client):
+        mock_client.search.return_value = SearchResponse(results=[], total=0, retrieval_id="rid-1")
+        await dispatch(mock_client, "contexthub_search", {
+            "query": "orders",
+            "scope": ["team"],
+            "context_type": ["resource"],
+            "top_k": 3,
+        })
+        mock_client.search.assert_awaited_once_with(
+            query="orders", scope=[Scope.TEAM],
+            context_type=[ContextType.RESOURCE], top_k=3,
+        )
 
     @pytest.mark.asyncio
     async def test_stat_calls_client_stat(self, mock_client):
         mock_client.stat.return_value = MagicMock(
             model_dump=MagicMock(return_value={"uri": "x", "version": 1})
         )
-        result = await dispatch(mock_client, "stat", {"uri": "x"})
+        result = await dispatch(mock_client, "contexthub_stat", {"uri": "x"})
         mock_client.stat.assert_awaited_once_with("x")
 
     @pytest.mark.asyncio
@@ -221,6 +236,91 @@ class TestToolDispatch:
             {"skill_uri": "skill://x", "content": "SELECT 1"},
         )
         mock_client.skill.publish.assert_awaited_once()
+
+
+@pytest.fixture
+def sidecar():
+    path = Path(__file__).resolve().parents[1] / "bridge" / "src" / "sidecar.py"
+    spec = importlib.util.spec_from_file_location("openclaw_sidecar_dispatch_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("argument_format", ["object", "json_string", "plain_string"])
+@pytest.mark.parametrize(
+    "name,args,endpoint,response",
+    [
+        (
+            "contexthub_ls", {"path": "ctx://team/engineering"}, "/api/v1/tools/ls",
+            ["ctx://team/engineering/resources/orders"],
+        ),
+        (
+            "contexthub_read", {"uri": "ctx://team/engineering/resources/orders"},
+            "/api/v1/tools/read",
+            {"uri": "ctx://team/engineering/resources/orders", "level": "L1", "content": "Orders schema"},
+        ),
+        (
+            "contexthub_search", {"query": "orders"}, "/api/v1/search",
+            {"results": [], "total": 0, "retrieval_id": "rid-1"},
+        ),
+        (
+            "contexthub_stat", {"uri": "ctx://team/engineering/resources/orders"},
+            "/api/v1/tools/stat",
+            {
+                "id": "d6c6a829-1b0a-4340-a2c9-13bfcc71e601",
+                "uri": "ctx://team/engineering/resources/orders",
+                "context_type": "resource", "scope": "team", "status": "active",
+                "version": 1, "active_count": 0, "adopted_count": 0, "ignored_count": 0,
+            },
+        ),
+    ],
+)
+async def test_renamed_tools_through_sidecar_and_sdk(
+    sidecar, monkeypatch, name, args, endpoint, response, argument_format,
+):
+    """Exercise real sidecar parsing, plugin dispatch, and SDK serialization."""
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert request.method == "POST"
+        assert request.url.path == endpoint
+        assert request.headers["X-Agent-Id"] == "query-agent"
+        assert request.headers["X-Account-Id"] == "acme"
+        body = json.loads(request.content)
+        assert body.items() >= args.items()
+        if name == "contexthub_search":
+            assert body["top_k"] == 5
+        return Response(200, json=response)
+
+    async with ContextHubClient(
+        url="https://hub.test", api_key="test-key", account_id="acme", agent_id="query-agent",
+    ) as sdk_client:
+        headers = sdk_client._http.headers.copy()
+        await sdk_client._http.aclose()
+        sdk_client._http = AsyncClient(
+            transport=MockTransport(handle), base_url="https://hub.test", headers=headers,
+        )
+        engine = ContextHubContextEngine(sdk_client)
+        monkeypatch.setattr(sidecar, "_get_engine", lambda request=None: engine)
+        if argument_format == "object":
+            payload = args
+        elif argument_format == "json_string":
+            payload = json.dumps(args)
+        else:
+            payload = next(iter(args.values()))
+        async with AsyncClient(transport=ASGITransport(app=sidecar.app), base_url="http://sidecar") as http:
+            catalog = await http.get("/tools")
+            assert [tool["name"] for tool in catalog.json()] == EXPECTED_TOOLS
+            result = await http.post("/dispatch", json={"name": name, "args": payload})
+        assert result.status_code == 200
+        assert len(requests) == 1
+        if isinstance(response, list):
+            assert result.json() == response
+        else:
+            assert result.json().items() >= response.items()
 
 
 @pytest.mark.asyncio
@@ -292,16 +392,18 @@ class TestToolErrorHandling:
     @pytest.mark.asyncio
     async def test_sdk_error_returns_error_json(self, mock_client):
         mock_client.ls.side_effect = NotFoundError("not found")
-        result = await dispatch(mock_client, "ls", {"path": "x"})
+        result = await dispatch(mock_client, "contexthub_ls", {"path": "x"})
         parsed = json.loads(result)
         assert "error" in parsed
         assert "not found" in parsed["error"]
 
     @pytest.mark.asyncio
-    async def test_unknown_tool_returns_error(self, mock_client):
-        result = await dispatch(mock_client, "nonexistent", {})
+    @pytest.mark.parametrize("name", ["ls", "read", "grep", "stat", "nonexistent"])
+    async def test_unknown_and_old_tool_names_are_rejected(self, mock_client, name):
+        result = await dispatch(mock_client, name, {"path": "ctx://", "uri": "ctx://x", "query": "x"})
         parsed = json.loads(result)
-        assert "error" in parsed
+        assert parsed == {"error": f"Unknown tool: {name}"}
+        assert mock_client.mock_calls == []
 
 
 # ── §8.4-6: assemble ───────────────────────────────────────────────────
@@ -407,7 +509,10 @@ class TestAssemble:
         assert "retrieval_id" in guide
         assert "degraded mode" in guide
         assert "explicit tool-based search" in guide
-        assert "returned by `read`" in guide
+        assert "returned by `contexthub_read`" in guide
+        assert "call `contexthub_ls`" in guide
+        assert "call `contexthub_search`" in guide
+        assert all(f"`{name}`" not in guide for name in ("ls", "read", "grep", "stat"))
         assert "auto-recall" in guide
 
 

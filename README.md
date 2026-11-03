@@ -6,8 +6,8 @@
 ### ContextHub: Unified Context Management <br> for Multi-Agent Collaboration
 
 A context-governance engine built on a **filesystem paradigm** with **LLM-native commands**.
-Agents navigate memories, skills, documents, and data-lake metadata through familiar operations
-(`ls`, `read`, `grep`, `stat`) over `ctx://` URIs — with version control, visibility boundaries,
+Agents navigate memories, skills, documents, and data-lake metadata through filesystem-style
+navigation and search over `ctx://` URIs — with version control, visibility boundaries,
 change propagation, and cross-agent sharing.
 
 Built on FastAPI + PostgreSQL. Single database. No external vector store. No message queue.
@@ -43,7 +43,7 @@ All four are managed under a unified `ctx://` URI namespace with the same versio
 | Capability | What It Solves |
 |---|---|
 | **Filesystem Paradigm** | All context types managed as files under `ctx://` URIs — one model for memories, skills, documents, and table metadata |
-| **LLM-native Commands** | Agents use `ls`, `read`, `grep`, `stat` — LLMs already understand file operations, no custom API needed |
+| **LLM-native Commands** | Agents navigate and search context through `contexthub_ls`, `contexthub_read`, `contexthub_search`, and `contexthub_stat` |
 | **Multi-Agent Collaboration** | Team hierarchy with visibility inheritance (child reads parent, parent doesn't see child); memory promotion `private → team → org` with `derived_from` lineage |
 | **Version Management** | Pin agents to stable versions; `is_breaking` flag prevents silent breakage; immutable published versions |
 | **Change Propagation** | Upstream changes auto-notify all downstream dependents — no polling, no "latest version wins". An opt-in cost-controlled path lands in core: a confidence cascade discovers `derived_from` edges cheapest-tier-first at write time, and staleness cascades along those edges multi-hop. Tuning the staleness check itself to spend only as much as each edge warrants is the active research frontier (see [Research](#research-)) |
@@ -54,7 +54,7 @@ All four are managed under a unified `ctx://` URI namespace with the same versio
 ## Architecture 🏛️
 
 ```
-         Agents (via OpenClaw Plugin / SDK)
+         Agents (via OpenClaw / Deep Agents / SDK)
               │
               ▼
     ContextHub Server (FastAPI)
@@ -139,7 +139,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 \q
 ```
 
-> `SUPERUSER` is required because the schema uses `FORCE ROW LEVEL SECURITY`. This is fine for local development.
+> The SQL above gives the `contexthub` account PostgreSQL administrator privileges. PostgreSQL therefore does not restrict which tenants' rows that account can read, so this setup cannot verify database-level tenant isolation. For a demo using an ordinary application account, see the [Deep Agents tutorial](docs/setup/deepagents-integration-guide.md), which also explains the current background-worker limitation.
 
 ### Step 3: Install & Start ContextHub
 
@@ -167,6 +167,7 @@ cp .env.example .env
 | `OPENAI_API_KEY` | For LLM-backed features | *(empty)* | Enables vector embeddings for `search` and the chat-based tree builder / tree selector used by long-document ingestion and retrieval; without it, vector search is disabled and long-document ingestion returns `503` |
 | `OPENAI_BASE_URL` | No | `https://api.openai.com/v1` | Shared base URL for both chat and embedding requests; can point to an OpenAI-compatible endpoint |
 | `CHAT_MODEL` | No | `gpt-4o-mini` | Chat model used by long-document tree construction and tree-based section selection |
+| `CHAT_ENABLE_THINKING` | No | *(unset)* | Optional provider parameter for server chat calls; use `false` for supported DashScope models with short output budgets, and leave unset for other endpoints |
 | `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Embedding model used for L0/query embeddings during retrieval |
 | `EMBEDDING_DIMENSIONS` | No | `1536` | Target stored vector dimension; exact matches are accepted, shorter compatible embeddings are zero-padded, and larger embeddings are rejected |
 
@@ -217,7 +218,7 @@ async def main():
 asyncio.run(main())
 ```
 
-ContextHub also integrates directly with agent frameworks like [OpenClaw](https://github.com/anthropics/openclaw) as a drop-in context engine — making context governance transparent to agent code. See [Integration with OpenClaw](#integration-with-openclaw-) below.
+ContextHub connects to [OpenClaw](https://github.com/openclaw/openclaw) as a context engine and to [Deep Agents](https://www.langchain.com/deep-agents) through native Python tools. See the integration sections below for each setup.
 
 For the full E2E demo and integration tests, see [Local Setup & E2E Verification Guide](docs/setup/local-setup&end2end-verification-guide.md).
 
@@ -225,51 +226,78 @@ For the full E2E demo and integration tests, see [Local Setup & E2E Verification
 
 ## Integration with OpenClaw 🦞
 
-ContextHub is designed as the **context engine** for [OpenClaw](https://github.com/anthropics/openclaw) — replacing its built-in engine with enterprise-grade context governance.
+ContextHub gives [OpenClaw](https://github.com/openclaw/openclaw) persistent memories, team sharing, and versioned skills through a **context-engine plugin**. The plugin replaces OpenClaw's built-in context engine and connects to the ContextHub server through a Python sidecar.
+
+**Install the plugin:**
 
 ```bash
-# One-command install
 pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 ```
 
-**What happens automatically (no agent code changes):**
+**How it works:** once the plugin, sidecar, and server are configured, OpenClaw invokes the lifecycle hooks automatically. The agent can also call ContextHub tools explicitly.
 
 | Event | ContextHub Action |
 |-------|-------------------|
-| Agent receives a prompt | `assemble()` — searches all visible contexts and injects relevant ones into the system prompt |
-| Agent completes a response | `afterTurn()` — extracts reusable facts and stores them as private memories |
+| Agent receives a prompt | `assemble()` searches visible contexts and adds relevant results to the prompt |
+| Agent completes a response | `afterTurn()` selects candidate facts from the response and stores them as private memories |
 
-**7 agent tools available in every session:**
+**8 available tools:**
 
-`ls` · `read` · `grep` · `stat` · `contexthub_store` · `contexthub_promote` · `contexthub_skill_publish`
+| Capability | Tools |
+|---|---|
+| Find and read context | `contexthub_ls`, `contexthub_read`, `contexthub_search`, `contexthub_stat` |
+| Save and share memories | `contexthub_store`, `contexthub_promote` |
+| Publish skill versions | `contexthub_skill_publish` |
+| Report retrieval usefulness | `contexthub_feedback` |
 
-### Multi-Agent Collaboration in Action
-
-```
-Org: engineering/backend  ← query-agent        Org: data/analytics  ← analysis-agent
-                                                     (also engineering member)
-```
-
-```
-1. query-agent stores a SQL pattern as private memory
-
-2. query-agent promotes it to engineering team
-   → ctx://team/engineering/shared_knowledge/monthly-sales-pattern
-
-3. analysis-agent asks "How to query monthly sales?"
-   → ContextHub auto-recalls the promoted pattern via assemble()
-   → zero manual sharing needed
-
-4. query-agent publishes breaking Skill v2
-   → analysis-agent (pinned to v1) continues using v1 stably
-   → advisory: "v2 available with breaking changes"
-```
-
-> **What makes this different from a shared document?**
-> ContextHub enforces visibility boundaries, tracks `derived_from` lineage,
-> and propagates changes through dependency graphs — not just "latest version wins."
+For example, one agent can save a SQL pattern privately and promote it to the `engineering` team. Another team member can then retrieve it through automatic recall or an explicit search. ContextHub applies the configured visibility and version rules to both paths. Recall and fact-capture accuracy still need separate evaluation.
 
 For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/openclaw-integration-guide.md).
+
+When upgrading from the old tool names, rebuild the bridge and restart OpenClaw and the sidecar. Update custom prompts and tool allowlists to use `contexthub_ls`, `contexthub_read`, `contexthub_search`, and `contexthub_stat`; the old names are no longer accepted.
+
+---
+
+## Integration with Deep Agents
+
+ContextHub gives [Deep Agents](https://www.langchain.com/deep-agents) persistent memories, team sharing, versioned skills, and document retrieval through **native async tools**. The adapter connects directly to the ContextHub server through the Python SDK; Deep Agents continues to manage conversations and its own filesystem.
+
+**Install the adapter** from the repository root, then install the LangChain provider package for your model:
+
+```bash
+python -m pip install -e ./sdk -e ./plugins/deepagents
+```
+
+**How it works:** the agent chooses when to search, read, or save through tool calls. Add the tools to your agent and use `ainvoke` or `astream`. This integration does not add automatic pre-turn recall or post-turn capture.
+
+With your model and an open `ContextHubClient` already configured:
+
+```python
+from contexthub_deepagents import CONTEXTHUB_INSTRUCTIONS, create_contexthub_tools
+from deepagents import create_deep_agent
+
+async def answer(question, model, client):
+    agent = create_deep_agent(
+        model=model,
+        tools=create_contexthub_tools(client),
+        system_prompt=CONTEXTHUB_INSTRUCTIONS,
+    )
+    return await agent.ainvoke({"messages": [{"role": "user", "content": question}]})
+```
+
+**10 available tools:**
+
+| Capability | Tools |
+|---|---|
+| Find and read context | `contexthub_ls`, `contexthub_read`, `contexthub_search`, `contexthub_stat` |
+| Read document sections | `contexthub_sections`, `contexthub_read_section` |
+| Save and share memories | `contexthub_store`, `contexthub_promote` |
+| Publish skill versions | `contexthub_skill_publish` |
+| Report retrieval usefulness | `contexthub_feedback` |
+
+For example, one agent can save a SQL pattern privately and promote it to the `engineering` team. Another team member can then call `contexthub_search` and `contexthub_read` to use it. Each SDK client binds the account and agent identity; ContextHub applies the configured visibility and version rules.
+
+For full setup instructions, follow the [Deep Agents + ContextHub tutorial](docs/setup/deepagents-integration-guide.md). It covers model configuration, saving and sharing memories, and reading document sections. See the [adapter reference](plugins/deepagents/README.md) for tool details, client lifetime, and tests.
 
 ---
 
@@ -278,7 +306,7 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
 - [x] **Phase 1 — Core Engine** ✅
   - The foundation: unified `ctx://` address scheme for all context types, core services for memory storage & sharing, skill versioning & subscription, semantic search, and automatic change propagation. 
   - Team-hierarchy visibility with PostgreSQL row-level tenant isolation. 
-  - Python SDK and OpenClaw context-engine plugin. 
+  - Python SDK, OpenClaw context-engine plugin, and Deep Agents tools.
   - 17 integration tests covering propagation correctness, multi-agent collaboration, and access isolation.
 - [x] **Phase 2 — Fine-Grained Access Control & Audit** ✅
   - Explicit permission rules beyond default team visibility: 
@@ -316,6 +344,9 @@ The cheap-first, escalate-only-when-needed policy lives in core as a confidence 
 | Document | Description |
 |----------|-------------|
 | [OpenClaw Integration Guide](docs/setup/openclaw-integration-guide.md) | Full 5-terminal setup for ContextHub + OpenClaw |
+| [Deep Agents + ContextHub Tutorial](docs/setup/deepagents-integration-guide.md) | Demo setup, model configuration, memory sharing, and document section reads |
+| [Deep Agents Adapter Reference](plugins/deepagents/README.md) | Native async tools, team identities, and tests |
+| [Document Section Generation](docs/setup/document-section-generation.md) | Model configuration, source boundaries, fallback behavior, and manual verification |
 | [Local Setup & E2E Verification](docs/setup/local-setup&end2end-verification-guide.md) | Dev environment, migrations, E2E demo |
 | [MVP Verification Plan](docs/mvp%20verification/mvp-verification-plan.md) | Three-layer verification: tests → API demo → runtime contract |
 | [Developer Guide](docs/design%20and%20development/development-guide.md) | API overview, SDK reference, tech stack, project structure |

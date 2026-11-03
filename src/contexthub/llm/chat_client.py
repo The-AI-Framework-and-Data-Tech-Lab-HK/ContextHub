@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class BaseChatClient(ABC):
     @abstractmethod
     async def complete(self, prompt: str, max_tokens: int = 2000) -> str:
-        """通用文本生成接口。"""
+        """Generate text from a prompt."""
 
 
 class OpenAIChatClient(BaseChatClient):
@@ -35,6 +35,7 @@ class OpenAIChatClient(BaseChatClient):
         temperature: float | None = None,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
+        enable_thinking: bool | None = None,
     ):
         self._api_key = api_key
         self._recorded_model_configured = bool(model)
@@ -43,6 +44,7 @@ class OpenAIChatClient(BaseChatClient):
         # byte-for-byte unchanged. Set by callers reproducing a published
         # protocol that pins it (e.g. MEME's judge: GPT-4o temperature 0).
         self._temperature = temperature
+        self._enable_thinking = enable_thinking
         # Kept so a hung-connection retry can rebuild the client (see complete()).
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
@@ -75,6 +77,8 @@ class OpenAIChatClient(BaseChatClient):
         }
         if self._temperature is not None:
             payload["temperature"] = self._temperature
+        if self._enable_thinking is not None:
+            payload["enable_thinking"] = self._enable_thinking
         # Proxy gateways (e.g. yunwu) reply 429 with a short cooldown when a key
         # is rate-limited or briefly flagged; long-run batch evals also hit
         # transient network blips (timeout / connection reset) and gateway 5xx.
@@ -187,12 +191,16 @@ class OpenAIChatClient(BaseChatClient):
 
         choices = data.get("choices") or []
         if not choices:
-            return ""
+            raise ResponseSchemaError("Chat completion returned no choices")
         msg = choices[0].get("message") or {}
         content = msg.get("content")
-        if content is None:
-            return ""
-        return content if isinstance(content, str) else str(content)
+        if not isinstance(content, str) or not content.strip():
+            raise ResponseSchemaError(
+                "Chat completion returned empty content "
+                f"(finish_reason={choices[0].get('finish_reason')}); "
+                "check thinking settings and max_tokens"
+            )
+        return content
 
     async def _complete_recorded(self, prompt: str, max_tokens: int, call: RecordedCall) -> str:
         """Exclusive retry owner; never enters the legacy retry loop.
@@ -208,6 +216,9 @@ class OpenAIChatClient(BaseChatClient):
             payload["temperature"] = self._temperature
         request_config = {"model": self._model, "max_tokens": max_tokens,
                           "temperature": self._temperature, "base_url": self._base_url}
+        if self._enable_thinking is not None:
+            payload["enable_thinking"] = self._enable_thinking
+            request_config["enable_thinking"] = self._enable_thinking
         for number in range(1, call.policy.max_attempts + 1):
             started = datetime.now(timezone.utc)
             usage = Usage(completeness='missing', missing_reason='request_not_completed')

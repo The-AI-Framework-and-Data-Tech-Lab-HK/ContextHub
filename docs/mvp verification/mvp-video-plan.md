@@ -1,5 +1,7 @@
 #### DEMO：多 Agent 协作全景（10 步）
 
+本演示使用 [OpenClaw 接入](../setup/openclaw-integration-guide-zh.md)和当前的 `contexthub_` 工具名。若改用 [Deep Agents](../setup/deepagents-integration-guide.md)，应明确要求 Agent 调用保存和检索工具；该适配器不包含回合前自动召回或回合后自动保存。
+
 > 本 demo 是独立的完整演示流程，一次性覆盖三个核心能力：
 >
 > | 能力 | 含义 | 对应步骤 |
@@ -327,7 +329,7 @@ Phase D 结束后，运营负责人（query-agent）意识到：
 请读取 ctx://team/engineering/docs/supplier-costs 的内容
 ```
 
-预期：agent 调用 `read`，成功返回供应商成本明细内容。
+预期：agent 调用 `contexthub_read`，成功返回供应商成本明细内容。
 
 > **这是设置 deny 之前的基线**。观众先看到"能读到"，后面看到
 > "读不到了"，对比效果更强。
@@ -365,7 +367,7 @@ curl -X POST http://localhost:8000/api/v1/admin/policies \
 ```
 
 预期：
-- agent 调用 `read`，但这次**失败**
+- agent 调用 `contexthub_read`，但这次**失败**
 - Terminal 2 Server 日志出现 **403**
 - TUI 中 agent 会告知用户"无法读取"或"权限不足"
 
@@ -416,7 +418,7 @@ curl -X POST http://localhost:8000/api/v1/admin/policies \
 ```
 
 预期：
-- agent 调用 `read`，这次**成功**
+- agent 调用 `contexthub_read`，这次**成功**
 - 但返回的内容中，"60%"、"55%"、"58%"、"50%"、"底价"、"底线"
   等关键词全部显示为 **`[MASKED]`**
 - Terminal 3 sidecar 日志可以看到实际返回的 masked 内容
@@ -458,7 +460,7 @@ curl -X POST http://localhost:8000/api/v1/shares \
 ```
 
 预期：
-- agent 调用 `read`，成功返回 API 规范内容
+- agent 调用 `contexthub_read`，成功返回 API 规范内容
 - 这是一个 analysis-agent 默认不可见的资源，通过 share grant 变得可读
 
 > **对比 Phase D 的 promote**：Phase D 中 promote 是把内容复制到
@@ -475,7 +477,7 @@ curl -X POST http://localhost:8000/api/v1/shares \
 项目组目前共享了哪些知识？请列出 ctx://team/engineering/memories/shared_knowledge
 ```
 
-预期：agent 调用 `ls`，返回 Phase D 中晋升的共享记忆列表。
+预期：agent 调用 `contexthub_ls`，返回 Phase D 中晋升的共享记忆列表。
 这条操作会作为一条 `ls` 审计记录被记录下来。
 
 **Step E9 — 【curl 管理操作】查看审计日志**
@@ -531,6 +533,6 @@ curl "http://localhost:8000/api/v1/admin/audit?limit=20" \
 > 这样观众同时看到"管理员做了什么"和"agent 的反应"，对比效果最强。
 >
 > Phase E 的 TUI 步骤受模型 tool-use 决策影响。如果 agent 没有主动
-> 调用 `read` 工具，可以更直接地说：
-> "请调用 read 工具，URI 是 ctx://team/engineering/docs/supplier-costs"。
+> 调用 `contexthub_read` 工具，可以更直接地说：
+> "请调用 contexthub_read 工具，URI 是 ctx://team/engineering/docs/supplier-costs"。
 > curl 步骤是确定性的，TUI 步骤是演示性的——两者互补。

@@ -1,5 +1,7 @@
 # ContextHub MVP 验证实施计划
 
+本文的交互演示使用 OpenClaw；历史 PASS 记录不代表 Deep Agents 已通过同一轮验证。Deep Agents 的真实模型验证请按[集成教程](../setup/deepagents-integration-guide.md)运行。两边共用 `contexthub_` 工具名称，但只有 OpenClaw 接入了自动召回和自动保存机制。
+
 > 本文档是最短路径的验证计划。目标：以最小投入证明 ContextHub 作为企业级
 > 多 Agent 协作上下文中间件的核心价值。
 >
@@ -138,7 +140,7 @@
 
 ### 前置准备
 
-1. **启动服务**：PostgreSQL + ContextHub Server（参考 `docs/openclaw-integration-guide.md`）
+1. **启动服务**：PostgreSQL + ContextHub Server（参考 [OpenClaw 集成指南](../setup/openclaw-integration-guide-zh.md)）
 
 2. **确保 team membership**：`demo_e2e.py` 会自动补 `query-agent` 到
    `engineering` 团队的 membership（见脚本 `_ensure_team_membership()`）。
@@ -258,13 +260,14 @@ OpenClaw runtime 能通过 sidecar 的 `dispatch` / `assemble` 接口
 1. **先完成第二层**（即先跑 `demo_e2e.py`）。跑完后数据库里已经有了
    skill context、v1/v2 版本、pinned subscription 等数据 —— 这就是
    "预置"，不需要手动插入任何东西。
-2. 启动完整 5 终端栈（参考 `docs/openclaw-integration-guide.md`）：
+2. 启动完整 5 终端栈（参考 [OpenClaw 集成指南](../setup/openclaw-integration-guide-zh.md)）：
    PostgreSQL、ContextHub Server、Python Sidecar、OpenClaw Gateway、TUI
 
 ### 当前工具面限制
 
-OpenClaw 插件暴露 7 个工具：`ls`、`read`、`grep`、`stat`、
-`contexthub_store`、`contexthub_promote`、`contexthub_skill_publish`。
+OpenClaw 插件暴露 8 个工具：`contexthub_ls`、`contexthub_read`、
+`contexthub_search`、`contexthub_stat`、`contexthub_store`、`contexthub_promote`、
+`contexthub_skill_publish` 和 `contexthub_feedback`。
 
 **没有** `skill_create` 和 `skill_subscribe`。因此：
 - 存储、晋升、发布新版本 → sidecar dispatch 可以做
@@ -332,7 +335,7 @@ curl -X POST http://localhost:9100/assemble \
 > 因 ILIKE 匹配整串而非分词，可能返回 0 结果。使用关键词片段（如"月度销售额"）即可命中。
 > 配置 embedding 后此限制消失。
 
-#### Step 4：dispatch → `contexthub_skill_publish` + `read` — PASS ✓
+#### Step 4：dispatch → `contexthub_skill_publish` + `contexthub_read` — PASS ✓
 
 query-agent 发布 breaking v3：
 
@@ -360,7 +363,7 @@ curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
   -H "X-Agent-Id: analysis-agent" \
   -d '{
-    "name": "read",
+    "name": "contexthub_read",
     "args": {
       "uri": "ctx://team/engineering/skills/sql-generator"
     }
@@ -451,7 +454,7 @@ GROUP BY DATE_TRUNC('month', order_date)。
 请列出 ctx://team/engineering/memories/shared_knowledge 下的内容
 ```
 
-预期：agent 调用 `ls`，返回的列表中包含刚晋升的记忆。
+预期：agent 调用 `contexthub_ls`，返回的列表中包含刚晋升的记忆。
 
 #### 切换 Agent 身份
 
@@ -523,7 +526,7 @@ URI 是 ctx://team/engineering/skills/sql-generator，
 请读取 ctx://team/engineering/skills/sql-generator 的内容
 ```
 
-预期：agent 调用 `read`，返回 pinned 旧版本内容 + advisory 提示
+预期：agent 调用 `contexthub_read`，返回 pinned 旧版本内容 + advisory 提示
 有新版本可用。
 
 #### Phase D：多 Agent 协作全景（10 步）
@@ -827,7 +830,7 @@ curl -X POST http://localhost:8000/api/v1/admin/policies \
 请再读一次 ctx://team/engineering/docs/supplier-costs
 ```
 
-预期：agent 调用 `read` 但失败，Server 日志出现 403。
+预期：agent 调用 `contexthub_read` 但失败，Server 日志出现 403。
 同一个 agent、同一条命令，设了 deny 后立刻读不到了。
 
 **Step E4 — 【curl】删除 deny + 创建遮蔽策略**
@@ -929,7 +932,7 @@ curl "http://localhost:8000/api/v1/admin/audit?limit=20" \
    演示 ACL deny、关键字遮蔽、免复制共享和审计日志，推荐在 Phase D 之后录制
 5. 如果模型没有主动调用工具，不代表产品失败 —— 这是 prompt
    问题，不是 ContextHub 问题。可以更直接地说
-   "请调用 read 工具，URI 是 ctx://..."
+   "请调用 contexthub_read 工具，URI 是 ctx://..."
 
 ### 产出物
 

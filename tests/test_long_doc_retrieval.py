@@ -1161,8 +1161,8 @@ async def test_integration_long_doc_search_smoke(acme_session, services, query_a
             response="""
             {
               "sections": [
-                {"node_id":"root","parent_node_id":null,"title":"Document","start_offset":0,"end_offset":84,"summary":"whole"},
-                {"node_id":"wal","parent_node_id":"root","title":"WAL Lag","start_offset":20,"end_offset":84,"summary":"wal lag incidents"}
+                {"title":"Postgres Handbook","start_line":1,"start_text":"# Postgres Handbook","level":1,"summary":"whole"},
+                {"title":"WAL Lag","start_line":3,"start_text":"## WAL Lag","level":2,"summary":"wal lag incidents"}
               ]
             }
             """

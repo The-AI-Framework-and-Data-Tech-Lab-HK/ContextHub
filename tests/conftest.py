@@ -32,16 +32,7 @@ def pytest_collection_modifyitems(config, items):
         return
     skip_marker = pytest.mark.skip(reason="CONTEXTHUB_INTEGRATION not set")
     for item in items:
-        # Skip test_integration_* files and DB-backed tests in test_datalake.py
-        if "integration" in item.nodeid:
-            item.add_marker(skip_marker)
-        elif "datalake" in item.nodeid and _needs_db(item):
-            item.add_marker(skip_marker)
-        elif "phase2" in item.nodeid and _needs_db(item):
-            item.add_marker(skip_marker)
-        elif "lifecycle_service" in item.nodeid and _needs_db(item):
-            item.add_marker(skip_marker)
-        elif "feedback_api" in item.nodeid and _needs_db(item):
+        if "integration" in item.nodeid or _needs_db(item):
             item.add_marker(skip_marker)
 
 

@@ -6,7 +6,7 @@
 ### ContextHub: 面向多 Agent 协作的 <br> 统一上下文管理
 
 基于**文件系统范式**和 **LLM 原生命令**的上下文治理引擎。
-Agent 通过熟悉的文件操作（`ls`、`read`、`grep`、`stat`）经由 `ctx://` URI
+Agent 通过列目录、读取、检索和查看元信息等操作，经由 `ctx://` URI
 导航和管理记忆、技能、文档和数据湖元数据——
 具备版本控制、可见性边界、变更传播和跨 Agent 共享能力。
 
@@ -43,7 +43,7 @@ Agent 通过熟悉的文件操作（`ls`、`read`、`grep`、`stat`）经由 `ct
 | 能力 | 解决什么问题 |
 |---|---|
 | **文件系统范式** | 所有上下文类型统一为 `ctx://` URI 下的文件——记忆、技能、文档、表元数据共用一套模型 |
-| **LLM 原生命令** | Agent 使用 `ls`、`read`、`grep`、`stat` 操作上下文——LLM 天然理解文件操作，无需学习自定义 API |
+| **LLM 原生命令** | Agent 通过 `contexthub_ls`、`contexthub_read`、`contexthub_search` 和 `contexthub_stat` 浏览和检索上下文 |
 | **多 Agent 协作** | 团队层级可见性继承（子读父、父不见子）；记忆晋升 `私有 → 团队 → 组织`，`derived_from` 血缘追踪 |
 | **版本管理** | 将 Agent 锁定在稳定版本；`is_breaking` 标记防止静默破坏；已发布版本不可变 |
 | **变更传播** | 上游变更自动通知所有下游依赖方——无需轮询，不是"最新版覆盖一切"。我们正在研究**代价可控**的变更传播问题（见 [研究](#研究-)）：写入时用置信度级联"先便宜档后升级"地发现 `derived_from` 依赖边，失效再沿这些边多跳级联。成本/代价可控的思路在于进一步调优"是否过时"的判断、让它在每条边上只花该花的算力。 |
@@ -54,7 +54,7 @@ Agent 通过熟悉的文件操作（`ls`、`read`、`grep`、`stat`）经由 `ct
 ## 架构 🏛️
 
 ```
-         Agents（通过 OpenClaw Plugin / SDK 接入）
+         Agents（通过 OpenClaw / Deep Agents / SDK 接入）
               │
               ▼
     ContextHub Server (FastAPI)
@@ -139,7 +139,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 \q
 ```
 
-> 需要 `SUPERUSER` 权限，因为 schema 使用了 `FORCE ROW LEVEL SECURITY`。本地开发环境无安全问题。
+> 上面的 SQL 给了 `contexthub` 账号数据库管理员权限。用这个账号连接时，PostgreSQL 不会按租户限制它能读取的数据，因此这套配置不能用来验证数据库层的租户隔离。若要使用普通账号验证隔离效果，请参考 [Deep Agents 教程](docs/setup/deepagents-integration-guide.md)，其中也说明了当前后台任务的限制。
 
 ### 第 3 步：安装并启动 ContextHub
 
@@ -167,6 +167,7 @@ cp .env.example .env
 | `OPENAI_API_KEY` | 使用 LLM 相关功能时必填 | *（空）* | 启用 `search` 所需的向量 embedding，以及长文档入库 / 检索时用到的文档树构建与 tree 选段；不填则向量搜索不可用，长文档入库会返回 `503` |
 | `OPENAI_BASE_URL` | 否 | `https://api.openai.com/v1` | chat 和 embedding 共用的 base URL；也可以指向兼容 OpenAI API 的端点 |
 | `CHAT_MODEL` | 否 | `gpt-4o-mini` | 长文档文档树构建与 tree-based section selection 使用的 chat model |
+| `CHAT_ENABLE_THINKING` | 否 | *不设置* | 服务端模型调用的可选参数；支持该参数的 DashScope 模型可设为 `false`，避免思考耗尽短输出预算，其他端点保持不设置 |
 | `EMBEDDING_MODEL` | 否 | `text-embedding-3-small` | 检索阶段为 L0/query 生成 embedding 的模型 |
 | `EMBEDDING_DIMENSIONS` | 否 | `1536` | 向量在库中的目标存储维度；与该维度一致时直接写入，更短的兼容 embedding 会自动补零，更长的 embedding 会被拒绝 |
 
@@ -217,7 +218,7 @@ async def main():
 asyncio.run(main())
 ```
 
-ContextHub 同时可作为 [OpenClaw](https://github.com/anthropics/openclaw) 等 Agent 框架的即插即用 context engine——上下文治理对 Agent 代码完全透明。详见下方[与 OpenClaw 集成](#与-openclaw-集成-)。
+ContextHub 可以作为 [OpenClaw](https://github.com/openclaw/openclaw) 的上下文引擎，也可以通过原生 Python 工具接入 [Deep Agents](https://www.langchain.com/deep-agents)。两种接入方式的配置见下方集成章节。
 
 完整的端到端 demo 和集成测试，请参阅[本地部署与端到端验证指南](docs/setup/local-setup&end2end-verification-guide-zh.md)。
 
@@ -225,51 +226,78 @@ ContextHub 同时可作为 [OpenClaw](https://github.com/anthropics/openclaw) �
 
 ## 与 OpenClaw 集成 🦞
 
-ContextHub 设计为 [OpenClaw](https://github.com/anthropics/openclaw) 的 **context engine**——替换内置引擎，提供企业级上下文治理。
+ContextHub 通过**上下文引擎插件**，为 [OpenClaw](https://github.com/openclaw/openclaw) 提供跨会话记忆、团队共享和技能版本管理。插件替换 OpenClaw 的内置上下文引擎，通过一个 Python 辅助服务（sidecar）连接 ContextHub 服务端。
+
+**安装插件：**
 
 ```bash
-# 一条命令安装
 pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 ```
 
-**自动行为（无需修改 Agent 代码）：**
+**工作方式：** 配置好插件、sidecar 和服务端后，OpenClaw 会在每轮对话前后自动调用相应功能。Agent 也可以主动调用 ContextHub 工具。
 
 | 事件 | ContextHub 行为 |
 |------|----------------|
-| Agent 收到用户提问 | `assemble()` — 检索所有可见上下文，将相关内容注入系统提示词 |
-| Agent 完成回复 | `afterTurn()` — 提取可复用事实，存为私有记忆 |
+| Agent 收到用户提问 | `assemble()` 检索有权限查看的上下文，将相关结果加入提示词 |
+| Agent 完成回复 | `afterTurn()` 从回复中筛选候选事实，存为私有记忆 |
 
-**每个会话自动可用的 7 个 Agent 工具：**
+**可用的 8 个工具：**
 
-`ls` · `read` · `grep` · `stat` · `contexthub_store` · `contexthub_promote` · `contexthub_skill_publish`
+| 能力 | 工具 |
+|---|---|
+| 查找和读取上下文 | `contexthub_ls`、`contexthub_read`、`contexthub_search`、`contexthub_stat` |
+| 保存和共享记忆 | `contexthub_store`、`contexthub_promote` |
+| 发布技能版本 | `contexthub_skill_publish` |
+| 反馈检索结果是否有用 | `contexthub_feedback` |
 
-### 多 Agent 协作实战
+例如，一个 Agent 可以把 SQL 查询方法存为私有记忆，再共享给 `engineering` 团队。另一位团队成员随后可以通过自动召回或主动检索获取这条记忆。两种访问方式都由 ContextHub 检查可见范围和版本规则。自动召回和事实提取是否准确，仍需要独立评估。
 
+完整搭建流程请参考 [OpenClaw 集成指南](docs/setup/openclaw-integration-guide-zh.md)。
+
+从旧工具名升级时，请重新构建 bridge，并重启 OpenClaw 和 sidecar。自定义提示词和工具白名单中的名称也要改为 `contexthub_ls`、`contexthub_read`、`contexthub_search` 和 `contexthub_stat`；旧名称不再支持。
+
+---
+
+## 与 Deep Agents 集成
+
+ContextHub 通过**原生异步工具**，为 [Deep Agents](https://www.langchain.com/deep-agents) 提供跨会话记忆、团队共享、技能版本管理和文档检索。适配器通过 Python SDK 直接连接 ContextHub 服务端；Deep Agents 继续负责管理对话和自身文件系统。
+
+**安装适配器：** 在仓库根目录执行，再按所选模型安装对应的 LangChain 模型接入包。
+
+```bash
+python -m pip install -e ./sdk -e ./plugins/deepagents
 ```
-组织：engineering/backend ← query-agent        组织：data/analytics ← analysis-agent
-                                                     （同时也是 engineering 成员）
+
+**工作方式：** Agent 根据任务决定何时检索、读取或保存，通过工具调用访问 ContextHub。把工具加入 Agent 后，使用 `ainvoke` 或 `astream` 运行。这版适配不包含回合前自动召回和回合后自动保存。
+
+配置好模型并打开 `ContextHubClient` 后，可以这样接入：
+
+```python
+from contexthub_deepagents import CONTEXTHUB_INSTRUCTIONS, create_contexthub_tools
+from deepagents import create_deep_agent
+
+async def answer(question, model, client):
+    agent = create_deep_agent(
+        model=model,
+        tools=create_contexthub_tools(client),
+        system_prompt=CONTEXTHUB_INSTRUCTIONS,
+    )
+    return await agent.ainvoke({"messages": [{"role": "user", "content": question}]})
 ```
 
-```
-1. query-agent 将一个 SQL pattern 存为私有记忆
+**可用的 10 个工具：**
 
-2. query-agent 晋升到 engineering 团队
-   → ctx://team/engineering/shared_knowledge/monthly-sales-pattern
+| 能力 | 工具 |
+|---|---|
+| 查找和读取上下文 | `contexthub_ls`、`contexthub_read`、`contexthub_search`、`contexthub_stat` |
+| 读取文档章节 | `contexthub_sections`、`contexthub_read_section` |
+| 保存和共享记忆 | `contexthub_store`、`contexthub_promote` |
+| 发布技能版本 | `contexthub_skill_publish` |
+| 反馈检索结果是否有用 | `contexthub_feedback` |
 
-3. analysis-agent 提问："月度销售额应该怎么查？"
-   → ContextHub 通过 assemble() 自动召回已晋升的 pattern
-   → 零人工传递
+例如，一个 Agent 可以把 SQL 查询方法存为私有记忆，再共享给 `engineering` 团队。另一位团队成员随后调用 `contexthub_search` 和 `contexthub_read` 获取并使用它。每个 SDK 客户端绑定账号和 Agent 身份，由 ContextHub 检查可见范围和版本规则。
 
-4. query-agent 发布 breaking Skill v2
-   → analysis-agent（pinned 到 v1）继续稳定使用 v1
-   → advisory："v2 已发布，包含 breaking changes"
-```
-
-> **这和共享文档有什么不同？**
-> ContextHub 强制执行可见性边界、追踪 `derived_from` 血缘、
-> 沿依赖图传播变更——而不仅仅是"谁最后编辑的就是最新版"。
-
-完整搭建流程请参考 [OpenClaw 集成指南](docs/setup/openclaw-integration-guide.md)。
+完整搭建流程请参考 [Deep Agents + ContextHub 教程](docs/setup/deepagents-integration-guide.md)，其中包括模型配置、记忆保存与共享、文档章节读取。工具参数、客户端的打开与关闭以及测试方法见[适配器参考](plugins/deepagents/README.md)。
 
 ---
 
@@ -278,7 +306,7 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 - [x] **Phase 1 — 核心功能** ✅
   - 基础框架：使用统一的 `ctx://` 地址体系覆盖所有上下文类型，包括记忆存储与共享、技能版本管理与订阅、语义检索、自动变更传播等核心服务。
   - 基于 PostgreSQL 行级安全的团队层级可见性与租户隔离。
-  - Python SDK 与 OpenClaw 上下文引擎插件。
+  - Python SDK、OpenClaw 上下文引擎插件和 Deep Agents 工具。
   - 17 项集成测试覆盖传播正确性、多 Agent 协作和访问隔离。
 - [x] **Phase 2 — 细粒度访问控制与审计** ✅
   - 在默认团队可见性之上增加显式权限规则：
@@ -315,7 +343,10 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 
 | 文档 | 说明 |
 |------|------|
-| [OpenClaw 集成指南](docs/setup/openclaw-integration-guide.md) | 将 ContextHub 作为 OpenClaw context engine 的完整 5 终端搭建 |
+| [OpenClaw 集成指南](docs/setup/openclaw-integration-guide-zh.md) | 将 ContextHub 作为 OpenClaw context engine 的完整 5 终端搭建 |
+| [Deep Agents + ContextHub 教程](docs/setup/deepagents-integration-guide.md) | 演示环境、模型配置、记忆共享和文档章节读取 |
+| [Deep Agents 适配器参考](plugins/deepagents/README.md) | 原生异步工具、团队身份配置和测试方法 |
+| [文档章节生成说明](docs/setup/document-section-generation.md) | 模型配置、原文位置、回退行为和手动验证方法 |
 | [本地部署与端到端验证](docs/setup/local-setup&end2end-verification-guide-zh.md) | 开发环境搭建、数据库迁移、端到端 demo |
 | [MVP 验证计划](docs/mvp%20verification/mvp-verification-plan.md) | 三层验证：自动化测试 → API 闭环 → 运行时合同 |
 | [开发者指南](docs/design%20and%20development/development-guide-zh.md) | API 概览、SDK 参考、技术选型、项目结构 |

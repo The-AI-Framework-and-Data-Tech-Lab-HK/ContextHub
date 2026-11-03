@@ -1,12 +1,14 @@
 # ContextHub MVP — Local Setup & End-to-End Verification Guide
 
 > No Docker required. Uses Homebrew-installed PostgreSQL + pgvector on macOS.
+>
+> This sets up the shared ContextHub server. Choose the [OpenClaw integration](openclaw-integration-guide.md) or the [Deep Agents tutorial](deepagents-integration-guide.md) for the agent runtime; Deep Agents does not require a bridge or sidecar.
 
 ## Prerequisites
 
 - **macOS** with [Homebrew](https://brew.sh) installed
 - **Python 3.12+**
-- **Node.js 18+** (only needed for Bridge / Part B verification)
+- **Node.js** (only for OpenClaw; see its [setup prerequisites](openclaw-integration-guide.md#prerequisites))
 - **Conda** should be deactivated before running project commands
 
 ---
@@ -50,8 +52,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 \q
 ```
 
-> **Note**: `SUPERUSER` is required because the schema uses `FORCE ROW LEVEL SECURITY`.
-> This is fine for local development.
+> This local demo account has database administrator privileges, so PostgreSQL does not restrict it to one tenant's rows. It cannot validate database-level tenant isolation. `FORCE ROW LEVEL SECURITY` does not require superuser access; the [Deep Agents tutorial](deepagents-integration-guide.md) demonstrates an ordinary application account and explains the current background-worker limitation.
 
 Verify the connection:
 
@@ -89,9 +90,16 @@ pip install greenlet
 
 # SDK
 pip install -e sdk/
+```
 
-# OpenClaw Plugin
-pip install -e plugins/openclaw/
+Install the adapter you will use:
+
+```bash
+# OpenClaw
+pip install -e ./plugins/openclaw
+
+# Deep Agents (plus the provider package for your model)
+pip install -e ./plugins/deepagents langchain-openai
 ```
 
 ---
@@ -102,14 +110,7 @@ pip install -e plugins/openclaw/
 alembic upgrade head
 ```
 
-Expected output:
-
-```
-INFO  [alembic.runtime.migration] Running upgrade  -> 001, Initial schema...
-INFO  [alembic.runtime.migration] Running upgrade 001 -> 002, Force row level security
-```
-
-This creates all tables and inserts seed data (teams + agent memberships).
+This applies all migrations and inserts seed data (teams + agent memberships). Run `alembic current` afterward and check that it reports the migration head; the migration list grows as the schema evolves.
 
 ---
 
@@ -173,7 +174,7 @@ Expected final output:
   MVP Demo Complete
 ============================================================
   - Private memory created: ctx://agent/query-agent/memories/...
-  - Promoted to team: ctx://team/engineering/shared_knowledge/...
+  - Promoted to team: ctx://team/engineering/memories/shared_knowledge/...
   - Skill v1 + v2 published, breaking propagation triggered
   - Cross-agent visibility verified
   - Catalog sync + sql-context demonstrated
@@ -189,9 +190,11 @@ Expected final output:
 pytest tests/ -v
 ```
 
-All non-integration tests run. Integration tests are automatically skipped.
+Tests depending on database fixtures are skipped unless explicitly enabled. The optional Deep Agents suite is not collected by this command; run it as shown below. Some research tests also require locally generated artifacts that are not shipped in Git; consult a failure's missing-file path before treating it as an adapter regression.
 
 ### 7b. DB-Backed Integration Tests (requires running PostgreSQL)
+
+Use a disposable database. The current test fixtures connect to the `contexthub` database on localhost:5432 with fixed test credentials and truncate business tables; setting `DATABASE_URL` does not redirect those fixtures. Do not enable these tests against an existing research database.
 
 ```bash
 CONTEXTHUB_INTEGRATION=1 pytest \
@@ -204,15 +207,16 @@ CONTEXTHUB_INTEGRATION=1 pytest \
 
 ---
 
-## 8. Bridge Verification (Part B)
+## 8. Agent Adapter Verification
+
+Steps 8a–8b are for OpenClaw. For Deep Agents, go to 8c.
 
 ### 8a. TypeScript Compilation
 
 ```bash
 cd bridge
-npm install
-npx tsc --noEmit   # type-check only
-npx tsc            # full build → dist/
+npm ci
+npm test          # builds dist/ and checks tool registration/forwarding
 cd ..
 ```
 
@@ -236,13 +240,26 @@ curl http://localhost:9100/info
 # Expected: ContextEngine info JSON
 
 curl http://localhost:9100/tools
-# Expected: tool definitions list
+# Expected: 8 tools, all named contexthub_...
+
+curl -X POST http://localhost:9100/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"name": "contexthub_ls", "args": {"path": "ctx://"}}'
 
 curl -X POST http://localhost:9100/assemble \
   -H "Content-Type: application/json" \
   -d '{"sessionId": "test", "messages": [], "tokenBudget": 4000}'
 # Expected: JSON with systemPromptAddition
 ```
+
+### 8c. Deep Agents
+
+```bash
+python -m pip install -e './plugins/deepagents[dev]'
+python -m pytest plugins/deepagents/tests
+```
+
+These tests use mocked HTTP responses and a scripted model. For a real server and model, follow the [Deep Agents tutorial](deepagents-integration-guide.md), including its optional live acceptance check. All eight OpenClaw operation names are also available in Deep Agents, which adds two document-section tools. The [developer guide](../design%20and%20development/development-guide.md#agent-integrations) compares the integrations.
 
 ---
 
@@ -321,12 +338,13 @@ brew services restart postgresql@16  # restart
 | 3 | Server started | `uvicorn contexthub.main:app --port 8000` | Listening on :8000 |
 | 4 | Health check | `curl localhost:8000/health` | `{"status":"ok"}` |
 | 5 | API docs visible | Browser → `localhost:8000/docs` | Datalake routes present |
-| 6 | Unit tests pass | `pytest tests/ -v` | All PASSED |
+| 6 | Unit tests | `pytest tests/ -v` | DB tests skipped; investigate failures and missing research artifacts |
 | 7 | Integration tests pass | `CONTEXTHUB_INTEGRATION=1 pytest ...` | All PASSED |
 | 8 | E2E demo completes | `python scripts/demo_e2e.py` | 7 steps succeed |
 | 9 | TS bridge compiles | `cd bridge && npx tsc` | No errors |
 | 10 | Sidecar starts | `python bridge/src/sidecar.py` | Listening on :9100 |
 | 11 | Sidecar health | `curl localhost:9100/health` | `{"status":"ok"}` |
+| 12 | Deep Agents tools | `python -m pytest plugins/deepagents/tests` | All PASSED after installing adapter test dependencies |
 
 ---
 
@@ -334,11 +352,7 @@ brew services restart postgresql@16  # restart
 
 ### `unrecognized configuration parameter "app.account_id"`
 
-The `contexthub` database user is not a superuser. Fix:
-
-```bash
-psql postgres -c "ALTER USER contexthub WITH SUPERUSER;"
-```
+The failing database connection has not set the tenant context used by row-level security. Request-scoped queries should bind `app.account_id` through `repo.session(account_id)`. The current propagation worker has an unbound dependency read; for an adapter-only demo with an ordinary database account, disable propagation and lifecycle sweeps as shown in the [Deep Agents tutorial](deepagents-integration-guide.md#3-configure-and-start-contexthub--terminal-1). Granting superuser privileges bypasses the isolation check rather than fixing tenant binding.
 
 ### `No module named 'greenlet'`
 
