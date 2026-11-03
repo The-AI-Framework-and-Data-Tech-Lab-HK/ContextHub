@@ -1,3 +1,0 @@
-Saved the private memory. The ctx:// URI is:
-
-`ctx://agent/query-agent/memories/mem-59e23e43`

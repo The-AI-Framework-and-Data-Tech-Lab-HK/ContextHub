@@ -1,5 +1,0 @@
-已原样保存为一条私有记忆。
-
-保存后的 ctx:// URI：
-
-`ctx://agent/query-agent/memories/mem-f1292372`

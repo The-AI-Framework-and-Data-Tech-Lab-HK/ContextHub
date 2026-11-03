@@ -1,3 +1,0 @@
-Project Cedar's rollback approval code is **CEDAR-842**.
-
-Source: `ctx://resources/manuals/cedar-runbook` (version 1) — its "Rollback" section states: *"Use approval code CEDAR-842. Allow 12 minutes."*

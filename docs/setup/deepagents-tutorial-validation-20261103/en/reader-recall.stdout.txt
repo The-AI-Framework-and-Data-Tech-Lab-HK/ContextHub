@@ -1,5 +1,0 @@
-The engineering team's shared ContextHub memory states:
-
-> For project Cedar, rollback requires approval code **CEDAR-842**.
-
-**Source URI:** `ctx://team/engineering/memories/shared_knowledge/mem-59e23e43` (version 1)
