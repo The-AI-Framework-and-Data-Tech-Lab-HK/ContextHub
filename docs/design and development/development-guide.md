@@ -76,6 +76,10 @@ version = await client.publish_skill_version(
 
 All requests require `X-Account-Id`, `X-Agent-Id`, and `X-API-Key` headers for tenant isolation and authentication.
 
+The table lists server HTTP paths. OpenClaw and Deep Agents expose agent tools
+with `contexthub_` names; for example, `contexthub_read` calls `/api/v1/tools/read`
+and `contexthub_search` calls `/api/v1/search`.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/v1/contexts` | Create context |
@@ -166,7 +170,7 @@ bridge/
 ├── src/
 │   ├── index.ts             # Plugin entry: register(api) → registerContextEngine + registerTool
 │   ├── bridge.ts            # ContextHubBridge: TS ContextEngine → HTTP calls to sidecar
-│   ├── tools.ts             # 7 tool definitions (ls/read/grep/stat/store/promote/publish)
+│   ├── tools.ts             # 8 contexthub_ tool definitions
 │   └── sidecar.py           # Python FastAPI wrapper: HTTP → ContextHubContextEngine → SDK
 └── dist/                    # Compiled JS output
 ```

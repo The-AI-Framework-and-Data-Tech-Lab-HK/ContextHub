@@ -6,7 +6,7 @@
 ### ContextHub: 面向多 Agent 协作的 <br> 统一上下文管理
 
 基于**文件系统范式**和 **LLM 原生命令**的上下文治理引擎。
-Agent 通过熟悉的文件操作（`ls`、`read`、`grep`、`stat`）经由 `ctx://` URI
+Agent 通过列目录、读取、检索和查看元信息等操作，经由 `ctx://` URI
 导航和管理记忆、技能、文档和数据湖元数据——
 具备版本控制、可见性边界、变更传播和跨 Agent 共享能力。
 
@@ -43,7 +43,7 @@ Agent 通过熟悉的文件操作（`ls`、`read`、`grep`、`stat`）经由 `ct
 | 能力 | 解决什么问题 |
 |---|---|
 | **文件系统范式** | 所有上下文类型统一为 `ctx://` URI 下的文件——记忆、技能、文档、表元数据共用一套模型 |
-| **LLM 原生命令** | Agent 使用 `ls`、`read`、`grep`、`stat` 操作上下文——LLM 天然理解文件操作，无需学习自定义 API |
+| **LLM 原生命令** | Agent 通过 `contexthub_ls`、`contexthub_read`、`contexthub_search` 和 `contexthub_stat` 浏览和检索上下文 |
 | **多 Agent 协作** | 团队层级可见性继承（子读父、父不见子）；记忆晋升 `私有 → 团队 → 组织`，`derived_from` 血缘追踪 |
 | **版本管理** | 将 Agent 锁定在稳定版本；`is_breaking` 标记防止静默破坏；已发布版本不可变 |
 | **变更传播** | 上游变更自动通知所有下游依赖方——无需轮询，不是"最新版覆盖一切"。我们正在研究**代价可控**的变更传播问题（见 [研究](#研究-)）：写入时用置信度级联"先便宜档后升级"地发现 `derived_from` 依赖边，失效再沿这些边多跳级联。成本/代价可控的思路在于进一步调优"是否过时"的判断、让它在每条边上只花该花的算力。 |
@@ -218,7 +218,7 @@ async def main():
 asyncio.run(main())
 ```
 
-ContextHub 可以作为 [OpenClaw](https://github.com/anthropics/openclaw) 的上下文引擎，也可以通过原生 Python 工具接入 Deep Agents。两种接入方式的配置见下方集成章节。
+ContextHub 可以作为 [OpenClaw](https://github.com/anthropics/openclaw) 的上下文引擎，也可以通过原生 Python 工具接入 [Deep Agents](https://www.langchain.com/deep-agents)。两种接入方式的配置见下方集成章节。
 
 完整的端到端 demo 和集成测试，请参阅[本地部署与端到端验证指南](docs/setup/local-setup&end2end-verification-guide-zh.md)。
 
@@ -245,7 +245,7 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 
 | 能力 | 工具 |
 |---|---|
-| 查找和读取上下文 | `ls`、`read`、`grep`、`stat` |
+| 查找和读取上下文 | `contexthub_ls`、`contexthub_read`、`contexthub_search`、`contexthub_stat` |
 | 保存和共享记忆 | `contexthub_store`、`contexthub_promote` |
 | 发布技能版本 | `contexthub_skill_publish` |
 | 反馈检索结果是否有用 | `contexthub_feedback` |

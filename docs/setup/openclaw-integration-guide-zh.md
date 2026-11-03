@@ -274,7 +274,7 @@ curl http://localhost:9100/health
 # 预期：{"status":"ok"}
 
 curl http://localhost:9100/tools
-# 预期：包含 7 个 tool 定义的 JSON 数组
+# 预期：包含 8 个 tool 定义的 JSON 数组
 ```
 
 ### 终端 4 — OpenClaw Gateway
@@ -300,8 +300,13 @@ pnpm openclaw tui
   通过 `systemPromptAddition` 注入系统提示。
 - **每次回复后**：`afterTurn()` 从助手回复中提取可复用的事实，
   写入 ContextHub 作为私有记忆。
-- **Agent 工具**：agent 可以调用 `ls`、`read`、`grep`、`stat`、
-  `contexthub_store`、`contexthub_promote`、`contexthub_skill_publish`。
+- **Agent 工具**：agent 可以调用 `contexthub_ls`、`contexthub_read`、
+  `contexthub_search`、`contexthub_stat`、`contexthub_store`、`contexthub_promote`、
+  `contexthub_skill_publish` 和 `contexthub_feedback`。
+
+这些名称与 Deep Agents 中的对应工具一致，不再支持没有前缀的旧名称。
+更新后请重新编译 bridge，并重启 sidecar 和 OpenClaw，让两边加载新的工具定义。
+自定义提示词和配置中引用的工具名也需要同步修改。
 
 ---
 
@@ -330,7 +335,7 @@ curl -X POST http://localhost:9100/assemble \
 # 模拟 tool dispatch
 curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
-  -d '{"name": "ls", "args": {"path": "ctx://"}}'
+  -d '{"name": "contexthub_ls", "args": {"path": "ctx://"}}'
 ```
 
 ### 完整 ContextHub E2E 演示（不依赖 OpenClaw）
@@ -552,7 +557,7 @@ ContextHub/
 │   ├── src/
 │   │   ├── index.ts         # 插件入口：register(api) → registerContextEngine + registerTool
 │   │   ├── bridge.ts        # ContextHubBridge：TS 端 ContextEngine 实现 → HTTP → sidecar
-│   │   ├── tools.ts         # 7 个 MVP 工具定义（ls/read/grep/stat/store/promote/publish）
+│   │   ├── tools.ts         # 8 个 contexthub_ 工具定义
 │   │   └── sidecar.py       # Python HTTP 包装层（支持 X-Agent-Id 多 agent）
 │   └── dist/                # 编译后的 JS（npm run build 之后生成）
 ├── scripts/demo_e2e.py      # 独立 E2E 演示脚本（不依赖 OpenClaw）

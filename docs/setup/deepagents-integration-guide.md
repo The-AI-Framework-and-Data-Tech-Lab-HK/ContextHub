@@ -231,7 +231,7 @@ python plugins/deepagents/examples/query.py --model "$DEEPAGENTS_MODEL" \
 
 Expect `CEDAR-842` and `12 minutes`. The tool sequence is `contexthub_stat` →
 `contexthub_sections` → `contexthub_read_section`. Section reads use the context
-ID returned by `stat`, not the URI. Original files and extracted text are in
+ID returned by `contexthub_stat`, not the URI. Original files and extracted text are in
 `DOC_STORE_ROOT`; section metadata and other context records are in PostgreSQL.
 
 ## 7. Add the tools to your team's agent

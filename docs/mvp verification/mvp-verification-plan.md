@@ -263,8 +263,9 @@ OpenClaw runtime 能通过 sidecar 的 `dispatch` / `assemble` 接口
 
 ### 当前工具面限制
 
-OpenClaw 插件暴露 7 个工具：`ls`、`read`、`grep`、`stat`、
-`contexthub_store`、`contexthub_promote`、`contexthub_skill_publish`。
+OpenClaw 插件暴露 8 个工具：`contexthub_ls`、`contexthub_read`、
+`contexthub_search`、`contexthub_stat`、`contexthub_store`、`contexthub_promote`、
+`contexthub_skill_publish` 和 `contexthub_feedback`。
 
 **没有** `skill_create` 和 `skill_subscribe`。因此：
 - 存储、晋升、发布新版本 → sidecar dispatch 可以做
@@ -332,7 +333,7 @@ curl -X POST http://localhost:9100/assemble \
 > 因 ILIKE 匹配整串而非分词，可能返回 0 结果。使用关键词片段（如"月度销售额"）即可命中。
 > 配置 embedding 后此限制消失。
 
-#### Step 4：dispatch → `contexthub_skill_publish` + `read` — PASS ✓
+#### Step 4：dispatch → `contexthub_skill_publish` + `contexthub_read` — PASS ✓
 
 query-agent 发布 breaking v3：
 
@@ -360,7 +361,7 @@ curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
   -H "X-Agent-Id: analysis-agent" \
   -d '{
-    "name": "read",
+    "name": "contexthub_read",
     "args": {
       "uri": "ctx://team/engineering/skills/sql-generator"
     }
@@ -451,7 +452,7 @@ GROUP BY DATE_TRUNC('month', order_date)。
 请列出 ctx://team/engineering/memories/shared_knowledge 下的内容
 ```
 
-预期：agent 调用 `ls`，返回的列表中包含刚晋升的记忆。
+预期：agent 调用 `contexthub_ls`，返回的列表中包含刚晋升的记忆。
 
 #### 切换 Agent 身份
 
@@ -523,7 +524,7 @@ URI 是 ctx://team/engineering/skills/sql-generator，
 请读取 ctx://team/engineering/skills/sql-generator 的内容
 ```
 
-预期：agent 调用 `read`，返回 pinned 旧版本内容 + advisory 提示
+预期：agent 调用 `contexthub_read`，返回 pinned 旧版本内容 + advisory 提示
 有新版本可用。
 
 #### Phase D：多 Agent 协作全景（10 步）
@@ -827,7 +828,7 @@ curl -X POST http://localhost:8000/api/v1/admin/policies \
 请再读一次 ctx://team/engineering/docs/supplier-costs
 ```
 
-预期：agent 调用 `read` 但失败，Server 日志出现 403。
+预期：agent 调用 `contexthub_read` 但失败，Server 日志出现 403。
 同一个 agent、同一条命令，设了 deny 后立刻读不到了。
 
 **Step E4 — 【curl】删除 deny + 创建遮蔽策略**

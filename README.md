@@ -6,8 +6,8 @@
 ### ContextHub: Unified Context Management <br> for Multi-Agent Collaboration
 
 A context-governance engine built on a **filesystem paradigm** with **LLM-native commands**.
-Agents navigate memories, skills, documents, and data-lake metadata through familiar operations
-(`ls`, `read`, `grep`, `stat`) over `ctx://` URIs — with version control, visibility boundaries,
+Agents navigate memories, skills, documents, and data-lake metadata through filesystem-style
+navigation and search over `ctx://` URIs — with version control, visibility boundaries,
 change propagation, and cross-agent sharing.
 
 Built on FastAPI + PostgreSQL. Single database. No external vector store. No message queue.
@@ -43,7 +43,7 @@ All four are managed under a unified `ctx://` URI namespace with the same versio
 | Capability | What It Solves |
 |---|---|
 | **Filesystem Paradigm** | All context types managed as files under `ctx://` URIs — one model for memories, skills, documents, and table metadata |
-| **LLM-native Commands** | Agents use `ls`, `read`, `grep`, `stat` — LLMs already understand file operations, no custom API needed |
+| **LLM-native Commands** | Agents navigate and search context through `contexthub_ls`, `contexthub_read`, `contexthub_search`, and `contexthub_stat` |
 | **Multi-Agent Collaboration** | Team hierarchy with visibility inheritance (child reads parent, parent doesn't see child); memory promotion `private → team → org` with `derived_from` lineage |
 | **Version Management** | Pin agents to stable versions; `is_breaking` flag prevents silent breakage; immutable published versions |
 | **Change Propagation** | Upstream changes auto-notify all downstream dependents — no polling, no "latest version wins". An opt-in cost-controlled path lands in core: a confidence cascade discovers `derived_from` edges cheapest-tier-first at write time, and staleness cascades along those edges multi-hop. Tuning the staleness check itself to spend only as much as each edge warrants is the active research frontier (see [Research](#research-)) |
@@ -245,7 +245,7 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 
 | Capability | Tools |
 |---|---|
-| Find and read context | `ls`, `read`, `grep`, `stat` |
+| Find and read context | `contexthub_ls`, `contexthub_read`, `contexthub_search`, `contexthub_stat` |
 | Save and share memories | `contexthub_store`, `contexthub_promote` |
 | Publish skill versions | `contexthub_skill_publish` |
 | Report retrieval usefulness | `contexthub_feedback` |

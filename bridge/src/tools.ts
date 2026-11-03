@@ -43,7 +43,7 @@ function makeTool(
  */
 export function createContextHubTools(bridge: ContextHubBridge) {
   return [
-    makeTool(bridge, "ls", "List ContextHub contexts under a URI prefix.", {
+    makeTool(bridge, "contexthub_ls", "List ContextHub contexts under a URI prefix.", {
       type: "object",
       properties: {
         path: { type: "string", description: "URI prefix (e.g. ctx://)" },
@@ -51,7 +51,7 @@ export function createContextHubTools(bridge: ContextHubBridge) {
       required: ["path"],
     }),
 
-    makeTool(bridge, "read", "Read a ContextHub context by URI.", {
+    makeTool(bridge, "contexthub_read", "Read a ContextHub context by URI.", {
       type: "object",
       properties: {
         uri: { type: "string", description: "Context URI (e.g. ctx://agent/...)" },
@@ -60,7 +60,7 @@ export function createContextHubTools(bridge: ContextHubBridge) {
       required: ["uri"],
     }),
 
-    makeTool(bridge, "grep", "Search ContextHub contexts by keyword or semantic query.", {
+    makeTool(bridge, "contexthub_search", "Search ContextHub contexts by keyword or semantic query.", {
       type: "object",
       properties: {
         query: { type: "string", description: "Search query" },
@@ -69,7 +69,7 @@ export function createContextHubTools(bridge: ContextHubBridge) {
       required: ["query"],
     }),
 
-    makeTool(bridge, "stat", "Get metadata about a ContextHub context.", {
+    makeTool(bridge, "contexthub_stat", "Get metadata about a ContextHub context.", {
       type: "object",
       properties: {
         uri: { type: "string", description: "Context URI" },

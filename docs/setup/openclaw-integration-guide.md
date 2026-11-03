@@ -231,7 +231,7 @@ curl http://localhost:9100/health
 # Expected: {"status":"ok"}
 
 curl http://localhost:9100/tools
-# Expected: JSON array of 7 tool definitions
+# Expected: JSON array of 8 tool definitions
 ```
 
 ### Terminal 4 — OpenClaw Gateway
@@ -257,8 +257,14 @@ You can now chat with the agent. Behind the scenes:
   and injects it into the system prompt.
 - **Every response**: `afterTurn()` extracts reusable facts from the assistant's
   reply and writes them as private memories in ContextHub.
-- **Agent tools**: The agent can call `ls`, `read`, `grep`, `stat`,
-  `contexthub_store`, `contexthub_promote`, and `contexthub_skill_publish`.
+- **Agent tools**: The agent can call `contexthub_ls`, `contexthub_read`,
+  `contexthub_search`, `contexthub_stat`, `contexthub_store`, `contexthub_promote`,
+  `contexthub_skill_publish`, and `contexthub_feedback`.
+
+These names match the corresponding Deep Agents tools; unprefixed names are not
+supported. After updating, rebuild the bridge and restart the sidecar and
+OpenClaw so both processes load the new definitions. Update tool-name references
+in any custom prompts or configuration.
 
 ---
 
@@ -287,7 +293,7 @@ curl -X POST http://localhost:9100/assemble \
 # Simulate tool dispatch
 curl -X POST http://localhost:9100/dispatch \
   -H "Content-Type: application/json" \
-  -d '{"name": "ls", "args": {"path": "ctx://"}}'
+  -d '{"name": "contexthub_ls", "args": {"path": "ctx://"}}'
 ```
 
 ### Full ContextHub E2E demo (without OpenClaw)
@@ -456,7 +462,7 @@ ContextHub/
 │   ├── src/
 │   │   ├── index.ts         # Plugin entry: register(api) → registerContextEngine + registerTool
 │   │   ├── bridge.ts        # ContextHubBridge: TS ContextEngine impl → HTTP → sidecar
-│   │   ├── tools.ts         # 7 MVP tool definitions (ls/read/grep/stat/store/promote/publish)
+│   │   ├── tools.ts         # 8 contexthub_ tool definitions
 │   │   └── sidecar.py       # Python HTTP wrapper for the plugin (multi-agent via X-Agent-Id)
 │   └── dist/                # Compiled JS (after npm run build)
 ├── scripts/demo_e2e.py      # Standalone E2E demo (no OpenClaw needed)

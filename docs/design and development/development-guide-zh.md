@@ -74,6 +74,10 @@ version = await client.publish_skill_version(
 
 ## API 概览
 
+下表列出的是服务端 HTTP 路径。OpenClaw 和 Deep Agents 向模型提供的工具名使用
+`contexthub_` 前缀，例如 `contexthub_read` 调用 `/api/v1/tools/read`，
+`contexthub_search` 调用 `/api/v1/search`。
+
 所有请求需携带 `X-Account-Id`、`X-Agent-Id` 和 `X-API-Key` 请求头以实现租户隔离和认证。
 
 | 方法 | 端点 | 说明 |
@@ -166,7 +170,7 @@ bridge/
 ├── src/
 │   ├── index.ts             # 插件入口：register(api) → registerContextEngine + registerTool
 │   ├── bridge.ts            # ContextHubBridge：TS ContextEngine → HTTP 调用 sidecar
-│   ├── tools.ts             # 7 个 MVP 工具定义（ls/read/grep/stat/store/promote/publish）
+│   ├── tools.ts             # 8 个 contexthub_ 工具定义
 │   └── sidecar.py           # Python FastAPI 包装器：HTTP → ContextHubContextEngine → SDK
 └── dist/                    # 编译输出的 JS
 ```

@@ -13,7 +13,7 @@ OpenClaw Runtime (TS)
   │                       └─ ContextHubClient (sdk/)
   │                            └─ ContextHub Server API (:8000)
   │
-  └─ 7 Agent Tools (bridge/src/tools.ts)        ← ls/read/grep/stat/store/promote/skill_publish
+  └─ 8 contexthub_ Agent Tools (bridge/src/tools.ts)
        └─ HTTP ──► Python Sidecar /dispatch
 ```
 
@@ -102,13 +102,19 @@ pnpm openclaw
 
 | Tool | Description |
 |------|-------------|
-| `ls` | List contexts under a URI prefix |
-| `read` | Read a context by URI |
-| `grep` | Semantic search across ContextHub |
-| `stat` | Get context metadata |
-| `contexthub_store` | Write or update a context |
+| `contexthub_ls` | List contexts under a URI prefix |
+| `contexthub_read` | Read a context by URI |
+| `contexthub_search` | Search ContextHub; returns sources and a retrieval ID |
+| `contexthub_stat` | Get context metadata |
+| `contexthub_store` | Save a private memory |
 | `contexthub_promote` | Promote private memory to team scope |
 | `contexthub_skill_publish` | Publish a new skill version |
+| `contexthub_feedback` | Report whether retrieved context was useful |
+
+Tool names match the corresponding Deep Agents tools. The unprefixed tool names
+are not registered or accepted. After updating, rebuild the bridge and restart
+both the sidecar and OpenClaw; update any tool-name references in your own prompts
+or configuration.
 
 ## Multi-agent testing
 
@@ -123,6 +129,11 @@ Or use the dynamic `X-Agent-Id` header — the sidecar lazily creates separate
 SDK clients per agent identity.
 
 ## Verifying the integration
+
+Run the bridge registration/forwarding tests from `bridge/` with `npm test`.
+From the repository root, run the Python plugin and sidecar tests with
+`python -m pytest tests/test_plugin.py`. Their database integration test remains
+opt-in.
 
 ```bash
 # Check sidecar health
