@@ -464,5 +464,4 @@ rm -rf ./data/docs/deepagents-demo
 - **Environment:** a fresh Python 3.13.9 environment, Docker PostgreSQL 16 with pgvector, and a non-superuser application role. Real model calls used DashScope `deepseek-v4-pro-0813` and `text-embedding-v4`.
 - **Tutorial results:** both language versions passed independently against fresh demo databases, including memory save/recall/sharing, reads by the second agent, document upload/section reads, and invocation of the section 7 function.
 - **Additional checks:** both real-model checks passed all eight check groups covering all ten tools, streaming, skill versions, authentication, and private/team/account isolation. The offline suite passed all 70 tests in the fresh environment.
-- **Evidence:** [validation summary](deepagents-tutorial-validation-20261103/summary.json), including the environment, coverage, per-language results, and timings.
-- **Cleanup:** both test servers were stopped, and the dedicated containers/databases and temporary document stores were removed after verification. Times in the validation summary use Hong Kong time (UTC+8).
+- **Cleanup:** both test servers were stopped, and the dedicated containers/databases and temporary document stores were removed after verification.
