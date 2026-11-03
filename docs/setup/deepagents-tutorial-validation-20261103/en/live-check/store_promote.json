@@ -1,0 +1,198 @@
+[
+  {
+    "content": "Save this exact text as a private ContextHub memory, then promote the new memory to team 'engineering': Shared rollout 9c15fed66ba2: freeze duration is 17 minutes.",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "human",
+    "name": null,
+    "id": "720ec2c1-0f08-458d-bde9-f83483a0697b"
+  },
+  {
+    "content": "",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 172,
+        "prompt_tokens": 4104,
+        "total_tokens": 4276,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 109,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 3840,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-1f300dda-2a46-9f9f-853d-522602259a5d",
+      "finish_reason": "tool_calls",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0bf-5ba1-72b9-9164-dcf9406081a8-0",
+    "tool_calls": [
+      {
+        "name": "contexthub_store",
+        "args": {
+          "content": "Shared rollout 9c15fed66ba2: freeze duration is 17 minutes."
+        },
+        "id": "call_e4f776d5ef8a4a49ac92b3c2",
+        "type": "tool_call"
+      }
+    ],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 4104,
+      "output_tokens": 172,
+      "total_tokens": 4276,
+      "input_token_details": {
+        "cache_read": 3840
+      },
+      "output_token_details": {
+        "reasoning": 109
+      }
+    }
+  },
+  {
+    "content": "{\"id\": \"a8490d09-e2c4-47ab-be51-1596cfe8f21e\", \"uri\": \"ctx://agent/query-agent/memories/mem-ab348ca1\", \"context_type\": \"memory\", \"scope\": \"agent\", \"owner_space\": \"query-agent\", \"account_id\": \"acme\", \"l0_content\": \"Shared rollout 9c15fed66ba2: freeze duration is 17 minutes.\", \"l1_content\": \"Shared rollout 9c15fed66ba2: freeze duration is 17 minutes.\", \"l2_content\": \"Shared rollout 9c15fed66ba2: freeze duration is 17 minutes.\", \"file_path\": null, \"status\": \"active\", \"version\": 1, \"tags\": [], \"created_at\": \"2026-11-03T09:31:01.938239Z\", \"updated_at\": \"2026-11-03T09:31:01.938239Z\", \"last_accessed_at\": \"2026-11-03T09:31:01.938239Z\", \"stale_at\": null, \"archived_at\": null, \"deleted_at\": null, \"active_count\": 0, \"adopted_count\": 0, \"ignored_count\": 0}",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "tool",
+    "name": "contexthub_store",
+    "id": "a3e50109-5582-417e-af4f-c9643da24995",
+    "tool_call_id": "call_e4f776d5ef8a4a49ac92b3c2",
+    "artifact": null,
+    "status": "success"
+  },
+  {
+    "content": "",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 93,
+        "prompt_tokens": 4461,
+        "total_tokens": 4554,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 12,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 4096,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-133832c4-edf5-9511-8e15-ac21a6c59fce",
+      "finish_reason": "tool_calls",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0bf-6cef-71a2-b08b-0ddb9076d57f-0",
+    "tool_calls": [
+      {
+        "name": "contexthub_promote",
+        "args": {
+          "uri": "ctx://agent/query-agent/memories/mem-ab348ca1",
+          "target_team": "engineering"
+        },
+        "id": "call_7ede6604046b4fc3acf98c4f",
+        "type": "tool_call"
+      }
+    ],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 4461,
+      "output_tokens": 93,
+      "total_tokens": 4554,
+      "input_token_details": {
+        "cache_read": 4096
+      },
+      "output_token_details": {
+        "reasoning": 12
+      }
+    }
+  },
+  {
+    "content": "{\"id\": \"f1206b50-d085-4c0e-83b3-d77cb8c19e9f\", \"uri\": \"ctx://team/engineering/memories/shared_knowledge/mem-ab348ca1\", \"context_type\": \"memory\", \"scope\": \"team\", \"owner_space\": \"engineering\", \"account_id\": \"acme\", \"l0_content\": \"Shared rollout 9c15fed66ba2: freeze duration is 17 minutes.\", \"l1_content\": \"Shared rollout 9c15fed66ba2: freeze duration is 17 minutes.\", \"l2_content\": \"Shared rollout 9c15fed66ba2: freeze duration is 17 minutes.\", \"file_path\": null, \"status\": \"active\", \"version\": 1, \"tags\": [], \"created_at\": \"2026-11-03T09:31:04.863426Z\", \"updated_at\": \"2026-11-03T09:31:04.863426Z\", \"last_accessed_at\": \"2026-11-03T09:31:04.863426Z\", \"stale_at\": null, \"archived_at\": null, \"deleted_at\": null, \"active_count\": 0, \"adopted_count\": 0, \"ignored_count\": 0}",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "tool",
+    "name": "contexthub_promote",
+    "id": "57567261-6a61-4465-ab42-494c00652561",
+    "tool_call_id": "call_7ede6604046b4fc3acf98c4f",
+    "artifact": null,
+    "status": "success"
+  },
+  {
+    "content": "Done. I saved the memory and promoted it to team `engineering`.\n\n- **Private memory:** `ctx://agent/query-agent/memories/mem-ab348ca1`\n- **Promoted team memory:** `ctx://team/engineering/memories/shared_knowledge/mem-ab348ca1`\n\nBoth contain the exact text: \"Shared rollout 9c15fed66ba2: freeze duration is 17 minutes.\"",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 90,
+        "prompt_tokens": 4841,
+        "total_tokens": 4931,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 4352,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-9205b94d-7fad-999c-9c18-2ff9a42e5284",
+      "finish_reason": "stop",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0bf-77ec-72a7-abc3-c598157e240e-0",
+    "tool_calls": [],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 4841,
+      "output_tokens": 90,
+      "total_tokens": 4931,
+      "input_token_details": {
+        "cache_read": 4352
+      },
+      "output_token_details": {
+        "reasoning": 0
+      }
+    }
+  }
+]

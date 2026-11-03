@@ -1,0 +1,286 @@
+[
+  {
+    "content": "List ContextHub documents under ctx://resources. For ctx://resources/live-67f9495ce3c8, inspect its metadata, list its sections and read the Recovery section's original text. What is the recovery code and pause duration? Cite the document URI.",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "human",
+    "name": null,
+    "id": "f7ced435-26d8-490b-aef3-6e695a503053"
+  },
+  {
+    "content": "I'll start by listing the ContextHub resources and inspecting the specified document",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 150,
+        "prompt_tokens": 4120,
+        "total_tokens": 4270,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 40,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 3840,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-9e4010b5-b497-9f3e-b6c7-54a6318070da",
+      "finish_reason": "tool_calls",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0c2-f05c-7568-9f19-ddc82cf16916-0",
+    "tool_calls": [
+      {
+        "name": "contexthub_ls",
+        "args": {
+          "path": "ctx://resources"
+        },
+        "id": "call_85af5aef2b5849ec843ceaf5",
+        "type": "tool_call"
+      },
+      {
+        "name": "contexthub_stat",
+        "args": {
+          "uri": "ctx://resources/live-67f9495ce3c8"
+        },
+        "id": "call_c8227491dce74154b03f3922",
+        "type": "tool_call"
+      }
+    ],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 4120,
+      "output_tokens": 150,
+      "total_tokens": 4270,
+      "input_token_details": {
+        "cache_read": 3840
+      },
+      "output_token_details": {
+        "reasoning": 40
+      }
+    }
+  },
+  {
+    "content": "[\"live-67f9495ce3c8\", \"manuals\"]",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "tool",
+    "name": "contexthub_ls",
+    "id": "241d6802-1535-460a-979c-c14582daf169",
+    "tool_call_id": "call_85af5aef2b5849ec843ceaf5",
+    "artifact": null,
+    "status": "success"
+  },
+  {
+    "content": "{\"id\": \"59f38387-48e2-4c76-a6e1-2b267be8d747\", \"uri\": \"ctx://resources/live-67f9495ce3c8\", \"context_type\": \"resource\", \"scope\": \"team\", \"owner_space\": \"\", \"status\": \"active\", \"version\": 1, \"tags\": [\"67f9495ce3c8\"], \"active_count\": 0, \"adopted_count\": 0, \"ignored_count\": 0, \"created_at\": \"2026-11-03T09:34:48.745755Z\", \"updated_at\": \"2026-11-03T09:34:48.745755Z\", \"last_accessed_at\": \"2026-11-03T09:34:48.745755Z\"}",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "tool",
+    "name": "contexthub_stat",
+    "id": "0b7e0f34-4f13-4b79-90dd-c3b840a5490f",
+    "tool_call_id": "call_c8227491dce74154b03f3922",
+    "artifact": null,
+    "status": "success"
+  },
+  {
+    "content": "",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 110,
+        "prompt_tokens": 4448,
+        "total_tokens": 4558,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 38,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 4096,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-625ae8b8-6291-96a0-9127-bf6f79844349",
+      "finish_reason": "tool_calls",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0c2-ff0c-73d7-b444-d6e182621a0c-0",
+    "tool_calls": [
+      {
+        "name": "contexthub_sections",
+        "args": {
+          "context_id": "59f38387-48e2-4c76-a6e1-2b267be8d747"
+        },
+        "id": "call_3ab022a461614fb2b5d74e6c",
+        "type": "tool_call"
+      }
+    ],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 4448,
+      "output_tokens": 110,
+      "total_tokens": 4558,
+      "input_token_details": {
+        "cache_read": 4096
+      },
+      "output_token_details": {
+        "reasoning": 38
+      }
+    }
+  },
+  {
+    "content": "[{\"section_id\": 5, \"parent_id\": null, \"title\": \"Document\", \"depth\": 0, \"summary\": \"# Rollout handbook 67f9495ce3c8 ## Release Release starts on Tuesday. ## Recovery The recovery approval code is RECOVERY-bd41ca38ff. Pause the rollout for 23 minutes.\", \"start_offset\": 0, \"end_offset\": 171, \"token_count\": 42}, {\"section_id\": 6, \"parent_id\": 5, \"title\": \"Rollout handbook 67f9495ce3c8\", \"depth\": 1, \"summary\": \"Document title and main heading for the rollout handbook.\", \"start_offset\": 0, \"end_offset\": 171, \"token_count\": 42}, {\"section_id\": 7, \"parent_id\": 6, \"title\": \"Release\", \"depth\": 2, \"summary\": \"Release section providing release details.\", \"start_offset\": 33, \"end_offset\": 73, \"token_count\": 10}, {\"section_id\": 8, \"parent_id\": 6, \"title\": \"Recovery\", \"depth\": 2, \"summary\": \"Recovery section with recovery approval code and rollout pause instruction.\", \"start_offset\": 73, \"end_offset\": 171, \"token_count\": 24}]",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "tool",
+    "name": "contexthub_sections",
+    "id": "ad5594eb-5e1c-48d5-811e-1cee9f02342b",
+    "tool_call_id": "call_3ab022a461614fb2b5d74e6c",
+    "artifact": null,
+    "status": "success"
+  },
+  {
+    "content": "",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 130,
+        "prompt_tokens": 4822,
+        "total_tokens": 4952,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 40,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 4352,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-8df9e3cd-392e-9cab-be9d-acb3a748c474",
+      "finish_reason": "tool_calls",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0c3-0ac4-7173-8ebf-d5e18e75876f-0",
+    "tool_calls": [
+      {
+        "name": "contexthub_read_section",
+        "args": {
+          "context_id": "59f38387-48e2-4c76-a6e1-2b267be8d747",
+          "section_id": 8
+        },
+        "id": "call_794bd02cdfd545c2b2a2036b",
+        "type": "tool_call"
+      }
+    ],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 4822,
+      "output_tokens": 130,
+      "total_tokens": 4952,
+      "input_token_details": {
+        "cache_read": 4352
+      },
+      "output_token_details": {
+        "reasoning": 40
+      }
+    }
+  },
+  {
+    "content": "{\"context_id\": \"59f38387-48e2-4c76-a6e1-2b267be8d747\", \"section_id\": 8, \"title\": \"Recovery\", \"content\": \"## Recovery\\n\\nThe recovery approval code is RECOVERY-bd41ca38ff. Pause the rollout for 23 minutes.\\n\", \"start_offset\": 73, \"end_offset\": 171}",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "tool",
+    "name": "contexthub_read_section",
+    "id": "eec2b60a-d6e4-4ab9-ad20-a40ffc296c29",
+    "tool_call_id": "call_794bd02cdfd545c2b2a2036b",
+    "artifact": null,
+    "status": "success"
+  },
+  {
+    "content": "Here are the results.\n\n## ContextHub documents under `ctx://resources`\n\n- `ctx://resources/live-67f9495ce3c8`\n- `ctx://resources/manuals`\n\n## `ctx://resources/live-67f9495ce3c8` details\n\n**Metadata**\n- Context ID: `59f38387-48e2-4c76-a6e1-2b267be8d747`\n- Context type: `resource`\n- Scope: `team`\n- Status: `active`\n- Version: `1`\n- Tags: `[\"67f9495ce3c8\"]`\n- Created/updated: `2026-11-03T09:34:48.745755Z`\n\n**Sections**\n| Section ID | Title | Depth | Description |\n|---|---|---|---|\n| 5 | Document | 0 | Root container |\n| 6 | Rollout handbook 67f9495ce3c8 | 1 | Document title/heading |\n| 7 | Release | 2 | Release details |\n| 8 | Recovery | 2 | Recovery code and pause instruction |\n\n**Recovery section original text**\n\n> ## Recovery\n>\n> The recovery approval code is RECOVERY-bd41ca38ff. Pause the rollout for 23 minutes.\n\n## Answer\n\n- **Recovery code:** `RECOVERY-bd41ca38ff`\n- **Pause duration:** 23 minutes\n\n**Cited document URI:** `ctx://resources/live-67f9495ce3c8`",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 327,
+        "prompt_tokens": 5015,
+        "total_tokens": 5342,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 4608,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-9f378a3a-5c92-93f0-bf1a-38711e615c84",
+      "finish_reason": "stop",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0c3-16b0-74ad-9403-bb147bdd03eb-0",
+    "tool_calls": [],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 5015,
+      "output_tokens": 327,
+      "total_tokens": 5342,
+      "input_token_details": {
+        "cache_read": 4608
+      },
+      "output_token_details": {
+        "reasoning": 0
+      }
+    }
+  }
+]

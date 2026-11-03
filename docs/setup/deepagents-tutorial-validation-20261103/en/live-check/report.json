@@ -1,0 +1,73 @@
+{
+  "started_at": "2026-11-03T09:30:40.610390+00:00",
+  "run_id": "9c15fed66ba2",
+  "model": "openai:deepseek-v4-pro-0813",
+  "versions": {
+    "deepagents": "0.7.32",
+    "langchain": "1.4.8",
+    "langchain-core": "1.7.4",
+    "contexthub-sdk": "0.1.0",
+    "contexthub-deepagents": "0.1.0"
+  },
+  "checks": [
+    {
+      "name": "search_read_feedback",
+      "tools": [
+        "contexthub_search",
+        "contexthub_read",
+        "contexthub_feedback"
+      ],
+      "seconds": 16.53
+    },
+    {
+      "name": "store_promote",
+      "tools": [
+        "contexthub_store",
+        "contexthub_promote"
+      ],
+      "seconds": 10.22
+    },
+    {
+      "name": "private_memory_isolation",
+      "status": 403
+    },
+    {
+      "name": "team_membership_isolation",
+      "status": 403
+    },
+    {
+      "name": "account_isolation",
+      "status": 404
+    },
+    {
+      "name": "document_stream",
+      "tools": [
+        "contexthub_ls",
+        "contexthub_stat",
+        "contexthub_sections",
+        "contexthub_read_section"
+      ],
+      "seconds": 16.62
+    },
+    {
+      "name": "skill_publish",
+      "tools": [
+        "contexthub_stat",
+        "contexthub_read",
+        "contexthub_skill_publish",
+        "contexthub_read",
+        "contexthub_read"
+      ],
+      "seconds": 15.86
+    },
+    {
+      "name": "unauthorized",
+      "tools": [
+        "contexthub_read"
+      ],
+      "seconds": 5.11
+    }
+  ],
+  "status": "passed",
+  "finished_at": "2026-11-03T09:31:50.022635+00:00"
+}

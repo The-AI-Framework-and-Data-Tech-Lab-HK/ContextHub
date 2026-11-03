@@ -1,0 +1,6 @@
+{
+  "context_id": "c871de6d-2710-48dd-8e05-582a8f37c1e7",
+  "uri": "ctx://resources/manuals/cedar-runbook",
+  "section_count": 4,
+  "file_path": "/private/tmp/contexthub-deepagents-tutorial-20261103-9EwZ1r/en/documents/5f8eed319affe8f7"
+}

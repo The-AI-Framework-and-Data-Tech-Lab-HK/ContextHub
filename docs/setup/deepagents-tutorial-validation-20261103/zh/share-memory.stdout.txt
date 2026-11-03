@@ -1,0 +1,8 @@
+找到了你的私有记忆：
+
+- **内容**：Cedar 项目回滚需要审批码 CEDAR-842。
+- **原 URI**：`ctx://agent/query-agent/memories/mem-f1292372`
+
+已成功共享到 engineering 团队，共享后的 URI 为：
+
+**`ctx://team/engineering/memories/shared_knowledge/mem-f1292372`**

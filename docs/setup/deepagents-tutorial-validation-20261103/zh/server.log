@@ -1,0 +1,60 @@
+INFO:     Started server process [51200]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:56876 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56878 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56880 - "GET /api/v1/memories HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56889 - "POST /api/v1/memories HTTP/1.1" 201 Created
+INFO:     127.0.0.1:56902 - "POST /api/v1/search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56902 - "POST /api/v1/tools/read HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56932 - "POST /api/v1/feedback HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56945 - "POST /api/v1/search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56953 - "POST /api/v1/memories/promote HTTP/1.1" 201 Created
+INFO:     127.0.0.1:56971 - "POST /api/v1/search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56972 - "POST /api/v1/search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56982 - "POST /api/v1/tools/read HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56988 - "POST /api/v1/feedback HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56994 - "POST /api/v1/documents/ingest HTTP/1.1" 201 Created
+INFO:     127.0.0.1:57013 - "POST /api/v1/tools/stat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57013 - "GET /api/v1/documents/5c38dd63-35a6-427b-8ffa-95755e94737c/sections HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57027 - "GET /api/v1/documents/5c38dd63-35a6-427b-8ffa-95755e94737c/section/4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57029 - "POST /api/v1/feedback HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57043 - "POST /api/v1/search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57049 - "POST /api/v1/tools/read HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57058 - "POST /api/v1/feedback HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57065 - "GET /api/v1/memories HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57065 - "GET /api/v1/documents/5c38dd63-35a6-427b-8ffa-95755e94737c/sections HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57065 - "GET /api/v1/documents/5c38dd63-35a6-427b-8ffa-95755e94737c/section/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57065 - "GET /api/v1/documents/5c38dd63-35a6-427b-8ffa-95755e94737c/section/2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57065 - "GET /api/v1/documents/5c38dd63-35a6-427b-8ffa-95755e94737c/section/3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57065 - "GET /api/v1/documents/5c38dd63-35a6-427b-8ffa-95755e94737c/section/4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57068 - "POST /api/v1/memories HTTP/1.1" 201 Created
+INFO:     127.0.0.1:57068 - "POST /api/v1/search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57068 - "POST /api/v1/tools/read HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57068 - "POST /api/v1/feedback HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57094 - "POST /api/v1/memories HTTP/1.1" 201 Created
+INFO:     127.0.0.1:57094 - "POST /api/v1/memories/promote HTTP/1.1" 201 Created
+INFO:     127.0.0.1:57099 - "POST /api/v1/tools/read HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57099 - "POST /api/v1/tools/read HTTP/1.1" 403 Forbidden
+INFO:     127.0.0.1:57101 - "POST /api/v1/tools/read HTTP/1.1" 403 Forbidden
+INFO:     127.0.0.1:57103 - "POST /api/v1/tools/read HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:57094 - "POST /api/v1/documents/ingest HTTP/1.1" 201 Created
+INFO:     127.0.0.1:57143 - "POST /api/v1/tools/ls HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57142 - "POST /api/v1/tools/stat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57143 - "GET /api/v1/documents/59f38387-48e2-4c76-a6e1-2b267be8d747/sections HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57143 - "GET /api/v1/documents/59f38387-48e2-4c76-a6e1-2b267be8d747/section/8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57152 - "POST /api/v1/contexts HTTP/1.1" 201 Created
+INFO:     127.0.0.1:57152 - "POST /api/v1/skills/versions HTTP/1.1" 201 Created
+INFO:     127.0.0.1:57158 - "POST /api/v1/tools/stat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57159 - "POST /api/v1/tools/read HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57158 - "POST /api/v1/skills/versions HTTP/1.1" 201 Created
+INFO:     127.0.0.1:57158 - "POST /api/v1/tools/read HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57171 - "POST /api/v1/tools/read HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57173 - "POST /api/v1/tools/read HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57173 - "POST /api/v1/tools/read HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57176 - "POST /api/v1/tools/read HTTP/1.1" 401 Unauthorized
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [51200]

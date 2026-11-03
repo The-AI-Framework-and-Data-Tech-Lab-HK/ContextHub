@@ -1,0 +1,270 @@
+[
+  {
+    "content": "Search ContextHub for 'Aurora deployment 9c15fed66ba2', read its full source, and tell me its release approval code and window. Cite the URI and report adopted feedback with the retrieval ID.",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "human",
+    "name": null,
+    "id": "e38654e6-7551-4eb2-8db7-fd391f3750ed"
+  },
+  {
+    "content": "",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 130,
+        "prompt_tokens": 4110,
+        "total_tokens": 4240,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 55,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-446518d7-234f-9332-a2c9-c877ac14006b",
+      "finish_reason": "tool_calls",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0bf-1b22-7038-bda1-849d5249722e-0",
+    "tool_calls": [
+      {
+        "name": "contexthub_search",
+        "args": {
+          "query": "Aurora deployment 9c15fed66ba2",
+          "level": "L2"
+        },
+        "id": "call_f1de80ce2eb8419494fa9c56",
+        "type": "tool_call"
+      }
+    ],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 4110,
+      "output_tokens": 130,
+      "total_tokens": 4240,
+      "input_token_details": {
+        "cache_read": 0
+      },
+      "output_token_details": {
+        "reasoning": 55
+      }
+    }
+  },
+  {
+    "content": "{\"results\": [{\"uri\": \"ctx://agent/query-agent/memories/mem-37369c47\", \"context_type\": \"memory\", \"scope\": \"agent\", \"owner_space\": \"query-agent\", \"score\": 2.781982977129335, \"l0_content\": \"Aurora deployment 9c15fed66ba2. The release approval code is DEPLOY-46a5b48acd. \", \"l1_content\": \"Aurora deployment 9c15fed66ba2. The release approval code is DEPLOY-46a5b48acd. Release window: Tuesday 09:30 UTC.\", \"l2_content\": \"Aurora deployment 9c15fed66ba2. The release approval code is DEPLOY-46a5b48acd. Release window: Tuesday 09:30 UTC.\", \"status\": \"active\", \"version\": 1, \"tags\": [\"9c15fed66ba2\"], \"snippet\": null, \"section_id\": null, \"retrieval_strategy\": null}, {\"uri\": \"ctx://resources/manuals/cedar-runbook\", \"context_type\": \"resource\", \"scope\": \"team\", \"owner_space\": \"\", \"score\": 0.5349854505727463, \"l0_content\": \"# Cedar runbook\\n\\n## Preparation\\nSnapshot the database before deployment.\\n\\n## Rol\", \"l1_content\": \"# Cedar runbook\\n\\n## Preparation\\nSnapshot the database before deployment.\\n\\n## Rollback\\nUse approval code CEDAR-842. Allow 12 minutes.\\n\", \"l2_content\": null, \"status\": \"active\", \"version\": 1, \"tags\": [\"deepagents-demo\"], \"snippet\": \"# Cedar runbook\\n\\n## Preparation\\nSnapshot the database before deployment.\\n\\n## Rollback\\nUse approval code CEDAR-842. Allow 12 minutes.\\n\", \"section_id\": null, \"retrieval_strategy\": \"keyword\"}, {\"uri\": \"ctx://agent/query-agent/memories/mem-59e23e43\", \"context_type\": \"memory\", \"scope\": \"agent\", \"owner_space\": \"query-agent\", \"score\": 0.0, \"l0_content\": \"For project Cedar, rollback requires approval code CEDAR-842.\", \"l1_content\": \"For project Cedar, rollback requires approval code CEDAR-842.\", \"l2_content\": \"For project Cedar, rollback requires approval code CEDAR-842.\", \"status\": \"active\", \"version\": 1, \"tags\": [], \"snippet\": null, \"section_id\": null, \"retrieval_strategy\": null}, {\"uri\": \"ctx://team/engineering/memories/shared_knowledge/mem-59e23e43\", \"context_type\": \"memory\", \"scope\": \"team\", \"owner_space\": \"engineering\", \"score\": 0.0, \"l0_content\": \"For project Cedar, rollback requires approval code CEDAR-842.\", \"l1_content\": \"For project Cedar, rollback requires approval code CEDAR-842.\", \"l2_content\": \"For project Cedar, rollback requires approval code CEDAR-842.\", \"status\": \"active\", \"version\": 1, \"tags\": [], \"snippet\": null, \"section_id\": null, \"retrieval_strategy\": null}], \"total\": 4, \"retrieval_id\": \"ba2eb177-54dc-4dd7-9cd4-202bd25c1086\", \"stale_notices\": []}",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "tool",
+    "name": "contexthub_search",
+    "id": "17c3fdc0-7b9b-42b6-b00e-d9dc26bdf8d5",
+    "tool_call_id": "call_f1de80ce2eb8419494fa9c56",
+    "artifact": null,
+    "status": "success"
+  },
+  {
+    "content": "",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 127,
+        "prompt_tokens": 4973,
+        "total_tokens": 5100,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 48,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 4096,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-06c03e96-a74b-9627-8a92-002bf7e6bb11",
+      "finish_reason": "tool_calls",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0bf-3289-76d1-bdb7-7e5b7884ae6c-0",
+    "tool_calls": [
+      {
+        "name": "contexthub_read",
+        "args": {
+          "uri": "ctx://agent/query-agent/memories/mem-37369c47",
+          "level": "L2"
+        },
+        "id": "call_e7ce425772c646fe87b2298d",
+        "type": "tool_call"
+      }
+    ],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 4973,
+      "output_tokens": 127,
+      "total_tokens": 5100,
+      "input_token_details": {
+        "cache_read": 4096
+      },
+      "output_token_details": {
+        "reasoning": 48
+      }
+    }
+  },
+  {
+    "content": "{\"uri\": \"ctx://agent/query-agent/memories/mem-37369c47\", \"level\": \"L2\", \"content\": \"Aurora deployment 9c15fed66ba2. The release approval code is DEPLOY-46a5b48acd. Release window: Tuesday 09:30 UTC.\"}",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "tool",
+    "name": "contexthub_read",
+    "id": "099cf13a-3bdf-4cbd-a32d-1e166995d2b9",
+    "tool_call_id": "call_e7ce425772c646fe87b2298d",
+    "artifact": null,
+    "status": "success"
+  },
+  {
+    "content": "",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 123,
+        "prompt_tokens": 5135,
+        "total_tokens": 5258,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 4864,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-e2b4beaa-0f85-9d9e-8369-553f69c810b4",
+      "finish_reason": "tool_calls",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0bf-4040-7275-92ed-47ac14d9f139-0",
+    "tool_calls": [
+      {
+        "name": "contexthub_feedback",
+        "args": {
+          "context_uri": "ctx://agent/query-agent/memories/mem-37369c47",
+          "outcome": "adopted",
+          "retrieval_id": "ba2eb177-54dc-4dd7-9cd4-202bd25c1086"
+        },
+        "id": "call_339a48a5d73847df9e03c6f2",
+        "type": "tool_call"
+      }
+    ],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 5135,
+      "output_tokens": 123,
+      "total_tokens": 5258,
+      "input_token_details": {
+        "cache_read": 4864
+      },
+      "output_token_details": {
+        "reasoning": 0
+      }
+    }
+  },
+  {
+    "content": "{\"id\": 3, \"context_id\": \"6e8c3caf-a215-4602-bbee-0a31552023a5\", \"retrieval_id\": \"ba2eb177-54dc-4dd7-9cd4-202bd25c1086\", \"actor\": \"query-agent\", \"retrieved_at\": \"2026-11-03T09:30:53.887363Z\", \"outcome\": \"adopted\", \"metadata\": null, \"account_id\": \"acme\", \"created_at\": \"2026-11-03T09:30:53.887363Z\"}",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "tool",
+    "name": "contexthub_feedback",
+    "id": "e0ab6098-da8c-42fa-89a6-29dcaed6014a",
+    "tool_call_id": "call_339a48a5d73847df9e03c6f2",
+    "artifact": null,
+    "status": "success"
+  },
+  {
+    "content": "I found the Aurora deployment record and read its full source.\n\n**Source (full content):** `ctx://agent/query-agent/memories/mem-37369c47`\n\n> Aurora deployment 9c15fed66ba2. The release approval code is **DEPLOY-46a5b48acd**. Release window: **Tuesday 09:30 UTC**.\n\n- **Release approval code:** `DEPLOY-46a5b48acd`\n- **Release window:** Tuesday 09:30 UTC\n\nI reported adopted feedback with retrieval ID `ba2eb177-54dc-4dd7-9cd4-202bd25c1086`.",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 139,
+        "prompt_tokens": 5407,
+        "total_tokens": 5546,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 5120,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-3271fc11-a5cb-9175-a5ab-a268118a2e8d",
+      "finish_reason": "stop",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0bf-4c4d-76e3-97e2-83ec278afff0-0",
+    "tool_calls": [],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 5407,
+      "output_tokens": 139,
+      "total_tokens": 5546,
+      "input_token_details": {
+        "cache_read": 5120
+      },
+      "output_token_details": {
+        "reasoning": 0
+      }
+    }
+  }
+]

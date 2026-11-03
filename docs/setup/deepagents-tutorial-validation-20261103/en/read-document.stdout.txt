@@ -1,0 +1,29 @@
+I've inspected the resource. Here's what I found.
+
+## Sections of `ctx://resources/manuals/cedar-runbook`
+
+| Section ID | Title | Depth | Summary |
+|---|---|---|---|
+| 1 | Document | 0 | Root document container |
+| 2 | Cedar runbook | 1 | Document title heading |
+| 3 | Preparation | 2 | Preparation steps — snapshot the database before deployment |
+| 4 | Rollback | 2 | Rollback procedure — approval code and time allowance |
+
+## Rollback section content
+
+The full text of the **Rollback** section reads:
+
+> ## Rollback
+> Use approval code CEDAR-842. Allow 12 minutes.
+
+### Specified values
+- **Approval code:** `CEDAR-842`
+- **Duration:** `12 minutes`
+
+## Source
+
+- **URI:** `ctx://resources/manuals/cedar-runbook`
+- **Version:** 1 (active, team-scoped)
+- **Context ID:** `c871de6d-2710-48dd-8e05-582a8f37c1e7`
+
+The rollback details come directly from section 4 (`Rollback`) of the resource.

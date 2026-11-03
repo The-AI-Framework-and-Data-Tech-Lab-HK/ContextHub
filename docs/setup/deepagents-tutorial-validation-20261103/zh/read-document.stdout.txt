@@ -1,0 +1,29 @@
+已完成查阅 `ctx://resources/manuals/cedar-runbook`（v1）。
+
+## 章节列表
+
+该文档包含以下章节（按层级）：
+
+| 章节 ID | 标题 | 层级 | 概要 |
+|---------|------|------|------|
+| 1 | Document | 顶层 | 全文概览 |
+| 2 | Cedar runbook | 一级标题 | 文档标题 |
+| 3 | Preparation | 二级标题 | 部署前的准备步骤 |
+| 4 | Rollback | 二级标题 | 回滚流程与审批信息 |
+
+## 回滚章节的原文
+
+回滚章节（section_id 4）的完整内容为：
+
+> ## Rollback
+> Use approval code **CEDAR-842**. Allow **12 minutes**.
+
+## 结论
+
+- **审批码**：`CEDAR-842`
+- **所需时间**：**12 分钟**
+
+## 来源引用
+
+- 来源：`ctx://resources/manuals/cedar-runbook`（resource，v1）
+- 回滚章节通过 `contexthub_read_section`（context_id `5c38dd63-35a6-427b-8ffa-95755e94737c`，section_id `4`）读取。

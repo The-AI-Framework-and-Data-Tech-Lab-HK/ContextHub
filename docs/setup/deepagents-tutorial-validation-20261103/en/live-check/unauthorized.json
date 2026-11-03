@@ -1,0 +1,128 @@
+[
+  {
+    "content": "Try reading ctx://agent/query-agent/memories/mem-37369c47. If the server refuses authentication, tell me and stop.",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "human",
+    "name": null,
+    "id": "f02eb29c-3e86-43a1-b668-ba159ca3e0ea"
+  },
+  {
+    "content": "",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 79,
+        "prompt_tokens": 4095,
+        "total_tokens": 4174,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 17,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 3840,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-b4bf25ff-dae8-9a90-b513-7aa0fb6d244a",
+      "finish_reason": "tool_calls",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0c0-13b0-7039-84de-f035193f6cab-0",
+    "tool_calls": [
+      {
+        "name": "contexthub_read",
+        "args": {
+          "uri": "ctx://agent/query-agent/memories/mem-37369c47"
+        },
+        "id": "call_353897142e91417ea4af0e5c",
+        "type": "tool_call"
+      }
+    ],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 4095,
+      "output_tokens": 79,
+      "total_tokens": 4174,
+      "input_token_details": {
+        "cache_read": 3840
+      },
+      "output_token_details": {
+        "reasoning": 17
+      }
+    }
+  },
+  {
+    "content": "ContextHub HTTP 401: Invalid API key",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "type": "tool",
+    "name": "contexthub_read",
+    "id": "d775fae5-39cf-4e53-9768-329c3f9d73bf",
+    "tool_call_id": "call_353897142e91417ea4af0e5c",
+    "artifact": null,
+    "status": "error"
+  },
+  {
+    "content": "The server refused authentication: `ContextHub HTTP 401: Invalid API key`. I couldn't read `ctx://agent/query-agent/memories/mem-37369c47`, and I'll stop here as requested.",
+    "additional_kwargs": {
+      "refusal": null
+    },
+    "response_metadata": {
+      "token_usage": {
+        "completion_tokens": 65,
+        "prompt_tokens": 4178,
+        "total_tokens": 4243,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 18,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 3840,
+          "image_tokens": null,
+          "text_tokens": null
+        }
+      },
+      "model_provider": "openai",
+      "model_name": "deepseek-v4-pro-0813",
+      "system_fingerprint": null,
+      "id": "chatcmpl-98bc96c6-4d0f-9fa5-8e3d-49402fe6b6b5",
+      "finish_reason": "stop",
+      "logprobs": null
+    },
+    "type": "ai",
+    "name": null,
+    "id": "lc_run--01a1a0c0-1cdf-7333-b2af-222e8e6ce49b-0",
+    "tool_calls": [],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+      "input_tokens": 4178,
+      "output_tokens": 65,
+      "total_tokens": 4243,
+      "input_token_details": {
+        "cache_read": 3840
+      },
+      "output_token_details": {
+        "reasoning": 18
+      }
+    }
+  }
+]

@@ -1,0 +1,277 @@
+{
+  "started_at": "2026-11-03T17:27:53.835320+08:00",
+  "source_checkout": "/Users/sherrylin/.codex/worktrees/deep-agents-adapter/ContextHub",
+  "python": "3.13.9",
+  "versions": {
+    "contexthub": "0.1.0",
+    "contexthub-sdk": "0.1.0",
+    "contexthub-deepagents": "0.1.0",
+    "deepagents": "0.7.32",
+    "langchain": "1.4.8",
+    "langchain-core": "1.7.4",
+    "langchain-openai": "1.7.3"
+  },
+  "model": "openai:deepseek-v4-pro-0813",
+  "embedding_model": "text-embedding-v4",
+  "isolation": "A fresh dedicated Docker container/database per language; non-superuser application role; ports 55432 and 8000.",
+  "execution_adjustments": [
+    "Reused the current source checkout as allowed in step 1.1.",
+    "Used Python 3.13.9 and a fresh virtual environment under the run directory.",
+    "Stored documents and validation output in per-language temporary directories.",
+    "Loaded the provider key from existing local configuration; did not persist it in results.",
+    "Disabled external LangSmith tracing for the test processes."
+  ],
+  "runs": [
+    {
+      "language": "en",
+      "started_at": "2026-11-03T17:27:53.838528+08:00",
+      "steps": [
+        {
+          "step": "docker-engine",
+          "exit_code": 0,
+          "seconds": 0.4
+        },
+        {
+          "step": "database-create",
+          "exit_code": 0,
+          "seconds": 0.15
+        },
+        {
+          "step": "database-ready",
+          "exit_code": 0,
+          "seconds": 0.07
+        },
+        {
+          "step": "migrate",
+          "exit_code": 0,
+          "seconds": 4.8
+        },
+        {
+          "step": "application-role",
+          "exit_code": 0,
+          "seconds": 0.08
+        },
+        {
+          "step": "verify-application-role",
+          "exit_code": 0,
+          "seconds": 0.07
+        },
+        {
+          "step": "health",
+          "exit_code": 0,
+          "seconds": 0.01
+        },
+        {
+          "step": "authenticated-list",
+          "exit_code": 0,
+          "seconds": 0.02
+        },
+        {
+          "step": "save-memory",
+          "exit_code": 0,
+          "seconds": 15.05
+        },
+        {
+          "step": "recall-memory",
+          "exit_code": 0,
+          "seconds": 17.47
+        },
+        {
+          "step": "share-memory",
+          "exit_code": 0,
+          "seconds": 25.75
+        },
+        {
+          "step": "reader-recall",
+          "exit_code": 0,
+          "seconds": 19.42
+        },
+        {
+          "step": "upload-document",
+          "exit_code": 0,
+          "seconds": 4.42
+        },
+        {
+          "step": "read-document",
+          "exit_code": 0,
+          "seconds": 34.13
+        },
+        {
+          "step": "integration-function",
+          "exit_code": 0,
+          "seconds": 32.56
+        },
+        {
+          "step": "install-test-dependencies",
+          "exit_code": 0,
+          "seconds": 6.24
+        },
+        {
+          "step": "offline-tests",
+          "exit_code": 0,
+          "seconds": 1.78
+        },
+        {
+          "step": "live-check",
+          "exit_code": 0,
+          "seconds": 69.85
+        },
+        {
+          "step": "database-cleanup",
+          "exit_code": 0,
+          "seconds": 0.33
+        }
+      ],
+      "server_pid": 50242,
+      "persistent_data_verified": true,
+      "live_check_count": 8,
+      "status": "passed",
+      "finished_at": "2026-11-03T17:31:50.642310+08:00",
+      "server_stopped": true,
+      "database_removed": true,
+      "tool_names_verified": [
+        "contexthub_feedback",
+        "contexthub_ls",
+        "contexthub_promote",
+        "contexthub_read",
+        "contexthub_read_section",
+        "contexthub_search",
+        "contexthub_sections",
+        "contexthub_skill_publish",
+        "contexthub_stat",
+        "contexthub_store"
+      ],
+      "document_section_count": 4,
+      "elapsed_seconds": 236.8,
+      "tutorial_sha256": "39facbd6325ea42bbeae9e825ff30476d757fb664387a4a09d521e230b6e96f1",
+      "server_warnings_or_errors": [],
+      "temporary_document_store_removed": true
+    },
+    {
+      "language": "zh",
+      "started_at": "2026-11-03T17:31:50.670184+08:00",
+      "steps": [
+        {
+          "step": "docker-engine",
+          "exit_code": 0,
+          "seconds": 0.33
+        },
+        {
+          "step": "database-create",
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        {
+          "step": "database-ready",
+          "exit_code": 0,
+          "seconds": 0.08
+        },
+        {
+          "step": "migrate",
+          "exit_code": 0,
+          "seconds": 0.53
+        },
+        {
+          "step": "application-role",
+          "exit_code": 0,
+          "seconds": 0.07
+        },
+        {
+          "step": "verify-application-role",
+          "exit_code": 0,
+          "seconds": 0.07
+        },
+        {
+          "step": "health",
+          "exit_code": 0,
+          "seconds": 0.01
+        },
+        {
+          "step": "authenticated-list",
+          "exit_code": 0,
+          "seconds": 0.02
+        },
+        {
+          "step": "save-memory",
+          "exit_code": 0,
+          "seconds": 11.94
+        },
+        {
+          "step": "recall-memory",
+          "exit_code": 0,
+          "seconds": 22.17
+        },
+        {
+          "step": "share-memory",
+          "exit_code": 0,
+          "seconds": 17.67
+        },
+        {
+          "step": "reader-recall",
+          "exit_code": 0,
+          "seconds": 26.22
+        },
+        {
+          "step": "upload-document",
+          "exit_code": 0,
+          "seconds": 3.95
+        },
+        {
+          "step": "read-document",
+          "exit_code": 0,
+          "seconds": 38.53
+        },
+        {
+          "step": "integration-function",
+          "exit_code": 0,
+          "seconds": 26.96
+        },
+        {
+          "step": "live-check",
+          "exit_code": 0,
+          "seconds": 72.23
+        },
+        {
+          "step": "database-cleanup",
+          "exit_code": 0,
+          "seconds": 0.28
+        }
+      ],
+      "server_pid": 51200,
+      "persistent_data_verified": true,
+      "live_check_count": 8,
+      "status": "passed",
+      "finished_at": "2026-11-03T17:35:33.895850+08:00",
+      "server_stopped": true,
+      "database_removed": true,
+      "tool_names_verified": [
+        "contexthub_feedback",
+        "contexthub_ls",
+        "contexthub_promote",
+        "contexthub_read",
+        "contexthub_read_section",
+        "contexthub_search",
+        "contexthub_sections",
+        "contexthub_skill_publish",
+        "contexthub_stat",
+        "contexthub_store"
+      ],
+      "document_section_count": 4,
+      "elapsed_seconds": 223.23,
+      "tutorial_sha256": "74ab3f2d1341007c59779dc6e67e21160e144f9097130e88ee709bb23c680d17",
+      "server_warnings_or_errors": [],
+      "temporary_document_store_removed": true
+    }
+  ],
+  "status": "passed",
+  "finished_at": "2026-11-03T17:35:33.921711+08:00",
+  "offline_tests": {
+    "passed": 70,
+    "environment": "fresh tutorial virtual environment",
+    "output": "en/offline-tests.stdout.txt"
+  },
+  "docker_version": "29.5.3",
+  "installation_log": "install.log",
+  "workflow_scope": "Steps 2–7 and the real-model live check executed for each language; installation and offline suite executed once in the same fresh environment.",
+  "cleanup": "Both test servers stopped; both dedicated containers/databases and temporary document stores removed. Docker Desktop remains running."
+}

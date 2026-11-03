@@ -1,0 +1,5 @@
+Done. I found your private memory and promoted it to the engineering team.
+
+**Shared URI:** `ctx://team/engineering/memories/shared_knowledge/mem-59e23e43`
+
+The memory content: *"For project Cedar, rollback requires approval code CEDAR-842."*

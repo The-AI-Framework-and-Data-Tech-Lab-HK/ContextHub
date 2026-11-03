@@ -1,0 +1,338 @@
+Obtaining file:///Users/sherrylin/.codex/worktrees/deep-agents-adapter/ContextHub
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Installing backend dependencies: started
+  Installing backend dependencies: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Obtaining file:///Users/sherrylin/.codex/worktrees/deep-agents-adapter/ContextHub/sdk
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Installing backend dependencies: started
+  Installing backend dependencies: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Obtaining file:///Users/sherrylin/.codex/worktrees/deep-agents-adapter/ContextHub/plugins/deepagents
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Installing backend dependencies: started
+  Installing backend dependencies: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Collecting langchain-openai
+  Downloading langchain_openai-1.7.3-py3-none-any.whl.metadata (3.6 kB)
+Collecting greenlet
+  Downloading greenlet-3.5.6-cp313-cp313-macosx_11_0_universal2.whl.metadata (3.8 kB)
+Collecting alembic>=1.14 (from contexthub==0.1.0)
+  Downloading alembic-1.20.1-py3-none-any.whl.metadata (7.3 kB)
+Collecting asyncpg>=0.30 (from contexthub==0.1.0)
+  Downloading asyncpg-0.32.0-cp313-cp313-macosx_11_0_arm64.whl.metadata (4.4 kB)
+Collecting fastapi>=0.115 (from contexthub==0.1.0)
+  Downloading fastapi-0.162.0-py3-none-any.whl.metadata (26 kB)
+Collecting httpx>=0.28 (from contexthub==0.1.0)
+  Downloading httpx-0.28.1-py3-none-any.whl.metadata (7.1 kB)
+Collecting pgvector>=0.3 (from contexthub==0.1.0)
+  Downloading pgvector-0.5.1-py3-none-any.whl.metadata (19 kB)
+Collecting pydantic-settings>=2.7 (from contexthub==0.1.0)
+  Downloading pydantic_settings-2.16.2-py3-none-any.whl.metadata (4.0 kB)
+Collecting pydantic>=2.10 (from contexthub==0.1.0)
+  Downloading pydantic-2.14.2-py3-none-any.whl.metadata (137 kB)
+Collecting pymupdf>=1.24 (from contexthub==0.1.0)
+  Downloading pymupdf-2.1-cp311-abi3-macosx_11_0_arm64.whl.metadata (26 kB)
+Collecting python-multipart>=0.0.26 (from contexthub==0.1.0)
+  Downloading python_multipart-0.0.33-py3-none-any.whl.metadata (6.3 kB)
+Collecting uvicorn>=0.34 (from uvicorn[standard]>=0.34->contexthub==0.1.0)
+  Downloading uvicorn-0.54.0-py3-none-any.whl.metadata (6.6 kB)
+Collecting deepagents<0.8,>=0.7.32 (from contexthub-deepagents==0.1.0)
+  Downloading deepagents-0.7.32-py3-none-any.whl.metadata (8.7 kB)
+Collecting langchain-core<2,>=1.7.0 (from contexthub-deepagents==0.1.0)
+  Downloading langchain_core-1.7.4-py3-none-any.whl.metadata (4.8 kB)
+Collecting langchain<2.0.0,>=1.4.7 (from deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading langchain-1.4.8-py3-none-any.whl.metadata (6.2 kB)
+Collecting langchain-anthropic<2.0.0,>=1.7.6 (from deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading langchain_anthropic-1.7.9-py3-none-any.whl.metadata (5.1 kB)
+Collecting langchain-google-genai<5.0.0,>=4.4.2 (from deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading langchain_google_genai-4.4.2-py3-none-any.whl.metadata (2.7 kB)
+Collecting langsmith>=0.14.12 (from deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading langsmith-0.14.17-py3-none-any.whl.metadata (39 kB)
+Collecting packaging>=23.2 (from deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Using cached packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+Collecting wcmatch>=11.0 (from deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading wcmatch-11.2-py3-none-any.whl.metadata (6.0 kB)
+Collecting langgraph<1.3.0,>=1.2.12 (from langchain<2.0.0,>=1.4.7->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading langgraph-1.2.19-py3-none-any.whl.metadata (4.9 kB)
+Collecting anthropic>=0.120.0 (from langchain-anthropic<2.0.0,>=1.7.6->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading anthropic-2.4.0-py3-none-any.whl.metadata (3.6 kB)
+Collecting certifi>=2026.10.19 (from langchain-core<2,>=1.7.0->contexthub-deepagents==0.1.0)
+  Downloading certifi-2026.10.23-py3-none-any.whl.metadata (2.5 kB)
+Collecting jsonpatch>=1.33.0 (from langchain-core<2,>=1.7.0->contexthub-deepagents==0.1.0)
+  Downloading jsonpatch-1.41-py3-none-any.whl.metadata (4.3 kB)
+Collecting langchain-protocol>=0.0.20 (from langchain-core<2,>=1.7.0->contexthub-deepagents==0.1.0)
+  Downloading langchain_protocol-0.0.20-py3-none-any.whl.metadata (2.4 kB)
+Collecting pyyaml>=5.3.0 (from langchain-core<2,>=1.7.0->contexthub-deepagents==0.1.0)
+  Downloading pyyaml-6.0.3-cp313-cp313-macosx_11_0_arm64.whl.metadata (2.4 kB)
+Collecting tenacity!=8.4.0,>=8.1.0 (from langchain-core<2,>=1.7.0->contexthub-deepagents==0.1.0)
+  Downloading tenacity-9.2.1-py3-none-any.whl.metadata (1.4 kB)
+Collecting typing-extensions>=4.7.0 (from langchain-core<2,>=1.7.0->contexthub-deepagents==0.1.0)
+  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting uuid-utils>=0.12.0 (from langchain-core<2,>=1.7.0->contexthub-deepagents==0.1.0)
+  Downloading uuid_utils-1.2.0-cp310-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl.metadata (6.4 kB)
+Collecting filetype<2.0.0,>=1.2.0 (from langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading filetype-1.2.0-py2.py3-none-any.whl.metadata (6.5 kB)
+Collecting google-genai<3.0.0,>=2.20.0 (from langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading google_genai-2.34.0-py3-none-any.whl.metadata (59 kB)
+Collecting anyio<5.0.0,>=4.8.0 (from google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading anyio-4.16.0-py3-none-any.whl.metadata (4.7 kB)
+Collecting google-auth<3.0.0,>=2.56.0 (from google-auth[requests]<3.0.0,>=2.56.0->google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading google_auth-2.62.1-py3-none-any.whl.metadata (6.0 kB)
+Collecting requests<3.0.0,>=2.28.1 (from google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)
+Collecting tenacity!=8.4.0,>=8.1.0 (from langchain-core<2,>=1.7.0->contexthub-deepagents==0.1.0)
+  Downloading tenacity-9.1.4-py3-none-any.whl.metadata (1.2 kB)
+Collecting websockets<18.0,>=13.0.0 (from google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading websockets-17.4-cp313-cp313-macosx_11_0_arm64.whl.metadata (6.3 kB)
+Collecting distro<2,>=1.7.0 (from google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading distro-1.9.0-py3-none-any.whl.metadata (6.8 kB)
+Collecting sniffio (from google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading sniffio-1.3.1-py3-none-any.whl.metadata (3.9 kB)
+Collecting idna>=2.8 (from anyio<5.0.0,>=4.8.0->google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)
+Collecting pyasn1-modules>=0.2.1 (from google-auth<3.0.0,>=2.56.0->google-auth[requests]<3.0.0,>=2.56.0->google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading pyasn1_modules-0.4.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting cryptography>=38.0.3 (from google-auth<3.0.0,>=2.56.0->google-auth[requests]<3.0.0,>=2.56.0->google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading cryptography-50.0.2-cp311-abi3-macosx_11_0_arm64.whl.metadata (4.4 kB)
+Collecting httpcore==1.* (from httpx>=0.28->contexthub==0.1.0)
+  Downloading httpcore-1.0.9-py3-none-any.whl.metadata (21 kB)
+Collecting h11>=0.16 (from httpcore==1.*->httpx>=0.28->contexthub==0.1.0)
+  Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+Collecting langgraph-checkpoint<5.0.0,>=4.3.0 (from langgraph<1.3.0,>=1.2.12->langchain<2.0.0,>=1.4.7->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading langgraph_checkpoint-4.3.1-py3-none-any.whl.metadata (6.7 kB)
+Collecting langgraph-prebuilt<1.2.0,>=1.1.0 (from langgraph<1.3.0,>=1.2.12->langchain<2.0.0,>=1.4.7->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading langgraph_prebuilt-1.1.1-py3-none-any.whl.metadata (6.9 kB)
+Collecting langgraph-sdk<0.5.0,>=0.4.6 (from langgraph<1.3.0,>=1.2.12->langchain<2.0.0,>=1.4.7->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading langgraph_sdk-0.4.11-py3-none-any.whl.metadata (5.1 kB)
+Collecting xxhash>=3.5.0 (from langgraph<1.3.0,>=1.2.12->langchain<2.0.0,>=1.4.7->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading xxhash-4.0.2-cp313-cp313-macosx_11_0_arm64.whl.metadata (17 kB)
+Collecting ormsgpack>=1.12.0 (from langgraph-checkpoint<5.0.0,>=4.3.0->langgraph<1.3.0,>=1.2.12->langchain<2.0.0,>=1.4.7->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading ormsgpack-1.13.0-cp313-cp313-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl.metadata (3.2 kB)
+Collecting orjson>=3.11.5 (from langgraph-sdk<0.5.0,>=0.4.6->langgraph<1.3.0,>=1.2.12->langchain<2.0.0,>=1.4.7->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading orjson-3.13.0-cp313-cp313-macosx_15_0_arm64.whl.metadata (42 kB)
+Collecting httpx2<3,>=2 (from langsmith>=0.14.12->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading httpx2-2.16.0-py3-none-any.whl.metadata (10 kB)
+Collecting requests-toolbelt>=1.0.0 (from langsmith>=0.14.12->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading requests_toolbelt-1.0.0-py2.py3-none-any.whl.metadata (14 kB)
+Collecting uuid-utils>=0.12.0 (from langchain-core<2,>=1.7.0->contexthub-deepagents==0.1.0)
+  Downloading uuid_utils-0.19.0-cp310-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl.metadata (6.4 kB)
+Collecting zstandard>=0.23.0 (from langsmith>=0.14.12->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading zstandard-0.25.0-cp313-cp313-macosx_11_0_arm64.whl.metadata (3.3 kB)
+Collecting httpcore2==2.16.0 (from httpx2<3,>=2->langsmith>=0.14.12->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading httpcore2-2.16.0-py3-none-any.whl.metadata (27 kB)
+Collecting truststore>=0.10 (from httpx2<3,>=2->langsmith>=0.14.12->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading truststore-0.10.5-py3-none-any.whl.metadata (4.5 kB)
+Collecting annotated-types>=0.6.0 (from pydantic>=2.10->contexthub==0.1.0)
+  Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)
+Collecting pydantic-core==2.50.2 (from pydantic>=2.10->contexthub==0.1.0)
+  Downloading pydantic_core-2.50.2-cp313-cp313-macosx_11_0_arm64.whl.metadata (6.5 kB)
+Collecting typing-inspection>=0.4.4 (from pydantic>=2.10->contexthub==0.1.0)
+  Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)
+Collecting charset_normalizer<4,>=2 (from requests<3.0.0,>=2.28.1->google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading charset_normalizer-3.5.2-cp313-cp313-macosx_10_13_universal2.whl.metadata (46 kB)
+Collecting urllib3<3,>=1.26 (from requests<3.0.0,>=2.28.1->google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading urllib3-2.8.0-py3-none-any.whl.metadata (7.4 kB)
+Collecting openai>=2.45.0 (from langchain-openai)
+  Downloading openai-3.42.1-py3-none-any.whl.metadata (45 kB)
+Collecting tiktoken>=0.7.0 (from langchain-openai)
+  Downloading tiktoken-0.14.0-cp313-cp313-macosx_11_0_arm64.whl.metadata (6.7 kB)
+Collecting SQLAlchemy>=2.0 (from alembic>=1.14->contexthub==0.1.0)
+  Downloading sqlalchemy-2.1.6-cp313-cp313-macosx_11_0_arm64.whl.metadata (9.7 kB)
+Collecting Mako (from alembic>=1.14->contexthub==0.1.0)
+  Downloading mako-1.4.3-py3-none-any.whl.metadata (2.9 kB)
+Collecting docstring-parser<1,>=0.15 (from anthropic>=0.120.0->langchain-anthropic<2.0.0,>=1.7.6->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading docstring_parser-0.18.0-py3-none-any.whl.metadata (3.5 kB)
+Collecting jiter<1,>=0.4.0 (from anthropic>=0.120.0->langchain-anthropic<2.0.0,>=1.7.6->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading jiter-0.18.0-cp313-cp313-macosx_11_0_arm64.whl.metadata (5.2 kB)
+Collecting opentelemetry-api<2,>=1.1.0 (from anthropic>=0.120.0->langchain-anthropic<2.0.0,>=1.7.6->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading opentelemetry_api-1.45.2-py3-none-any.whl.metadata (1.4 kB)
+Collecting cffi>=2.0.0 (from cryptography>=38.0.3->google-auth<3.0.0,>=2.56.0->google-auth[requests]<3.0.0,>=2.56.0->google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading cffi-2.1.1-cp313-cp313-macosx_11_0_arm64.whl.metadata (2.5 kB)
+Collecting pycparser (from cffi>=2.0.0->cryptography>=38.0.3->google-auth<3.0.0,>=2.56.0->google-auth[requests]<3.0.0,>=2.56.0->google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading pycparser-3.12-py3-none-any.whl.metadata (9.7 kB)
+Collecting starlette>=0.46.0 (from fastapi>=0.115->contexthub==0.1.0)
+  Downloading starlette-1.10.0-py3-none-any.whl.metadata (6.6 kB)
+Collecting annotated-doc>=0.0.2 (from fastapi>=0.115->contexthub==0.1.0)
+  Downloading annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)
+Collecting jsonpointer>=3.8 (from jsonpatch>=1.33.0->langchain-core<2,>=1.7.0->contexthub-deepagents==0.1.0)
+  Downloading jsonpointer-3.8-py3-none-any.whl.metadata (2.7 kB)
+Collecting pyasn1<0.7.0,>=0.6.1 (from pyasn1-modules>=0.2.1->google-auth<3.0.0,>=2.56.0->google-auth[requests]<3.0.0,>=2.56.0->google-genai<3.0.0,>=2.20.0->langchain-google-genai<5.0.0,>=4.4.2->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading pyasn1-0.6.5-py3-none-any.whl.metadata (8.4 kB)
+Collecting python-dotenv>=1.2.2 (from pydantic-settings>=2.7->contexthub==0.1.0)
+  Downloading python_dotenv-1.2.4-py3-none-any.whl.metadata (29 kB)
+Collecting networkx (from pymupdf>=1.24->contexthub==0.1.0)
+  Downloading networkx-3.7-py3-none-any.whl.metadata (6.7 kB)
+Collecting numpy (from pymupdf>=1.24->contexthub==0.1.0)
+  Downloading numpy-2.5.4-cp313-cp313-macosx_14_0_arm64.whl.metadata (6.6 kB)
+Collecting onnxruntime (from pymupdf>=1.24->contexthub==0.1.0)
+  Downloading onnxruntime-1.31.1-cp313-cp313-macosx_14_0_arm64.whl.metadata (5.8 kB)
+Collecting pymupdf-layout==2.1 (from pymupdf>=1.24->contexthub==0.1.0)
+  Downloading pymupdf_layout-2.1-py3-none-any.whl.metadata (657 bytes)
+Collecting psutil (from pymupdf>=1.24->contexthub==0.1.0)
+  Downloading psutil-7.2.2-cp36-abi3-macosx_11_0_arm64.whl.metadata (22 kB)
+Collecting tabulate (from pymupdf>=1.24->contexthub==0.1.0)
+  Downloading tabulate-0.10.0-py3-none-any.whl.metadata (40 kB)
+Collecting pymupdf4llm==2.1 (from pymupdf>=1.24->contexthub==0.1.0)
+  Downloading pymupdf4llm-2.1-py3-none-any.whl.metadata (648 bytes)
+Collecting regex (from tiktoken>=0.7.0->langchain-openai)
+  Downloading regex-2026.9.29-cp313-cp313-macosx_11_0_arm64.whl.metadata (40 kB)
+Collecting click>=7.0 (from uvicorn>=0.34->uvicorn[standard]>=0.34->contexthub==0.1.0)
+  Downloading click-8.5.0-py3-none-any.whl.metadata (2.6 kB)
+Collecting httptools>=0.8.0 (from uvicorn[standard]>=0.34->contexthub==0.1.0)
+  Downloading httptools-0.9.0-cp313-cp313-macosx_11_0_arm64.whl.metadata (3.5 kB)
+Collecting uvloop>=0.15.1 (from uvicorn[standard]>=0.34->contexthub==0.1.0)
+  Downloading uvloop-0.23.0-cp313-cp313-macosx_10_13_universal2.whl.metadata (5.1 kB)
+Collecting watchfiles>=0.20 (from uvicorn[standard]>=0.34->contexthub==0.1.0)
+  Downloading watchfiles-1.3.0-cp310-abi3-macosx_11_0_arm64.whl.metadata (4.9 kB)
+Collecting bracex>=3.2 (from wcmatch>=11.0->deepagents<0.8,>=0.7.32->contexthub-deepagents==0.1.0)
+  Downloading bracex-3.2-py3-none-any.whl.metadata (3.3 kB)
+Collecting MarkupSafe>=2.0 (from Mako->alembic>=1.14->contexthub==0.1.0)
+  Downloading markupsafe-3.0.4-cp313-cp313-macosx_11_0_arm64.whl.metadata (2.7 kB)
+Collecting flatbuffers (from onnxruntime->pymupdf>=1.24->contexthub==0.1.0)
+  Downloading flatbuffers-25.12.19-py2.py3-none-any.whl.metadata (1.0 kB)
+Collecting protobuf>=4.25.8 (from onnxruntime->pymupdf>=1.24->contexthub==0.1.0)
+  Downloading protobuf-7.36.2-cp310-abi3-macosx_10_9_universal2.whl.metadata (595 bytes)
+Downloading deepagents-0.7.32-py3-none-any.whl (374 kB)
+Downloading langchain-1.4.8-py3-none-any.whl (170 kB)
+Downloading langchain_anthropic-1.7.9-py3-none-any.whl (65 kB)
+Downloading langchain_core-1.7.4-py3-none-any.whl (577 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 577.2/577.2 kB 9.3 MB/s  0:00:00
+Downloading langchain_google_genai-4.4.2-py3-none-any.whl (81 kB)
+Downloading filetype-1.2.0-py2.py3-none-any.whl (19 kB)
+Downloading google_genai-2.34.0-py3-none-any.whl (1.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.3/1.3 MB 6.8 MB/s  0:00:00
+Downloading anyio-4.16.0-py3-none-any.whl (134 kB)
+Downloading distro-1.9.0-py3-none-any.whl (20 kB)
+Downloading google_auth-2.62.1-py3-none-any.whl (267 kB)
+Downloading httpx-0.28.1-py3-none-any.whl (73 kB)
+Downloading httpcore-1.0.9-py3-none-any.whl (78 kB)
+Downloading langgraph-1.2.19-py3-none-any.whl (262 kB)
+Downloading langgraph_checkpoint-4.3.1-py3-none-any.whl (58 kB)
+Downloading langgraph_prebuilt-1.1.1-py3-none-any.whl (42 kB)
+Downloading langgraph_sdk-0.4.11-py3-none-any.whl (169 kB)
+Downloading langsmith-0.14.17-py3-none-any.whl (940 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 940.8/940.8 kB 13.2 MB/s  0:00:00
+Downloading httpx2-2.16.0-py3-none-any.whl (97 kB)
+Downloading httpcore2-2.16.0-py3-none-any.whl (85 kB)
+Downloading pydantic-2.14.2-py3-none-any.whl (490 kB)
+Downloading pydantic_core-2.50.2-cp313-cp313-macosx_11_0_arm64.whl (2.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.1/2.1 MB 19.4 MB/s  0:00:00
+Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+Downloading charset_normalizer-3.5.2-cp313-cp313-macosx_10_13_universal2.whl (366 kB)
+Downloading idna-3.20-py3-none-any.whl (69 kB)
+Downloading tenacity-9.1.4-py3-none-any.whl (28 kB)
+Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Downloading urllib3-2.8.0-py3-none-any.whl (135 kB)
+Downloading uuid_utils-0.19.0-cp310-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl (574 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 574.7/574.7 kB 13.3 MB/s  0:00:00
+Downloading websockets-17.4-cp313-cp313-macosx_11_0_arm64.whl (216 kB)
+Downloading langchain_openai-1.7.3-py3-none-any.whl (146 kB)
+Downloading greenlet-3.5.6-cp313-cp313-macosx_11_0_universal2.whl (294 kB)
+Downloading alembic-1.20.1-py3-none-any.whl (270 kB)
+Downloading annotated_types-0.8.0-py3-none-any.whl (13 kB)
+Downloading anthropic-2.4.0-py3-none-any.whl (2.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.3/2.3 MB 20.0 MB/s  0:00:00
+Downloading docstring_parser-0.18.0-py3-none-any.whl (22 kB)
+Downloading jiter-0.18.0-cp313-cp313-macosx_11_0_arm64.whl (315 kB)
+Downloading opentelemetry_api-1.45.2-py3-none-any.whl (60 kB)
+Downloading sniffio-1.3.1-py3-none-any.whl (10 kB)
+Downloading asyncpg-0.32.0-cp313-cp313-macosx_11_0_arm64.whl (683 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 683.4/683.4 kB 16.6 MB/s  0:00:00
+Downloading certifi-2026.10.23-py3-none-any.whl (135 kB)
+Downloading cryptography-50.0.2-cp311-abi3-macosx_11_0_arm64.whl (3.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.9/3.9 MB 13.0 MB/s  0:00:00
+Downloading cffi-2.1.1-cp313-cp313-macosx_11_0_arm64.whl (184 kB)
+Downloading fastapi-0.162.0-py3-none-any.whl (148 kB)
+Downloading annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)
+Downloading h11-0.16.0-py3-none-any.whl (37 kB)
+Downloading jsonpatch-1.41-py3-none-any.whl (20 kB)
+Downloading jsonpointer-3.8-py3-none-any.whl (10 kB)
+Downloading langchain_protocol-0.0.20-py3-none-any.whl (7.3 kB)
+Downloading openai-3.42.1-py3-none-any.whl (2.4 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.4/2.4 MB 22.4 MB/s  0:00:00
+Downloading orjson-3.13.0-cp313-cp313-macosx_15_0_arm64.whl (123 kB)
+Downloading ormsgpack-1.13.0-cp313-cp313-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl (442 kB)
+Using cached packaging-26.3-py3-none-any.whl (129 kB)
+Downloading pgvector-0.5.1-py3-none-any.whl (31 kB)
+Downloading pyasn1_modules-0.4.2-py3-none-any.whl (181 kB)
+Downloading pyasn1-0.6.5-py3-none-any.whl (84 kB)
+Downloading pydantic_settings-2.16.2-py3-none-any.whl (81 kB)
+Downloading pymupdf-2.1-cp311-abi3-macosx_11_0_arm64.whl (67.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 67.2/67.2 MB 15.6 MB/s  0:00:04
+Downloading pymupdf_layout-2.1-py3-none-any.whl (1.0 kB)
+Downloading pymupdf4llm-2.1-py3-none-any.whl (1.0 kB)
+Downloading python_dotenv-1.2.4-py3-none-any.whl (23 kB)
+Downloading python_multipart-0.0.33-py3-none-any.whl (32 kB)
+Downloading pyyaml-6.0.3-cp313-cp313-macosx_11_0_arm64.whl (173 kB)
+Downloading requests_toolbelt-1.0.0-py2.py3-none-any.whl (54 kB)
+Downloading sqlalchemy-2.1.6-cp313-cp313-macosx_11_0_arm64.whl (2.5 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.5/2.5 MB 17.9 MB/s  0:00:00
+Downloading starlette-1.10.0-py3-none-any.whl (80 kB)
+Downloading tiktoken-0.14.0-cp313-cp313-macosx_11_0_arm64.whl (1.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.0/1.0 MB 13.5 MB/s  0:00:00
+Downloading truststore-0.10.5-py3-none-any.whl (19 kB)
+Downloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)
+Downloading uvicorn-0.54.0-py3-none-any.whl (87 kB)
+Downloading click-8.5.0-py3-none-any.whl (125 kB)
+Downloading httptools-0.9.0-cp313-cp313-macosx_11_0_arm64.whl (117 kB)
+Downloading uvloop-0.23.0-cp313-cp313-macosx_10_13_universal2.whl (1.4 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.4/1.4 MB 16.3 MB/s  0:00:00
+Downloading watchfiles-1.3.0-cp310-abi3-macosx_11_0_arm64.whl (397 kB)
+Downloading wcmatch-11.2-py3-none-any.whl (44 kB)
+Downloading bracex-3.2-py3-none-any.whl (12 kB)
+Downloading xxhash-4.0.2-cp313-cp313-macosx_11_0_arm64.whl (35 kB)
+Downloading zstandard-0.25.0-cp313-cp313-macosx_11_0_arm64.whl (640 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 640.4/640.4 kB 13.7 MB/s  0:00:00
+Downloading mako-1.4.3-py3-none-any.whl (80 kB)
+Downloading markupsafe-3.0.4-cp313-cp313-macosx_11_0_arm64.whl (12 kB)
+Downloading networkx-3.7-py3-none-any.whl (2.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.1/2.1 MB 16.8 MB/s  0:00:00
+Downloading numpy-2.5.4-cp313-cp313-macosx_14_0_arm64.whl (5.4 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.4/5.4 MB 16.9 MB/s  0:00:00
+Downloading onnxruntime-1.31.1-cp313-cp313-macosx_14_0_arm64.whl (20.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 20.9/20.9 MB 17.7 MB/s  0:00:01
+Downloading protobuf-7.36.2-cp310-abi3-macosx_10_9_universal2.whl (456 kB)
+Downloading flatbuffers-25.12.19-py2.py3-none-any.whl (26 kB)
+Downloading psutil-7.2.2-cp36-abi3-macosx_11_0_arm64.whl (129 kB)
+Downloading pycparser-3.12-py3-none-any.whl (62 kB)
+Downloading regex-2026.9.29-cp313-cp313-macosx_11_0_arm64.whl (293 kB)
+Downloading tabulate-0.10.0-py3-none-any.whl (39 kB)
+Building wheels for collected packages: contexthub, contexthub-sdk, contexthub-deepagents
+  Building editable for contexthub (pyproject.toml): started
+  Building editable for contexthub (pyproject.toml): finished with status 'done'
+  Created wheel for contexthub: filename=contexthub-0.1.0-py3-none-any.whl size=5176 sha256=10b3693a91d434ac0d37a1cd49bf24cb9913911352ed2388af8ff2ca41104eeb
+  Stored in directory: /private/var/folders/nv/j5sz35rn53935tbmbdzbt74w0000gn/T/pip-ephem-wheel-cache-6ue28zvd/wheels/8c/96/6f/e77cfc60db8ba54ba09424093a75a6bf4d28c90e3d5ac96bde
+  Building editable for contexthub-sdk (pyproject.toml): started
+  Building editable for contexthub-sdk (pyproject.toml): finished with status 'done'
+  Created wheel for contexthub-sdk: filename=contexthub_sdk-0.1.0-py3-none-any.whl size=1185 sha256=bee727280b2fda381b83533a597e3e094330062b59a3cbe75c39dbad56e5b335
+  Stored in directory: /private/var/folders/nv/j5sz35rn53935tbmbdzbt74w0000gn/T/pip-ephem-wheel-cache-6ue28zvd/wheels/0c/58/d3/86ec4a2d104fb761e43b7813b9086e36954822acab83013e21
+  Building editable for contexthub-deepagents (pyproject.toml): started
+  Building editable for contexthub-deepagents (pyproject.toml): finished with status 'done'
+  Created wheel for contexthub-deepagents: filename=contexthub_deepagents-0.1.0-py3-none-any.whl size=4961 sha256=16b2d5b243f49b021ee4a982311a2fdbb5f29c39e0c6656a822ca4f38cebba79
+  Stored in directory: /private/var/folders/nv/j5sz35rn53935tbmbdzbt74w0000gn/T/pip-ephem-wheel-cache-6ue28zvd/wheels/a8/a1/88/4fe97e8b8e8b0fd93a9711e96d8abbd35089a8b634973a2611
+Successfully built contexthub contexthub-sdk contexthub-deepagents
+Installing collected packages: flatbuffers, filetype, zstandard, xxhash, websockets, uvloop, uuid-utils, urllib3, typing-extensions, truststore, tenacity, tabulate, sniffio, regex, pyyaml, python-multipart, python-dotenv, pycparser, pyasn1, psutil, protobuf, pgvector, packaging, ormsgpack, orjson, numpy, networkx, MarkupSafe, jsonpointer, jiter, idna, httptools, h11, greenlet, docstring-parser, distro, click, charset_normalizer, certifi, bracex, asyncpg, annotated-types, annotated-doc, wcmatch, uvicorn, typing-inspection, SQLAlchemy, requests, pydantic-core, pyasn1-modules, opentelemetry-api, onnxruntime, Mako, langchain-protocol, jsonpatch, httpcore2, httpcore, cffi, anyio, watchfiles, tiktoken, starlette, requests-toolbelt, pydantic, httpx2, httpx, cryptography, alembic, pydantic-settings, openai, langsmith, google-auth, fastapi, contexthub-sdk, anthropic, langchain-core, langgraph-sdk, langgraph-checkpoint, langchain-openai, langchain-anthropic, google-genai, langgraph-prebuilt, langchain-google-genai, langgraph, langchain, deepagents, contexthub-deepagents, pymupdf4llm, pymupdf-layout, pymupdf, contexthub
+
+Successfully installed Mako-1.4.3 MarkupSafe-3.0.4 SQLAlchemy-2.1.6 alembic-1.20.1 annotated-doc-0.0.5 annotated-types-0.8.0 anthropic-2.4.0 anyio-4.16.0 asyncpg-0.32.0 bracex-3.2 certifi-2026.10.23 cffi-2.1.1 charset_normalizer-3.5.2 click-8.5.0 contexthub-0.1.0 contexthub-deepagents-0.1.0 contexthub-sdk-0.1.0 cryptography-50.0.2 deepagents-0.7.32 distro-1.9.0 docstring-parser-0.18.0 fastapi-0.162.0 filetype-1.2.0 flatbuffers-25.12.19 google-auth-2.62.1 google-genai-2.34.0 greenlet-3.5.6 h11-0.16.0 httpcore-1.0.9 httpcore2-2.16.0 httptools-0.9.0 httpx-0.28.1 httpx2-2.16.0 idna-3.20 jiter-0.18.0 jsonpatch-1.41 jsonpointer-3.8 langchain-1.4.8 langchain-anthropic-1.7.9 langchain-core-1.7.4 langchain-google-genai-4.4.2 langchain-openai-1.7.3 langchain-protocol-0.0.20 langgraph-1.2.19 langgraph-checkpoint-4.3.1 langgraph-prebuilt-1.1.1 langgraph-sdk-0.4.11 langsmith-0.14.17 networkx-3.7 numpy-2.5.4 onnxruntime-1.31.1 openai-3.42.1 opentelemetry-api-1.45.2 orjson-3.13.0 ormsgpack-1.13.0 packaging-26.3 pgvector-0.5.1 protobuf-7.36.2 psutil-7.2.2 pyasn1-0.6.5 pyasn1-modules-0.4.2 pycparser-3.12 pydantic-2.14.2 pydantic-core-2.50.2 pydantic-settings-2.16.2 pymupdf-2.1 pymupdf-layout-2.1 pymupdf4llm-2.1 python-dotenv-1.2.4 python-multipart-0.0.33 pyyaml-6.0.3 regex-2026.9.29 requests-2.34.2 requests-toolbelt-1.0.0 sniffio-1.3.1 starlette-1.10.0 tabulate-0.10.0 tenacity-9.1.4 tiktoken-0.14.0 truststore-0.10.5 typing-extensions-4.16.0 typing-inspection-0.4.4 urllib3-2.8.0 uuid-utils-0.19.0 uvicorn-0.54.0 uvloop-0.23.0 watchfiles-1.3.0 wcmatch-11.2 websockets-17.4 xxhash-4.0.2 zstandard-0.25.0
+
+[notice] A new release of pip is available: 25.2 -> 26.3
+[notice] To update, run: /private/tmp/contexthub-deepagents-tutorial-20261103-9EwZ1r/venv/bin/python -m pip install --upgrade pip
