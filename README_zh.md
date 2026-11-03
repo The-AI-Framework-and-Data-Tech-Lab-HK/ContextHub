@@ -54,7 +54,7 @@ Agent 通过熟悉的文件操作（`ls`、`read`、`grep`、`stat`）经由 `ct
 ## 架构 🏛️
 
 ```
-         Agents（通过 OpenClaw Plugin / SDK 接入）
+         Agents（通过 OpenClaw / Deep Agents / SDK 接入）
               │
               ▼
     ContextHub Server (FastAPI)
@@ -139,7 +139,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 \q
 ```
 
-> 需要 `SUPERUSER` 权限，因为 schema 使用了 `FORCE ROW LEVEL SECURITY`。本地开发环境无安全问题。
+> 这套本地开发配置使用超级用户，会绕过数据库的行级安全规则。若要用独立的普通账号验证 RLS，请参考 [Deep Agents 教程](docs/setup/deepagents-integration-guide.md)，并留意其中说明的后台任务限制。
 
 ### 第 3 步：安装并启动 ContextHub
 
@@ -167,6 +167,7 @@ cp .env.example .env
 | `OPENAI_API_KEY` | 使用 LLM 相关功能时必填 | *（空）* | 启用 `search` 所需的向量 embedding，以及长文档入库 / 检索时用到的文档树构建与 tree 选段；不填则向量搜索不可用，长文档入库会返回 `503` |
 | `OPENAI_BASE_URL` | 否 | `https://api.openai.com/v1` | chat 和 embedding 共用的 base URL；也可以指向兼容 OpenAI API 的端点 |
 | `CHAT_MODEL` | 否 | `gpt-4o-mini` | 长文档文档树构建与 tree-based section selection 使用的 chat model |
+| `CHAT_ENABLE_THINKING` | 否 | *不设置* | 服务端模型调用的可选参数；支持该参数的 DashScope 模型可设为 `false`，避免思考耗尽短输出预算，其他端点保持不设置 |
 | `EMBEDDING_MODEL` | 否 | `text-embedding-3-small` | 检索阶段为 L0/query 生成 embedding 的模型 |
 | `EMBEDDING_DIMENSIONS` | 否 | `1536` | 向量在库中的目标存储维度；与该维度一致时直接写入，更短的兼容 embedding 会自动补零，更长的 embedding 会被拒绝 |
 
@@ -217,7 +218,7 @@ async def main():
 asyncio.run(main())
 ```
 
-ContextHub 同时可作为 [OpenClaw](https://github.com/anthropics/openclaw) 等 Agent 框架的即插即用 context engine——上下文治理对 Agent 代码完全透明。详见下方[与 OpenClaw 集成](#与-openclaw-集成-)。
+ContextHub 可以作为 [OpenClaw](https://github.com/anthropics/openclaw) 的上下文引擎，也可以通过原生 Python 工具接入 Deep Agents。两种接入方式的配置见下方集成章节。
 
 完整的端到端 demo 和集成测试，请参阅[本地部署与端到端验证指南](docs/setup/local-setup&end2end-verification-guide-zh.md)。
 
@@ -273,6 +274,22 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 
 ---
 
+## 与 Deep Agents 集成
+
+通过 Python SDK 为 Deep Agents 添加 ContextHub 工具：
+
+```bash
+python -m pip install -e ./sdk -e ./plugins/deepagents
+```
+
+将 `create_contexthub_tools(client)` 传给 `create_deep_agent(tools=...)`，即可搜索和读取上下文、读取文档章节、保存和共享记忆、发布技能版本以及反馈检索效果。使用 `ainvoke` 或 `astream`，并在运行期间保持 SDK client 打开。
+
+Deep Agents 负责管理对话状态；这版适配由 Agent 主动调用工具，不包含 OpenClaw 在回合前自动召回、回合后自动保存的机制。
+
+从零开始请看 [Deep Agents + ContextHub 教程](docs/setup/deepagents-integration-guide.md)：搭建独立演示环境、配置模型、保存和检索记忆、跨 Agent 共享，以及按章节读取文档。已有 Agent 的接入代码、全部十个工具和测试方法见[适配器参考](plugins/deepagents/README.md)。
+
+---
+
 ## 路线图 🗺️
 
 - [x] **Phase 1 — 核心功能** ✅
@@ -316,6 +333,8 @@ pnpm openclaw plugins install -l /path/to/ContextHub/bridge
 | 文档 | 说明 |
 |------|------|
 | [OpenClaw 集成指南](docs/setup/openclaw-integration-guide.md) | 将 ContextHub 作为 OpenClaw context engine 的完整 5 终端搭建 |
+| [Deep Agents + ContextHub 教程](docs/setup/deepagents-integration-guide.md) | 演示环境、模型配置、记忆共享和文档章节读取 |
+| [Deep Agents 适配器参考](plugins/deepagents/README.md) | 原生异步工具、团队身份配置和测试方法 |
 | [本地部署与端到端验证](docs/setup/local-setup&end2end-verification-guide-zh.md) | 开发环境搭建、数据库迁移、端到端 demo |
 | [MVP 验证计划](docs/mvp%20verification/mvp-verification-plan.md) | 三层验证：自动化测试 → API 闭环 → 运行时合同 |
 | [开发者指南](docs/design%20and%20development/development-guide-zh.md) | API 概览、SDK 参考、技术选型、项目结构 |

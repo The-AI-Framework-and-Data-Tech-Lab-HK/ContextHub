@@ -54,7 +54,7 @@ All four are managed under a unified `ctx://` URI namespace with the same versio
 ## Architecture 🏛️
 
 ```
-         Agents (via OpenClaw Plugin / SDK)
+         Agents (via OpenClaw / Deep Agents / SDK)
               │
               ▼
     ContextHub Server (FastAPI)
@@ -139,7 +139,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 \q
 ```
 
-> `SUPERUSER` is required because the schema uses `FORCE ROW LEVEL SECURITY`. This is fine for local development.
+> This local-development setup uses a superuser, which bypasses row-level security. For a demo that exercises RLS with a separate application role, see the [Deep Agents tutorial](docs/setup/deepagents-integration-guide.md), including its background-worker limitation.
 
 ### Step 3: Install & Start ContextHub
 
@@ -167,6 +167,7 @@ cp .env.example .env
 | `OPENAI_API_KEY` | For LLM-backed features | *(empty)* | Enables vector embeddings for `search` and the chat-based tree builder / tree selector used by long-document ingestion and retrieval; without it, vector search is disabled and long-document ingestion returns `503` |
 | `OPENAI_BASE_URL` | No | `https://api.openai.com/v1` | Shared base URL for both chat and embedding requests; can point to an OpenAI-compatible endpoint |
 | `CHAT_MODEL` | No | `gpt-4o-mini` | Chat model used by long-document tree construction and tree-based section selection |
+| `CHAT_ENABLE_THINKING` | No | *(unset)* | Optional provider parameter for server chat calls; use `false` for supported DashScope models with short output budgets, and leave unset for other endpoints |
 | `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Embedding model used for L0/query embeddings during retrieval |
 | `EMBEDDING_DIMENSIONS` | No | `1536` | Target stored vector dimension; exact matches are accepted, shorter compatible embeddings are zero-padded, and larger embeddings are rejected |
 
@@ -217,7 +218,7 @@ async def main():
 asyncio.run(main())
 ```
 
-ContextHub also integrates directly with agent frameworks like [OpenClaw](https://github.com/anthropics/openclaw) as a drop-in context engine — making context governance transparent to agent code. See [Integration with OpenClaw](#integration-with-openclaw-) below.
+ContextHub connects to [OpenClaw](https://github.com/anthropics/openclaw) as a context engine and to Deep Agents through native Python tools. See the integration sections below for each setup.
 
 For the full E2E demo and integration tests, see [Local Setup & E2E Verification Guide](docs/setup/local-setup&end2end-verification-guide.md).
 
@@ -273,6 +274,28 @@ For full setup instructions, see the [OpenClaw Integration Guide](docs/setup/ope
 
 ---
 
+## Integration with Deep Agents
+
+Add ContextHub tools to a Deep Agent through the Python SDK:
+
+```bash
+python -m pip install -e ./sdk -e ./plugins/deepagents
+```
+
+Pass `create_contexthub_tools(client)` to `create_deep_agent(tools=...)` to search
+and read context, access document sections, save and share memories, publish
+skills, and report retrieval feedback. Use `ainvoke` or `astream` with an open
+SDK client. Deep Agents manages conversation state; this adapter provides explicit
+tool access rather than OpenClaw's automatic recall/capture lifecycle.
+
+Start with the [Deep Agents + ContextHub tutorial](docs/setup/deepagents-integration-guide.md):
+set up a demo server, configure the models, save and retrieve a memory, share it
+with another agent, and read a document by section. For an existing agent, see
+the [adapter reference](plugins/deepagents/README.md) for the Python integration,
+all ten tools, identity handling, and tests.
+
+---
+
 ## Roadmap 🗺️
 
 - [x] **Phase 1 — Core Engine** ✅
@@ -316,6 +339,8 @@ The cheap-first, escalate-only-when-needed policy lives in core as a confidence 
 | Document | Description |
 |----------|-------------|
 | [OpenClaw Integration Guide](docs/setup/openclaw-integration-guide.md) | Full 5-terminal setup for ContextHub + OpenClaw |
+| [Deep Agents + ContextHub Tutorial](docs/setup/deepagents-integration-guide.md) | Demo setup, model configuration, memory sharing, and document section reads |
+| [Deep Agents Adapter Reference](plugins/deepagents/README.md) | Native async tools, team identities, and tests |
 | [Local Setup & E2E Verification](docs/setup/local-setup&end2end-verification-guide.md) | Dev environment, migrations, E2E demo |
 | [MVP Verification Plan](docs/mvp%20verification/mvp-verification-plan.md) | Three-layer verification: tests → API demo → runtime contract |
 | [Developer Guide](docs/design%20and%20development/development-guide.md) | API overview, SDK reference, tech stack, project structure |
