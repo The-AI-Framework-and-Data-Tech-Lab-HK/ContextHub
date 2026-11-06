@@ -241,6 +241,7 @@ async def test_search_returns_typed_and_uses_server_enum_values(client: ContextH
     body = json.loads(route.calls.last.request.content)
     assert body["scope"] == ["team"]
     assert body["context_type"] == ["table_schema"]
+    assert body["original_fusion"] == "weighted"
     assert isinstance(resp, SearchResponse)
     assert resp.total == 1
     assert resp.retrieval_id == "550e8400-e29b-41d4-a716-446655440000"
@@ -976,3 +977,13 @@ async def test_document_namespace_sections_and_read_are_typed(client: ContextHub
 
     assert isinstance(sections[0], DocumentSectionSummary)
     assert isinstance(section, DocumentSectionReadResult)
+
+
+@respx.mock
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fusion", ["rrf", "weighted"])
+async def test_search_forwards_original_fusion(client: ContextHubClient, fusion):
+    route = respx.post(f"{BASE}/api/v1/search").respond(200, json={
+        "results": [], "total": 0, "retrieval_id": "fusion-choice"})
+    await client.search("evidence", original_fusion=fusion)
+    assert json.loads(route.calls.last.request.content)["original_fusion"] == fusion

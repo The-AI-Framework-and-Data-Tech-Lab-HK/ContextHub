@@ -85,10 +85,38 @@ async def test_search_preserves_evidence_and_stale_notices(tools, respx_mock):
         "level": "L2",
         "include_stale": False,
         "include_stale_notices": True,
+        "original_fusion": "weighted",
     }
     assert request.headers["X-Account-Id"] == "acme"
     assert request.headers["X-Agent-Id"] == "researcher"
     assert request.headers["X-API-Key"] == "test-key"
+
+
+@pytest.mark.parametrize("level,fields,expected,content_level", [
+    ("L1", {"l0_content": "same body", "l1_content": "same body"}, "same body", "L1"),
+    ("L1", {"l0_content": "overview", "l1_content": "navigation", "snippet": "Ada: 37 engines."}, "Ada: 37 engines.", "snippet"),
+    ("L1", {"snippet": "Original without summaries."}, "Original without summaries.", "snippet"),
+    ("L0", {"l0_content": "overview", "l1_content": "navigation", "snippet": "evidence"}, "overview", "L0"),
+    ("L2", {"l0_content": "overview", "l1_content": "navigation", "l2_content": "full", "snippet": "evidence"}, "full", "L2"),
+])
+async def test_search_sends_one_body_to_model(tools, respx_mock, level, fields, expected, content_level):
+    respx_mock.post("https://hub.test/api/v1/search").respond(200, json={
+        "results": [{"uri": URI, "context_type": "resource", "scope": "team",
+                     "score": 0.9, "status": "active", "version": 7,
+                     "section_id": 42, **fields}],
+        "total": 1, "retrieval_id": "retrieval-body",
+        "trace": {"final_materialized": [fields]},
+    })
+    message = await tools["contexthub_search"].ainvoke({
+        "type": "tool_call", "id": "single-body", "name": "contexthub_search",
+        "args": {"query": "Ada", "level": level},
+    })
+    payload = json.loads(message.content)
+    hit = payload["results"][0]
+    assert hit["content"] == expected and hit["content_level"] == content_level
+    assert hit["uri"] == URI and hit["version"] == 7 and hit["section_id"] == 42
+    assert not {"l0_content", "l1_content", "l2_content", "snippet"} & hit.keys()
+    assert "trace" not in payload
 
 
 @pytest.mark.parametrize(
@@ -317,6 +345,7 @@ async def test_timeout_is_an_error_without_exposing_transport_details(
         {"query": "test", "scope": ["invalid"]},
         {"query": "test", "context_type": ["invalid"]},
         {"query": "test", "level": "L3"},
+        {"query": "test", "original_fusion": "unknown"},
     ],
 )
 async def test_invalid_search_arguments_never_reach_http(tools, respx_mock, args):
@@ -370,3 +399,29 @@ async def test_parallel_agents_keep_their_bound_identities(client, respx_mock):
         }
         # The adapter must not close a client owned by the calling application.
         await first.ainvoke({"query": "next turn"})
+
+
+
+async def test_search_preserves_two_ranges_in_the_same_document_and_section(tools, respx_mock):
+    rows = [{"uri": URI, "context_type": "resource", "scope": "team", "score": 0.9,
+             "status": "active", "version": 7, "section_id": 42,
+             "snippet": body, "snippet_offset": offset, "retrieval_strategy": "hybrid"}
+            for body, offset in [("First original.", [0,15]), ("Second original.", [16,32])]]
+    route=respx_mock.post("https://hub.test/api/v1/search").respond(200,json={
+        "results": rows, "total": 2, "retrieval_id": "same-document-ranges"})
+    message=await tools["contexthub_search"].ainvoke({
+        "type":"tool_call","id":"ranges","name":"contexthub_search","args":{"query":"originals"}})
+    payload=json.loads(message.content)
+    assert json.loads(route.calls.last.request.content)['top_k']==5
+    assert [hit['content'] for hit in payload['results']]==['First original.','Second original.']
+    assert [hit['snippet_offset'] for hit in payload['results']]==[[0,15],[16,32]]
+    assert all(hit['uri']==URI and hit['version']==7 and hit['section_id']==42 for hit in payload['results'])
+    assert all(hit['content_level']=='snippet' for hit in payload['results'])
+
+
+@pytest.mark.parametrize("fusion", ["rrf", "weighted"])
+async def test_search_forwards_original_fusion(tools, respx_mock, fusion):
+    route = respx_mock.post("https://hub.test/api/v1/search").respond(200, json={
+        "results": [], "total": 0, "retrieval_id": "fusion-choice"})
+    await tools["contexthub_search"].ainvoke({"query": "evidence", "original_fusion": fusion})
+    assert json.loads(route.calls.last.request.content)["original_fusion"] == fusion

@@ -8,6 +8,7 @@ from uuid import UUID
 from contexthub.db.repository import ScopedRepo
 from contexthub.generation.base import ContentGenerator, GeneratedContent
 from contexthub.llm.base import EmbeddingClient
+from contexthub.retrieval.content import EMBEDDING_TEXT_SQL
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +59,12 @@ class IndexerService:
     async def backfill_embeddings(
         self, db: ScopedRepo, batch_size: int = 100
     ) -> int:
-        """Backfill missing l0_embedding for active/stale contexts. Returns count filled."""
+        """Backfill discovery vectors, including raw-only contexts."""
         rows = await db.fetch(
-            """
-            SELECT id, l0_content FROM contexts
+            f"""
+            SELECT id, {EMBEDDING_TEXT_SQL} AS l0_content FROM contexts
             WHERE l0_embedding IS NULL
-              AND l0_content IS NOT NULL
+              AND {EMBEDDING_TEXT_SQL} IS NOT NULL
               AND status IN ('active', 'stale')
             LIMIT $1
             """,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from contexthub.db.repository import ScopedRepo
+from contexthub.retrieval.content import RAW_CONTENT_SQL
 
 
 async def keyword_search(
@@ -16,7 +17,7 @@ async def keyword_search(
     include_stale: bool = False,
     only_non_fresh: bool = False,
 ) -> list[dict]:
-    """Keyword fallback: ILIKE matching on l0_content/l1_content.
+    """Keyword fallback on summaries, or original text when both are absent.
 
     ``only_non_fresh`` restricts the result to rows that are *not* active+fresh.
     It exists for the stale-notice pass; see the comment on the filter below.
@@ -59,7 +60,7 @@ async def keyword_search(
     for kw in keywords:
         params.append(f"%{kw}%")
         match_exprs.append(
-            f"(CASE WHEN LOWER(COALESCE(l0_content,'')) LIKE ${idx} THEN 1 ELSE 0 END"
+            f"(CASE WHEN LOWER(COALESCE(NULLIF(l0_content,''), {RAW_CONTENT_SQL}, '')) LIKE ${idx} THEN 1 ELSE 0 END"
             f" + CASE WHEN LOWER(COALESCE(l1_content,'')) LIKE ${idx} THEN 1 ELSE 0 END)"
         )
         idx += 1
@@ -75,6 +76,7 @@ async def keyword_search(
         SELECT id, uri, context_type, scope, owner_space, status, version,
                validity_status, validity_reason,
                l0_content, l1_content, tags, file_path,
+               {RAW_CONTENT_SQL} AS raw_content,
                ({score_expr})::float / {max_score} AS cosine_similarity
         FROM contexts
         WHERE {where} AND ({score_expr}) > 0
@@ -98,6 +100,7 @@ async def keyword_search(
             "validity_reason": r.get("validity_reason"),
             "l0_content": r["l0_content"],
             "l1_content": r["l1_content"],
+            "snippet": r.get("raw_content"),
             "tags": list(r["tags"] or []),
             "file_path": r.get("file_path"),
             "cosine_similarity": float(r["cosine_similarity"]),

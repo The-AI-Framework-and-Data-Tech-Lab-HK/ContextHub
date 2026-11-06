@@ -2,6 +2,8 @@
 
 > API reference, tech stack, SDK usage, and project structure for ContextHub contributors.
 >
+> For the current document-retrieval flow, decisions and evidence, see [Document Retrieval Design](document-retrieval.md).
+>
 > For local development setup, see [Local Setup & E2E Verification Guide](../setup/local-setup&end2end-verification-guide.md).
 > For OpenClaw integration setup, see [OpenClaw Integration Guide](../setup/openclaw-integration-guide.md).
 > For Deep Agents, see the [integration tutorial](../setup/deepagents-integration-guide.md) and [adapter reference](../../plugins/deepagents/README.md).
@@ -134,7 +136,7 @@ and `contexthub_search` calls `/api/v1/search`.
 | Vector Search | pgvector | Same-DB, same-transaction consistency; no dual-write |
 | Async Driver | asyncpg | High-performance async PG with native LISTEN/NOTIFY |
 | Migrations | Alembic | Schema version management |
-| Embedding | text-embedding-3-small (1536-dim) | Cost-effective for L0 summaries |
+| Embedding | Configured provider model and dimension | Context discovery and original-passage vectors; see the document retrieval design for index boundaries |
 | HTTP Client | httpx | Lightweight async HTTP for embedding API calls |
 | Validation | Pydantic v2 | Request/response models with automatic validation |
 
@@ -142,7 +144,7 @@ and `contexthub_search` calls `/api/v1/search`.
 
 - **URI is a logical address, not a physical path.** `ctx://datalake/prod/orders` maps to a row in PostgreSQL, not a file on disk. Agents perceive file semantics; the system provides database guarantees.
 - **Context records are stored in PostgreSQL.** Long documents additionally keep original and extracted files under `DOC_STORE_ROOT`; their section metadata and source ranges are in PostgreSQL. See [document section generation](../setup/document-section-generation.md).
-- **Only L0 is vectorized.** L0 summaries (~100 tokens) are embedded for semantic search. Read fuller context by URI, or use the document section endpoints for focused source text.
+- **Original evidence is searchable without an L0 match.** Context discovery embeds `L0 or L1 or L2` for context discovery and stores separate original-passage vectors for file-backed documents. Source BM25 also searches originals directly. L0/L1 stay at document level; [Document Retrieval Design](document-retrieval.md) explains both routes, the two fusion stages, and their validation limits.
 
 ## Project Structure
 

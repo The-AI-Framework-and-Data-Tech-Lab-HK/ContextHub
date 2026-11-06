@@ -17,6 +17,7 @@ from contexthub.models.search import (
     StaleNotice,
 )
 from contexthub.retrieval.keyword_strategy import keyword_search
+from contexthub.retrieval.content import RAW_CONTENT_SQL
 from contexthub.retrieval.long_doc import LongDocRetrievalCoordinator
 from contexthub.retrieval.router import RetrievalRouter
 from contexthub.retrieval.vector_strategy import vector_search
@@ -57,6 +58,37 @@ def _quality_factor(adopted: int, ignored: int) -> float:
 
 def _score_key(candidate: dict) -> str:
     return "_rerank_score" if "_rerank_score" in candidate else "cosine_similarity"
+
+
+def _evidence_key(candidate: dict) -> tuple:
+    offset = candidate.get("snippet_offset")
+    return candidate["id"], candidate["version"], tuple(offset) if offset is not None else None
+
+
+def _fuse_original_hits(candidates: list[dict], originals: list[dict]) -> list[dict]:
+    """Prefer original ranges over the same document's representative hit.
+
+    Preserve original-route scores when it is the only remaining route. If other
+    contexts remain, use the existing equal-weight RRF to combine result lists,
+    keyed by document/version/range rather than collapsing a document's ranges.
+    """
+    if not originals:
+        return candidates
+    original_versions = {(c["id"], c["version"]) for c in originals}
+    candidates = [c for c in candidates if (c["id"], c["version"]) not in original_versions]
+    if not candidates:
+        return originals
+    fused: dict[tuple, dict] = {}
+    scores: dict[tuple, float] = {}
+    for route in (candidates, originals):
+        ranked = sorted(route, key=lambda c: c.get(_score_key(c), 0), reverse=True)
+        for rank, candidate in enumerate(ranked, start=1):
+            key = _evidence_key(candidate)
+            scores[key] = scores.get(key, 0.0) + 1.0 / (60 + rank)
+            fused[key] = dict(candidate)
+    for key, candidate in fused.items():
+        candidate["_rerank_score"] = scores[key]
+    return list(fused.values())
 
 
 class RetrievalService:
@@ -143,9 +175,9 @@ class RetrievalService:
         upstream_ids = sorted(set(upstream_by_node.values()), key=str)
         if upstream_ids:
             rows = await db.fetch(
-                """
+                f"""
                 SELECT id, uri, context_type, scope, owner_space, status,
-                       version, l0_content, l1_content
+                       version, l0_content, l1_content, {RAW_CONTENT_SQL} AS snippet
                   FROM contexts
                  WHERE id = ANY($1::uuid[])
                 """,
@@ -173,13 +205,13 @@ class RetrievalService:
                     validity_status=candidate.get("validity_status") or "unknown",
                     reason=_notice_reason(candidate.get("validity_reason"), source_uri),
                     stale_content=self._mask(
-                        candidate.get("l1_content") or candidate.get("l0_content"),
+                        candidate.get("l1_content") or candidate.get("l0_content") or candidate.get("snippet"),
                         masks,
                     ),
                     version=candidate.get("version"),
                     source_uri=source_uri,
                     source_content=self._mask(
-                        (upstream.get("l1_content") or upstream.get("l0_content"))
+                        (upstream.get("l1_content") or upstream.get("l0_content") or upstream.get("snippet"))
                         if upstream is not None
                         else None,
                         upstream_masks.get(self._get_id(upstream))
@@ -229,6 +261,35 @@ class RetrievalService:
                 only_non_fresh=True,
             )
         return [row for row in rows if row["id"] not in already_seen]
+
+    async def _search_document_originals(
+        self, db: ScopedRepo, request: SearchRequest, ctx: RequestContext,
+        filter_types: list[str] | None, filter_scopes: list[str] | None,
+        query_embedding: list[float] | None = None,
+    ) -> list[dict]:
+        if filter_types and "resource" not in filter_types:
+            return []
+        # No vector/top-k gate: every eligible file-backed resource can supply
+        # evidence. Tenant and scope filtering happen before ACL and file I/O.
+        rows = await db.fetch(
+            """SELECT id, uri, context_type, scope, owner_space, status, version,
+                      validity_status, validity_reason, l0_content, l1_content,
+                      tags, file_path
+                 FROM contexts
+                WHERE account_id = current_setting('app.account_id')
+                  AND context_type = 'resource' AND file_path IS NOT NULL
+                  AND status NOT IN ('archived', 'deleted')
+                  AND ($1 OR (status = 'active' AND validity_status = 'fresh'))
+                  AND ($2::text[] IS NULL OR scope = ANY($2::text[]))
+                ORDER BY id""",
+            request.include_stale, filter_scopes,
+        )
+        visible = await self._acl.filter_visible_with_acl(db, [dict(row) for row in rows], ctx)
+        return await self._long_doc_coordinator.search_originals(
+            db, request.query, [candidate for candidate, _ in visible],
+            query_embedding=query_embedding, top_k=request.top_k * self._over_retrieve_factor,
+            original_fusion=request.original_fusion,
+        )
 
     async def search(
         self, db: ScopedRepo, request: SearchRequest, ctx: RequestContext
@@ -309,14 +370,30 @@ class RetrievalService:
                 withheld.append({**candidate, "validity_status": validity})
 
         # 3. Rerank
-        candidates = await self._router.rerank.rerank(request.query, candidates)
+        reranker = self._router.for_context_types(filter_types)
+        if reranker is not None:
+            candidates = await reranker.rerank(request.query, candidates)
 
         if self._long_doc_coordinator:
+            # Existing tree navigation is only for already recalled documents.
+            # Do not add model navigation calls for independently found originals.
+            visible = await self._acl.filter_visible_with_acl(db, candidates, ctx)
+            candidates = [candidate for candidate, _ in visible]
             candidates = await self._long_doc_coordinator.retrieve(
                 db,
                 request.query,
                 candidates,
             )
+            originals = await self._search_document_originals(
+                db, request, ctx, filter_types, filter_scopes, query_embedding,
+            )
+            candidate_trace.extend({
+                "node_id": str(c["id"]), "version": c["version"],
+                "section_id": c.get("section_id"), "snippet_offset": c.get("snippet_offset"),
+                "status": c["status"], "validity_status": c["validity_status"],
+                "filtered": False, "filter_reasons": [], "route": "original",
+            } for c in originals)
+            candidates = _fuse_original_hits(candidates, originals)
 
         # 4. Quality factor
         if candidates:
@@ -391,14 +468,15 @@ class RetrievalService:
                         {**candidate, "validity_status": row["validity_status"]}
                     )
                 for trace_item in candidate_trace:
-                    if trace_item["node_id"] == str(candidate["id"]):
+                    if (trace_item["node_id"] == str(candidate["id"])
+                            and trace_item.get("version") == candidate.get("version")
+                            and not trace_item["filtered"]):
                         trace_item["filtered"] = True
                         trace_item["filter_reasons"].append(
                             "materialization_version_changed"
                             if not same_version
                             else f"materialization_validity:{row['validity_status']}"
                         )
-                        break
         candidates = revalidated
         candidate_masks = revalidated_masks
 
@@ -408,7 +486,19 @@ class RetrievalService:
             await self._build_stale_notices(db, withheld, ctx) if withheld else []
         )
 
-        # 8. Truncate to top_k
+        # L0 is document discovery; avoid repeating an overview per source range.
+        if request.level.value == "L0":
+            seen = set()
+            document_candidates, document_masks = [], []
+            for candidate, masks in zip(candidates, candidate_masks):
+                key = (candidate["id"], candidate["version"])
+                if key not in seen:
+                    seen.add(key)
+                    document_candidates.append(candidate)
+                    document_masks.append(masks)
+            candidates, candidate_masks = document_candidates, document_masks
+
+        # 8. Global top_k: a document can contribute multiple distinct ranges.
         candidates = candidates[: request.top_k]
         candidate_masks = candidate_masks[: request.top_k]
 
@@ -452,6 +542,10 @@ class RetrievalService:
             l1 = c.get("l1_content")
             l2 = c.get("l2_content")
             snippet = c.get("snippet")
+            if c.get("file_path") and snippet is not None and request.level.value != "L0":
+                # Evidence hits carry one original slice. Document layers remain
+                # available through document reads, rather than repeated per hit.
+                l0 = l1 = l2 = None
 
             if masks:
                 l0 = self._masking.apply_masks(l0, masks)
@@ -475,6 +569,7 @@ class RetrievalService:
                 tags=c.get("tags", []),
                 snippet=snippet,
                 section_id=c.get("section_id"),
+                snippet_offset=c.get("snippet_offset"),
                 retrieval_strategy=c.get("retrieval_strategy"),
             ))
 
@@ -483,6 +578,8 @@ class RetrievalService:
                 "node_id": str(candidate["id"]),
                 "version": candidate.get("version"),
                 "validity_status": candidate.get("validity_status", "unknown"),
+                "section_id": candidate.get("section_id"),
+                "snippet_offset": candidate.get("snippet_offset"),
             }
             for candidate in candidates
         ]
@@ -502,7 +599,8 @@ class RetrievalService:
                         ).hexdigest(),
                         "service_content_hash": hashlib.sha256(
                             (
-                                candidate.get("l1_content")
+                                candidate.get("snippet")
+                                or candidate.get("l1_content")
                                 or candidate.get("l0_content")
                                 or candidate.get("l2_content")
                                 or ""
@@ -528,6 +626,7 @@ class RetrievalService:
             ).encode("utf-8")
         ).hexdigest()
         trace = {
+            "original_fusion": request.original_fusion,
             "candidates": candidate_trace,
             "final_versions": final_versions,
             "final_materialized": [
@@ -537,17 +636,21 @@ class RetrievalService:
                     "version": candidate.get("version"),
                     "status": candidate.get("status"),
                     "validity_status": candidate.get("validity_status"),
-                    "l0_content": candidate.get("l0_content"),
-                    "l1_content": candidate.get("l1_content"),
-                    "l2_content": candidate.get("l2_content"),
+                    "l0_content": result.l0_content,
+                    "l1_content": result.l1_content,
+                    "l2_content": result.l2_content,
+                    "snippet": result.snippet,
+                    "section_id": candidate.get("section_id"),
+                    "snippet_offset": candidate.get("snippet_offset"),
                     "service_content": (
-                        candidate.get("l1_content")
-                        or candidate.get("l0_content")
-                        or candidate.get("l2_content")
+                        result.snippet
+                        or result.l1_content
+                        or result.l0_content
+                        or result.l2_content
                         or ""
                     ),
                 }
-                for candidate in candidates
+                for candidate, result in zip(candidates, results)
             ],
             "context_hash": context_hash,
             "unsafe_debug_read": request.include_stale,

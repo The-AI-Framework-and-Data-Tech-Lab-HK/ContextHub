@@ -405,14 +405,56 @@ async def test_update_embedding_returns_false_on_dimension_mismatch():
 
 def test_retrieval_router_default():
     router = RetrievalRouter.default()
-    assert isinstance(router.rerank, KeywordRerankStrategy)
+    assert isinstance(router.for_context_types(None), KeywordRerankStrategy)
 
 
 # --- SearchRequest / SearchResponse models ---
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,context_types,expected", [
+    ("keyword", ["table_schema"], "alignment"),
+    ("none", ["table_schema"], "superpower"),
+    ("by_type", ["table_schema"], "superpower"),
+    ("by_type", ["resource"], "alignment"),
+    ("by_type", ["table_schema", "resource"], "alignment"),
+    ("by_type", None, "alignment"),
+])
+async def test_optional_rerank_preserves_semantic_match_when_keywords_disagree(mode, context_types, expected):
+    rows = [
+        FakeRecord(
+            id=uuid.uuid4(), uri="ctx://datalake/superhero/superpower",
+            context_type=(context_types or ["table_schema"])[0], scope="datalake", owner_space=None,
+            status="active", version=1, tags=[],
+            l0_content="Superpower names and abilities",
+            l1_content="Superpower names and abilities", cosine_similarity=0.95,
+        ),
+        FakeRecord(
+            id=uuid.uuid4(), uri="ctx://datalake/superhero/alignment",
+            context_type=(context_types or ["table_schema"])[0], scope="datalake", owner_space=None,
+            status="active", version=1, tags=[],
+            l0_content="Character moral alignment",
+            l1_content="Character moral alignment", cosine_similarity=0.8,
+        ),
+    ]
+    service = RetrievalService(
+        RetrievalRouter(KeywordRerankStrategy() if mode != "none" else None,
+                        vector_only_tables=mode == "by_type"),
+        MockEmbeddingClient(), ACLService(), masking_service=MaskingService(),
+    )
+    response = await service.search(
+        SearchFlowDB(rows), SearchRequest(query="character superpowers", top_k=1,
+                                         context_type=context_types),
+        RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    assert [result.uri for result in response.results] == [f"ctx://datalake/superhero/{expected}"]
+    if expected == "superpower":
+        assert response.results[0].score == 0.95
+
+
 def test_search_request_defaults():
     req = SearchRequest(query="test")
     assert req.top_k == 10
+    assert req.original_fusion == "weighted"
     assert req.level == ContextLevel.L1
     assert req.include_stale is False
     assert req.scope is None
@@ -998,3 +1040,14 @@ async def test_keyword_search_returns_file_path_in_candidates():
     results = await keyword_search(db, "postgres", 5)
 
     assert results[0]["file_path"] == "/tmp/postgres-doc"
+
+
+@pytest.mark.parametrize("fusion", ["rrf", "weighted"])
+def test_search_request_accepts_original_fusion(fusion):
+    assert SearchRequest(query="evidence", original_fusion=fusion).original_fusion == fusion
+
+
+def test_search_request_rejects_unknown_original_fusion():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        SearchRequest(query="evidence", original_fusion="unknown")

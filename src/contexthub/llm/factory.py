@@ -15,6 +15,7 @@ def create_embedding_client(settings: Settings) -> EmbeddingClient:
             base_url=settings.openai_base_url,
             model=settings.embedding_model,
             expected_dimensions=settings.embedding_dimensions,
+            dimensions=settings.embedding_dimensions,
         )
     return NoOpEmbeddingClient()
 

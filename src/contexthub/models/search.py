@@ -1,5 +1,7 @@
 """Search and tools request/response models."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from contexthub.models.context import ContextLevel, ContextType, Scope
@@ -11,6 +13,8 @@ class SearchRequest(BaseModel):
     context_type: list[ContextType] | None = None
     top_k: int = Field(default=10, ge=1, le=100)
     level: ContextLevel = ContextLevel.L1
+    # Original-document passage fusion only; outer context-type fusion is separate.
+    original_fusion: Literal["rrf", "weighted"] = "weighted"
     # Unsafe/debug reads are explicit. Normal retrieval serves only fresh,
     # current versions.
     include_stale: bool = False
@@ -36,6 +40,8 @@ class SearchResult(BaseModel):
     tags: list[str] = Field(default_factory=list)
     snippet: str | None = None
     section_id: int | None = None
+    # Half-open character range [start, end) in the versioned extracted original.
+    snippet_offset: tuple[int, int] | None = None
     retrieval_strategy: str | None = None
 
 

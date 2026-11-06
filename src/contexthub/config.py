@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -32,7 +33,7 @@ class Settings(BaseSettings):
     lifecycle_sweep_interval: int = 3600
     openai_api_key: str = ""
     embedding_dimensions: int = 1536
-    rerank_strategy: str = "keyword"
+    rerank_strategy: Literal["keyword", "none", "by_type"] = "keyword"
     search_over_retrieve_factor: int = 3
     search_default_top_k: int = 10
     catalog_type: str = "mock"  # Carrier-specific: catalog connector type

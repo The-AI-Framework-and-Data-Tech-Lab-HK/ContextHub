@@ -346,6 +346,7 @@ async def answer(question, model, client):
 | [OpenClaw 集成指南](docs/setup/openclaw-integration-guide-zh.md) | 将 ContextHub 作为 OpenClaw context engine 的完整 5 终端搭建 |
 | [Deep Agents + ContextHub 教程](docs/setup/deepagents-integration-guide.md) | 演示环境、模型配置、记忆共享和文档章节读取 |
 | [Deep Agents 适配器参考](plugins/deepagents/README.md) | 原生异步工具、团队身份配置和测试方法 |
+| [文档检索设计](docs/design%20and%20development/document-retrieval.md) | 两条检索路线、内外两层融合、当前实现、验证记录与待讨论问题（英文） |
 | [文档章节生成说明](docs/setup/document-section-generation.md) | 模型配置、原文位置、回退行为和手动验证方法 |
 | [本地部署与端到端验证](docs/setup/local-setup&end2end-verification-guide-zh.md) | 开发环境搭建、数据库迁移、端到端 demo |
 | [MVP 验证计划](docs/mvp%20verification/mvp-verification-plan.md) | 三层验证：自动化测试 → API 闭环 → 运行时合同 |

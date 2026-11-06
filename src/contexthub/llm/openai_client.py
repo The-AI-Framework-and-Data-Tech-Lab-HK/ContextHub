@@ -120,18 +120,8 @@ class OpenAIEmbeddingClient:
             actual_dimensions = len(embedding)
             if actual_dimensions == self._expected_dimensions:
                 return embedding
-            if actual_dimensions < self._expected_dimensions:
-                logger.info(
-                    "Padding embedding for %s from %s to %s dimensions for model=%s",
-                    operation,
-                    actual_dimensions,
-                    self._expected_dimensions,
-                    self._model,
-                )
-                return embedding + [0.0] * (self._expected_dimensions - actual_dimensions)
-
             logger.error(
-                "OpenAI embedding dimension mismatch for %s: expected_at_most=%s got=%s model=%s",
+                "OpenAI embedding dimension mismatch for %s: expected=%s got=%s model=%s",
                 operation,
                 self._expected_dimensions,
                 actual_dimensions,

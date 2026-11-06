@@ -1,4 +1,4 @@
-"""Rerank strategies: ABC + BM25 keyword implementation."""
+"""Rerank strategies and shared BM25 scoring over an explicit token corpus."""
 
 from __future__ import annotations
 
@@ -6,6 +6,34 @@ import math
 import re
 from abc import ABC, abstractmethod
 from collections import Counter
+
+
+def bm25_scores(query_tokens: list[str], documents: list[list[str]]) -> list[float]:
+    """Score every document using statistics from the entire supplied corpus.
+
+    Include nonmatching documents in ``documents``; filter zero scores only
+    afterwards. Parameters and formula are shared with the existing reranker.
+    """
+    doc_count = len(documents)
+    doc_freq = Counter(token for tokens in documents for token in set(tokens))
+    avg_dl = sum(len(tokens) for tokens in documents) / max(doc_count, 1)
+    k1, b = 1.5, 0.75
+    scores = []
+    for tokens in documents:
+        tf = Counter(tokens)
+        dl = len(tokens)
+        score = 0.0
+        for qt in query_tokens:
+            df = doc_freq.get(qt, 0)
+            if df == 0:
+                continue
+            idf = math.log((doc_count - df + 0.5) / (df + 0.5) + 1.0)
+            term_tf = tf.get(qt, 0)
+            numerator = term_tf * (k1 + 1)
+            denominator = term_tf + k1 * (1 - b + b * dl / max(avg_dl, 1e-9))
+            score += idf * numerator / denominator
+        scores.append(score)
+    return scores
 
 
 class RerankStrategy(ABC):
@@ -22,50 +50,12 @@ class KeywordRerankStrategy(RerankStrategy):
         query_tokens = self._tokenize(query)
         if not query_tokens or not candidates:
             return candidates
-
-        doc_count = len(candidates)
-        doc_freq: Counter = Counter()
-        doc_token_lists = []
-        for c in candidates:
-            doc_tokens = self._tokenize(c.get("l1_content") or c.get("l0_content") or "")
-            doc_token_lists.append(doc_tokens)
-            for token in set(doc_tokens):
-                doc_freq[token] += 1
-
-        avg_dl = sum(len(d) for d in doc_token_lists) / max(doc_count, 1)
-        k1, b = 1.5, 0.75
-
-        scored = []
-        for c, doc_tokens in zip(candidates, doc_token_lists):
-            score = self._bm25_score(query_tokens, doc_tokens, doc_freq, doc_count, avg_dl, k1, b)
-            scored.append({**c, "_rerank_score": score})
-
+        documents = [self._tokenize(c.get("l1_content") or c.get("l0_content") or c.get("snippet") or "")
+                     for c in candidates]
+        scores = bm25_scores(query_tokens, documents)
+        scored = [{**c, "_rerank_score": score} for c, score in zip(candidates, scores)]
         return sorted(scored, key=lambda x: x["_rerank_score"], reverse=True)
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
         return re.findall(r"\w+", text.lower())
-
-    @staticmethod
-    def _bm25_score(
-        query_tokens: list[str],
-        doc_tokens: list[str],
-        doc_freq: Counter,
-        n_docs: int,
-        avg_dl: float,
-        k1: float,
-        b: float,
-    ) -> float:
-        tf = Counter(doc_tokens)
-        dl = len(doc_tokens)
-        score = 0.0
-        for qt in query_tokens:
-            df = doc_freq.get(qt, 0)
-            if df == 0:
-                continue
-            idf = math.log((n_docs - df + 0.5) / (df + 0.5) + 1.0)
-            term_tf = tf.get(qt, 0)
-            numerator = term_tf * (k1 + 1)
-            denominator = term_tf + k1 * (1 - b + b * dl / max(avg_dl, 1e-9))
-            score += idf * numerator / denominator
-        return score
