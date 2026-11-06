@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import httpx
 from contexthub_sdk import (
@@ -50,6 +50,27 @@ def _context_tool(function: Callable[..., Awaitable[Any]]) -> StructuredTool:
     return StructuredTool.from_function(coroutine=invoke, handle_tool_error=True)
 
 
+def _search_payload(result, level: ContextLevel) -> dict[str, Any]:
+    """Expose one evidence body per hit; the SDK retains the full API response."""
+    payload = result.model_dump(mode="json")
+    priorities = {
+        ContextLevel.L0: ("l0_content", "snippet", "l1_content"),
+        ContextLevel.L1: ("snippet", "l1_content", "l0_content"),
+        ContextLevel.L2: ("l2_content", "snippet", "l1_content", "l0_content"),
+    }
+    body_fields = {"l0_content", "l1_content", "l2_content", "snippet"}
+    for hit in payload["results"]:
+        selected = next((key for key in priorities[level] if hit.get(key)), None)
+        content = hit.get(selected) if selected else None
+        for key in body_fields:
+            hit.pop(key, None)
+        hit["content"] = content
+        hit["content_level"] = (
+            selected[:2].upper() if selected and selected != "snippet" else selected
+        )
+    return payload
+
+
 def create_contexthub_tools(client: ContextHubClient) -> list[StructuredTool]:
     """Create tools bound to one SDK client's account and agent identity.
 
@@ -66,12 +87,23 @@ def create_contexthub_tools(client: ContextHubClient) -> list[StructuredTool]:
         top_k: Annotated[int, Field(ge=1, le=100)] = 5,
         level: ContextLevel = ContextLevel.L1,
         include_stale_notices: bool = False,
+        original_fusion: Literal["rrf", "weighted"] = "weighted",
     ) -> dict[str, Any]:
         """Search visible ContextHub contexts; returns sources and a retrieval_id.
 
         Filter context_type to memory, resource, table_schema, or skill as needed.
-        L0 is a brief overview, L1 a summary, and L2 full content. Set
+        top_k limits returned evidence hits, not distinct documents. Different
+        source ranges can share a URI/version/section_id; snippet_offset locates
+        each range. L0 discovery returns at most one overview per document.
+        Each hit contains one content body and its content_level. L1 prefers
+        located source evidence (snippet), then the stored overview. Summaries
+        are optional; raw-only sources return their original text as a snippet.
+        L0 requests discovery text; L2 requests detail. Use read at L2 for the
+        complete original, or read_section for a located document section. Set
         include_stale_notices to explain why outdated matches were withheld.
+        original_fusion chooses original-document evidence ranking: weighted
+        (default) gives vectors 0.8 and BM25 0.2 after normalization; rrf combines
+        their ranks equally. It does not change the outer context-type merge.
         """
         result = await client.search(
             query,
@@ -80,8 +112,9 @@ def create_contexthub_tools(client: ContextHubClient) -> list[StructuredTool]:
             top_k=top_k,
             level=level,
             include_stale_notices=include_stale_notices,
+            original_fusion=original_fusion,
         )
-        return result.model_dump(mode="json")
+        return _search_payload(result, level)
 
     @_context_tool
     async def contexthub_ls(path: str) -> list[str]:

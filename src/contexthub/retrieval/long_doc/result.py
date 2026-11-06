@@ -17,5 +17,5 @@ class LongDocRetrievalResult:
     relevance_score: float
 
     def __post_init__(self) -> None:
-        if self.strategy not in {"tree", "keyword"}:
-            raise ValueError("strategy must be 'tree' or 'keyword'")
+        if self.strategy not in {"tree", "keyword", "vector", "hybrid"}:
+            raise ValueError("strategy must be tree, keyword, vector, or hybrid")

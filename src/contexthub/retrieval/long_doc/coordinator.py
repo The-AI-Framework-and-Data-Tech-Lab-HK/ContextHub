@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-import re
+from dataclasses import replace
+from typing import Literal
 
 from contexthub.db.repository import ScopedRepo
 
@@ -9,11 +10,14 @@ from .result import LongDocRetrievalResult
 
 logger = logging.getLogger(__name__)
 
-_STOPWORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how",
-    "in", "is", "it", "of", "on", "or", "that", "the", "this", "to", "what",
-    "when", "where", "why", "with",
-}
+
+def _min_max(scores: dict) -> dict:
+    """Normalize available scores; a constant/empty route adds no distinction."""
+    if not scores:
+        return {}
+    low, high = min(scores.values()), max(scores.values())
+    return {key: (value - low) / (high - low) if high > low else 0.0
+            for key, value in scores.items()}
 
 
 class LongDocRetrievalCoordinator:
@@ -39,7 +43,6 @@ class LongDocRetrievalCoordinator:
         all_results: list[LongDocRetrievalResult] = []
 
         if strategy == "tree":
-            fallback_docs: list[dict] = []
             for doc in long_docs:
                 try:
                     base_score = float(doc.get("_rerank_score", doc.get("cosine_similarity", 0.0)))
@@ -57,22 +60,6 @@ class LongDocRetrievalCoordinator:
                 best = results[:1]
                 if best:
                     all_results.extend(best)
-                    if self._should_fallback(query, best[0]):
-                        fallback_docs.append(doc)
-                else:
-                    fallback_docs.append(doc)
-            keyword_strategy = self._strategies.get("keyword")
-            if fallback_docs and keyword_strategy is not None:
-                try:
-                    keyword_results = await keyword_strategy.retrieve(db, query, fallback_docs)
-                except Exception:
-                    logger.warning("Keyword fallback retrieval failed", exc_info=True)
-                    keyword_results = []
-                all_results = self._replace_results_for_contexts(
-                    all_results,
-                    keyword_results,
-                    context_ids={doc["id"] for doc in fallback_docs},
-                )
         elif strategy == "keyword":
             try:
                 all_results = await strat.retrieve(db, query, long_docs)
@@ -82,51 +69,62 @@ class LongDocRetrievalCoordinator:
 
         return self._merge_results(candidates, all_results)
 
-    def _should_fallback(self, query: str, result: LongDocRetrievalResult) -> bool:
-        if not result.snippet:
-            return True
-        query_tokens = self._query_tokens(query)
-        if not query_tokens:
-            return False
-        snippet_lower = result.snippet.lower()
-        snippet_norm = self._normalize_text(result.snippet)
-        query_norm = self._normalize_text(query)
-        if query_norm and query_norm in snippet_norm:
-            return False
-        coverage = sum(1 for token in query_tokens if token in snippet_lower) / len(query_tokens)
-        return coverage < 0.6
+    async def search_originals(
+        self, db, query, documents, *, query_embedding=None, top_k=30,
+        original_fusion: Literal["rrf", "weighted"] = "weighted",
+    ):
+        """Fuse original ranges using RRF or fixed normalized vector/BM25 weights."""
+        if not documents:
+            return []
+        keyword = self._strategies.get("keyword")
+        lexical = await keyword.retrieve(db, query, documents) if keyword is not None else []
+        vector = self._strategies.get("vector")
+        semantic = []
+        if vector is not None and query_embedding is not None:
+            semantic = await vector.retrieve(db, query_embedding, documents, top_k)
+        versions = {doc["id"]: doc["version"] for doc in documents}
 
-    def _replace_results_for_contexts(
-        self,
-        existing: list[LongDocRetrievalResult],
-        replacements: list[LongDocRetrievalResult],
-        *,
-        context_ids: set[object],
-    ) -> list[LongDocRetrievalResult]:
-        by_context = {result.context_id: result for result in existing if result.context_id not in context_ids}
-        for result in existing:
-            if result.context_id not in by_context and result.context_id not in context_ids:
-                by_context[result.context_id] = result
-        for result in replacements:
-            by_context[result.context_id] = result
-        missing = context_ids - set(by_context)
-        for result in existing:
-            if result.context_id in missing and result.context_id not in by_context:
-                by_context[result.context_id] = result
-        return list(by_context.values())
+        def key(result):
+            return result.context_id, versions[result.context_id], result.snippet_offset
 
-    def _query_tokens(self, text: str) -> list[str]:
-        tokens: list[str] = []
-        seen: set[str] = set()
-        for token in re.findall(r"[a-z0-9]+", text.lower()):
-            if len(token) < 3 or token in _STOPWORDS or token in seen:
-                continue
-            seen.add(token)
-            tokens.append(token)
-        return tokens
+        # Keep discovery unchanged. Completing scores must not discover new ranges.
+        fused = {key(result): result for result in [*lexical, *semantic]}
+        lexical_scores = {key(result): result.relevance_score for result in lexical}
+        if original_fusion == "rrf":
+            scores = {k: 0.0 for k in fused}
+            vector_scores = {key(result): result.relevance_score for result in semantic}
+            for route in (lexical, semantic):
+                for rank, result in enumerate(sorted(route, key=lambda r: r.relevance_score, reverse=True), 1):
+                    scores[key(result)] += 1.0 / (60 + rank)
+        elif original_fusion == "weighted":
+            vector_scores = {key(result): result.relevance_score for result in semantic}
+            if vector is not None and query_embedding is not None:
+                missing = [result for result in lexical if key(result) not in vector_scores]
+                if missing:
+                    completed = await vector.score_candidates(db, query_embedding, documents, missing)
+                    vector_scores.update({key(result): result.relevance_score for result in completed})
 
-    def _normalize_text(self, text: str) -> str:
-        return " ".join(re.findall(r"[a-z0-9]+", text.lower()))
+            # The lexical retriever returns every positive BM25 range, using the full
+            # corpus statistics. A missing lexical hit therefore has a genuine zero.
+            bm25 = _min_max({k: lexical_scores.get(k, 0.0) for k in fused})
+            # Missing valid vectors stay absent from cosine statistics and add no vector score.
+            cosine = _min_max(vector_scores)
+            scores = {k: 0.8 * cosine.get(k, 0.0) + 0.2 * bm25[k] for k in fused}
+        else:
+            raise ValueError(f"Unsupported original_fusion: {original_fusion}")
+        results = []
+        for k, result in fused.items():
+            strategy = "hybrid" if k in vector_scores and k in lexical_scores else result.strategy
+            results.append(replace(result, strategy=strategy, relevance_score=scores[k]))
+        by_id = {doc["id"]: doc for doc in documents}
+        return [self._materialize(by_id[result.context_id], result)
+                for result in sorted(results, key=lambda r: r.relevance_score, reverse=True)]
+
+    @staticmethod
+    def _materialize(candidate: dict, result: LongDocRetrievalResult) -> dict:
+        return {**candidate, "snippet": result.snippet, "section_id": result.section_id,
+                "snippet_offset": result.snippet_offset, "retrieval_strategy": result.strategy,
+                "_rerank_score": result.relevance_score}
 
     def _merge_results(
         self,
@@ -145,10 +143,5 @@ class LongDocRetrievalCoordinator:
             if result is None:
                 merged.append(candidate)
                 continue
-            replacement = dict(candidate)
-            replacement["snippet"] = result.snippet
-            replacement["section_id"] = result.section_id
-            replacement["retrieval_strategy"] = result.strategy
-            replacement["_rerank_score"] = result.relevance_score
-            merged.append(replacement)
+            merged.append(self._materialize(candidate, result))
         return merged

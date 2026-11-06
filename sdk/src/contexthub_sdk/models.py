@@ -147,9 +147,12 @@ class SearchResult(BaseModel):
     l2_content: str | None = None
     status: ContextStatus
     version: int
+    validity_status: str = "fresh"
     tags: list[str] = Field(default_factory=list)
     snippet: str | None = None
     section_id: int | None = None
+    # Half-open character range [start, end) in the versioned extracted original.
+    snippet_offset: tuple[int, int] | None = None
     retrieval_strategy: str | None = None
 
 

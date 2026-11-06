@@ -128,7 +128,7 @@ class IngestDB:
                 raise RuntimeError("context insert failed")
             if self.fail_stage == "context_conflict":
                 raise RuntimeError("duplicate key value violates unique constraint")
-            return {"id": self.context_id}
+            return {"id": self.context_id, "version": 1}
         return None
 
     async def fetchval(self, sql: str, *args):
@@ -163,7 +163,6 @@ def _make_ingester(
     return LongDocumentIngester(
         chat_client=chat_client or ScriptedChatClient(),
         embedding_client=embedding or FakeEmbedding([0.1, 0.2]),
-        content_generator=ContentGenerator(),
         acl=acl or FakeACL(True),
         audit=audit or FakeAudit(),
         doc_store_root=str(tmp_path / "docs"),
@@ -214,23 +213,18 @@ async def test_create_chat_client_uses_configured_model_and_base_url():
 
 
 @pytest.mark.asyncio
-async def test_ingest_requires_configured_llm_api_key(tmp_path: Path):
-    ingester = LongDocumentIngester(
-        chat_client=NoOpChatClient(),
-        embedding_client=NoOpEmbeddingClient(),
-        content_generator=ContentGenerator(),
-        acl=FakeACL(True),
-        audit=FakeAudit(),
-        doc_store_root=str(tmp_path / "docs"),
+async def test_ingest_without_llm_keeps_original_and_empty_navigation(tmp_path: Path):
+    ingester = _make_ingester(tmp_path, chat_client=NoOpChatClient(), embedding=NoOpEmbeddingClient())
+    db = IngestDB()
+    result = await ingester.ingest(
+        db, "ctx://resources/manuals/test", str(_create_text_file(tmp_path)),
+        RequestContext(account_id="acme", agent_id="query-agent"),
     )
-
-    with pytest.raises(ServiceUnavailableError, match="Long document ingestion requires a configured LLM API key"):
-        await ingester.ingest(
-            IngestDB(),
-            "ctx://resources/manuals/test",
-            str(_create_text_file(tmp_path)),
-            RequestContext(account_id="acme", agent_id="query-agent"),
-        )
+    assert db.context_insert_args[1] == "Document: source"
+    assert db.context_insert_args[2] is None
+    update = next(args for sql, args in db.execute_calls if "SET l1_content" in sql)
+    assert update[1] is None
+    assert (Path(result.file_path) / "extracted.txt").read_text() == "hello world"
 
 
 @pytest.mark.asyncio
@@ -383,7 +377,6 @@ async def test_ingest_persists_absolute_file_path_and_l2_read_survives_cwd_chang
             """
         ),
         embedding_client=FakeEmbedding([0.1, 0.2]),
-        content_generator=ContentGenerator(),
         acl=FakeACL(True),
         audit=FakeAudit(),
         doc_store_root="relative-docs",
@@ -481,27 +474,16 @@ async def test_failure_cleanup_removes_only_new_final_dir(tmp_path: Path, fail_s
 
 
 @pytest.mark.asyncio
-async def test_embedding_failures_do_not_block_ingest(tmp_path: Path):
+async def test_configured_chunk_embedding_failure_does_not_save_partial_document(tmp_path):
     source = _create_text_file(tmp_path)
-    db_none = IngestDB()
-    ingester_none = _make_ingester(tmp_path / "none", embedding=FakeEmbedding(None))
-    await ingester_none.ingest(
-        db_none,
-        "ctx://resources/manuals/none",
-        str(source),
-        RequestContext(account_id="acme", agent_id="query-agent"),
-    )
-    assert db_none.context_insert_args[5] is None
-
-    db_exc = IngestDB()
-    ingester_exc = _make_ingester(tmp_path / "exc", embedding=FakeEmbedding(exc=RuntimeError("embed fail")))
-    await ingester_exc.ingest(
-        db_exc,
-        "ctx://resources/manuals/exc",
-        str(source),
-        RequestContext(account_id="acme", agent_id="query-agent"),
-    )
-    assert db_exc.context_insert_args[5] is None
+    db = IngestDB()
+    ingester = _make_ingester(tmp_path, embedding=FakeEmbedding(None))
+    with pytest.raises(ServiceUnavailableError, match="no partial index"):
+        await ingester.ingest(db, "ctx://resources/manuals/none", str(source),
+                              RequestContext(account_id="acme", agent_id="query-agent"))
+    assert not any("INSERT INTO document_chunk_embeddings" in sql for sql, _ in db.execute_calls)
+    assert not any("INSERT INTO change_events" in sql for sql, _ in db.execute_calls)
+    assert not list((tmp_path / "docs").glob("*/extracted.txt"))
 
 
 @pytest.mark.asyncio
@@ -635,19 +617,19 @@ def test_heading_fallback_grounds_repeated_and_wrapped_source_headings():
 async def test_build_document_tree_parses_grounded_json_and_code_fences(
     tmp_path, caplog
 ):
-    text = "Child\nhello world"
+    text = "# Child\nhello world"
     response = _section_response(text, [("Child", 1, 1)])
     ingester = _make_ingester(
         tmp_path,
         chat_client=ScriptedChatClient(response="```json\n" + response + "\n```"),
     )
     with caplog.at_level("INFO"):
-        tree = await ingester.build_document_tree(text, text)
-    assert tree.node_id == "root"
+        tree = (await ingester.build_document(text, text)).tree
+    assert tree.node_id == "heading-root"
     assert tree.start_offset == 0 and tree.end_offset == len(text)
     assert tree.children[0].title == "Child"
     assert text[tree.children[0].start_offset : tree.children[0].end_offset] == text
-    assert "source=llm" in caplog.text
+    assert "source=markdown_headings" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -671,9 +653,9 @@ async def test_line_anchors_preserve_unicode_crlf_repeated_titles_and_final_fact
         ],
     )
     chat = ScriptedChatClient(response=response)
-    tree = await _make_ingester(tmp_path, chat_client=chat).build_document_tree(
+    tree = (await _make_ingester(tmp_path, chat_client=chat).build_document(
         text, text
-    )
+    )).tree
     guide = tree.children[0]
     first, recovery, last = guide.children
     database, application = recovery.children
@@ -743,9 +725,9 @@ async def test_empty_or_invalid_model_output_uses_observable_heading_fallback(
         tmp_path, chat_client=ScriptedChatClient(response=response)
     )
     with caplog.at_level("INFO"):
-        tree = await ingester.build_document_tree(
+        tree = (await ingester.build_document(
             "# Intro\n## Details", "Intro\nDetails\nbody"
-        )
+        )).tree
     assert "Intro" in [node.title for node in _flatten(tree)]
     assert "source=markdown_headings" in caplog.text
     assert "empty or has invalid source anchors" in caplog.text
@@ -755,9 +737,9 @@ async def test_empty_or_invalid_model_output_uses_observable_heading_fallback(
 async def test_build_document_tree_can_skip_llm(tmp_path):
     chat = ScriptedChatClient(exc=AssertionError("must not call model"))
     text = "# Intro\n\n## Details\nbody"
-    tree = await _make_ingester(tmp_path, chat_client=chat).build_document_tree(
+    tree = (await _make_ingester(tmp_path, chat_client=chat).build_document(
         text, text, allow_llm=False
-    )
+    )).tree
     assert chat.prompts == []
     assert "Details" in [node.title for node in _flatten(tree)]
 
@@ -769,7 +751,7 @@ async def test_chat_error_uses_observable_sequential_fallback(tmp_path, caplog):
         tmp_path, chat_client=ScriptedChatClient(exc=RuntimeError("provider down"))
     )
     with caplog.at_level("INFO"):
-        tree = await ingester.build_document_tree("", text)
+        tree = (await ingester.build_document("", text)).tree
     assert any(node.node_id.startswith("seq-") for node in _flatten(tree))
     assert "source=sequential_chunks" in caplog.text
     assert tree.end_offset == len(text)
@@ -794,10 +776,10 @@ async def test_splitting_grounded_tree_preserves_full_span_and_bounded_nodes(
         + "abcdefghij " * 60
     )
     chat = ScriptedChatClient(response=_section_response(text, entries))
-    tree = await _make_ingester(
+    tree = (await _make_ingester(
         tmp_path, chat_client=chat, max_token_per_node=10
-    ).build_document_tree(text, text)
-    nodes = [n for n in _flatten(tree) if n.depth > 0]
+    ).build_document(text, text)).tree
+    nodes = [n for n in _flatten(tree) if not n.children]
     assert nodes and all((n.token_count or 0) <= 10 for n in nodes)
     assert tree.start_offset == 0 and tree.end_offset == len(text)
     assert (tree.token_count or 0) > 10
@@ -815,9 +797,9 @@ async def test_oversized_prompt_skips_model_without_dropping_document_tail(
     assert 'L2: "正文🚀"' in small
     chat = ScriptedChatClient(exc=AssertionError("must not send partial document"))
     with caplog.at_level("INFO"):
-        tree = await _make_ingester(tmp_path, chat_client=chat).build_document_tree(
+        tree = (await _make_ingester(tmp_path, chat_client=chat).build_document(
             text, text
-        )
+        )).tree
     assert not chat.prompts
     assert tree.end_offset == len(text)
     assert any(
@@ -1004,7 +986,7 @@ async def test_lifespan_exposes_chat_client_and_document_ingester_and_closes_cha
             assert app.state.document_ingester is not None
             assert app.state.long_doc_retrieval_coordinator is not None
             assert app.state.retrieval_service._long_doc_coordinator is app.state.long_doc_retrieval_coordinator
-            assert set(app.state.long_doc_retrieval_coordinator._strategies) == {"tree", "keyword"}
+            assert set(app.state.long_doc_retrieval_coordinator._strategies) == {"tree", "keyword", "vector"}
             assert isinstance(
                 app.state.long_doc_retrieval_coordinator._strategies["tree"],
                 main_module.TreeRetriever,
@@ -1040,7 +1022,6 @@ async def test_integration_document_ingest_smoke(acme_session, services, query_a
     ingester = LongDocumentIngester(
         chat_client=chat,
         embedding_client=NoOpEmbeddingClient(),
-        content_generator=ContentGenerator(),
         acl=services.acl,
         audit=services.audit,
         doc_store_root=str(tmp_path / "docs"),
@@ -1093,3 +1074,52 @@ async def test_integration_document_ingest_smoke(acme_session, services, query_a
         query_agent_ctx,
     )
     assert "Integration body" in l2_content
+
+
+@pytest.mark.asyncio
+async def test_document_description_embedded_once_and_navigation_references_saved_headings(tmp_path):
+    text = "# Guide\n" + "paragraph " * 100 + "\n## Evidence\nAda recorded 23 events."
+    payload = json.loads(_section_response(text, [("Guide", 1, 1), ("Evidence", 3, 2)]))
+    payload["description"] = "Guide to recorded events and supporting evidence."
+    chat, embedding, db = ScriptedChatClient(json.dumps(payload)), FakeEmbedding([0.1]), IngestDB()
+    source = _create_text_file(tmp_path, "guide.md", text)
+    result = await _make_ingester(tmp_path, chat_client=chat, embedding=embedding, max_token_per_node=50).ingest(
+        db, "ctx://resources/guide", str(source), RequestContext(account_id="acme", agent_id="query-agent"),
+    )
+    assert len(chat.prompts) == 1
+    assert embedding.calls.count(payload["description"]) == 1
+    assert len(embedding.calls) > 1
+    assert any("Ada recorded 23 events." in value for value in embedding.calls[1:])
+    assert db.context_insert_args[1] == payload["description"]
+    navigation = next(args[1] for sql, args in db.execute_calls if "SET l1_content" in sql)
+    source_sections = [(index, row) for index, row in enumerate(db.section_insert_args, 1)
+                       if row[2] in {"heading-0001", "heading-0002"}]
+    assert len(source_sections) == 2
+    for section_id, row in source_sections:
+        assert f"section_id={section_id}, chars={row[5]}:{row[6]}" in navigation
+    assert "part" not in navigation
+    assert "Ada recorded" not in navigation
+    assert payload["description"] not in str(db.section_insert_args)
+    assert (Path(result.file_path) / "extracted.txt").read_text() == text
+
+
+@pytest.mark.asyncio
+async def test_model_paragraph_anchors_do_not_invent_navigation(tmp_path):
+    text = "Ada recorded 23 events.\n\nLater observations continued."
+    payload = json.loads(_section_response(text, [("Invented chapter", 1, 1)]))
+    payload["description"] = "Observations of recorded events."
+    chat = ScriptedChatClient(json.dumps(payload))
+    built = await _make_ingester(tmp_path, chat_client=chat).build_document(text, text)
+    assert built.description == payload["description"]
+    assert built.heading_ids == set()
+    assert built.navigation({}) is None
+    assert built.tree.node_id == "seq-root"
+    assert len(chat.prompts) == 1
+
+
+def test_code_examples_are_not_navigation_headings():
+    text = "```markdown\n# Example\n```\n# Example\nActual section.\n~~~\n## Fake\n~~~\n"
+    sections = markdown_heading_fallback(text, text, text)
+    assert len(sections) == 2
+    assert sections[1]["title"] == "Example"
+    assert sections[1]["start_offset"] == text.rindex("# Example")

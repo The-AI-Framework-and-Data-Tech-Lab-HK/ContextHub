@@ -30,6 +30,7 @@ from contexthub.retrieval.long_doc import (
     LongDocRetrievalCoordinator,
     TreeRetriever,
 )
+from contexthub.retrieval.long_doc.vector_retriever import ChunkVectorRetriever
 from contexthub.retrieval.router import RetrievalRouter
 from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
@@ -112,10 +113,15 @@ async def lifespan(app: FastAPI):
         skill_service = SkillService(indexer_service, acl_service, masking_service, audit=audit_service)
 
         # Task 4: retrieval
-        retrieval_router = RetrievalRouter.default()
+        retrieval_router = (
+            RetrievalRouter(None)
+            if settings.rerank_strategy == "none"
+            else RetrievalRouter.default(vector_only_tables=settings.rerank_strategy == "by_type")
+        )
         long_doc_coordinator = LongDocRetrievalCoordinator()
         long_doc_coordinator.register_strategy("tree", TreeRetriever(chat_client))
-        long_doc_coordinator.register_strategy("keyword", KeywordRetriever(chat_client))
+        long_doc_coordinator.register_strategy("keyword", KeywordRetriever())
+        long_doc_coordinator.register_strategy("vector", ChunkVectorRetriever())
         retrieval_service = RetrievalService(
             retrieval_router, embedding_client, acl_service,
             masking_service=masking_service,
@@ -126,7 +132,6 @@ async def lifespan(app: FastAPI):
         document_ingester = LongDocumentIngester(
             chat_client=chat_client,
             embedding_client=embedding_client,
-            content_generator=content_generator,
             acl=acl_service,
             audit=audit_service,
             doc_store_root=settings.doc_store_root,

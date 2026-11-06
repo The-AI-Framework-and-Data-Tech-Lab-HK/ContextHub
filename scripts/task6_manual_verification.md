@@ -9,7 +9,7 @@ The goal is to confirm that ContextHub can:
 3. run `RetrievalService.search()`,
 4. return the ingested document with:
    - non-empty `snippet`
-   - `retrieval_strategy == "tree"` or `retrieval_strategy == "keyword"` when fallback activates
+   - `retrieval_strategy == "tree"` or `retrieval_strategy == "keyword"` when original-text discovery selects evidence
    - non-empty `section_id` (required by the current smoke script for both strategies)
 
 
@@ -163,7 +163,7 @@ The script now verifies the Task 6 runtime path end to end:
 2. `document_sections` written to DB
 3. `ContextStore.read(...)` for `L0`, `L1`, `L2`
 4. `RetrievalService.search(...)`
-5. long-doc precision routing through the default `tree` strategy, with optional `keyword` fallback for low-confidence tree snippets
+5. existing `tree` navigation plus independent `keyword` discovery over ACL-visible original documents
 6. final result includes:
    - `snippet`
    - `section_id`
@@ -186,7 +186,7 @@ runpy.run_path("scripts/manual_longdoc_smoke.py", run_name="__main__")
 PY
 ```
 
-Look for `Document section tree generated: source=llm`. `source=markdown_headings` or `source=sequential_chunks` means deterministic sectioning was used. Invalid anchors or empty model output produce a warning before fallback. A numbered prompt over 120,000 characters skips model generation entirely.
+Look for `source=markdown_headings` or `source=sequential_chunks`. These indicate source-derived navigation or sequential reading ranges; the latter leaves L1 NULL. Check saved L0 and provider usage separately to distinguish generated introductions from the explicit `Document: <filename>` metadata fallback. Invalid anchors or empty model output produce a warning. A numbered prompt over 120,000 characters skips model generation entirely.
 
 Inspect a document with repeated headings, nested sections, and Chinese or other non-ASCII text. Compare the reported `start_offset` and `end_offset` against the stored `extracted.txt`, not against PDF page positions or file bytes:
 
@@ -201,7 +201,7 @@ To separately check the deterministic path:
 python scripts/manual_longdoc_smoke.py --disable-llm-tree
 ```
 
-This disables model-based tree construction only; summary generation, embeddings, and retrieval can still call models. A successful fallback does not validate model-generated sections or overall answer quality.
+This disables the combined document introduction/section-description call. Headings or sequential ranges are still parsed locally; embeddings and tree navigation during retrieval can still call models. Original-text keyword discovery makes no model calls. A successful fallback does not validate introduction quality or overall answer quality.
 
 ## Common failures
 
@@ -284,7 +284,7 @@ Why this matters:
 
 - default runtime behavior should try `tree` first
 
-If the final result uses `keyword`, tree retrieval fell back to keyword selection. The current script also requires a non-empty snippet and section ID. Check the generation logs separately to determine how the tree was built.
+If the final result uses `keyword`, independent original-text discovery supplied the evidence; it need not have passed L0 discovery or tree navigation. The current script also requires a non-empty snippet and section ID. Check the generation logs separately to determine how the tree was built.
 
 
 ## Suggested first run

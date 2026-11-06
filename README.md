@@ -346,6 +346,7 @@ The cheap-first, escalate-only-when-needed policy lives in core as a confidence 
 | [OpenClaw Integration Guide](docs/setup/openclaw-integration-guide.md) | Full 5-terminal setup for ContextHub + OpenClaw |
 | [Deep Agents + ContextHub Tutorial](docs/setup/deepagents-integration-guide.md) | Demo setup, model configuration, memory sharing, and document section reads |
 | [Deep Agents Adapter Reference](plugins/deepagents/README.md) | Native async tools, team identities, and tests |
+| [Document Retrieval Design](docs/design%20and%20development/document-retrieval.md) | Two retrieval routes, inner/outer fusion, current decisions, evidence, and open questions |
 | [Document Section Generation](docs/setup/document-section-generation.md) | Model configuration, source boundaries, fallback behavior, and manual verification |
 | [Local Setup & E2E Verification](docs/setup/local-setup&end2end-verification-guide.md) | Dev environment, migrations, E2E demo |
 | [MVP Verification Plan](docs/mvp%20verification/mvp-verification-plan.md) | Three-layer verification: tests → API demo → runtime contract |

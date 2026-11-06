@@ -21,6 +21,7 @@ from contexthub.models.context import (
     UpdateContextRequest,
 )
 from contexthub.models.request import RequestContext
+from contexthub.retrieval.content import embedding_text
 from contexthub.services.acl_service import ACLService
 from contexthub.services.audit_service import AuditService
 from contexthub.services.indexer_service import IndexerService
@@ -238,9 +239,10 @@ class ContextService:
             ctx.agent_id,
         )
 
-        # Embedding consistency: new active context with l0_content
-        if self._indexer and body.l0_content:
-            await self._indexer.update_embedding(db, row["id"], body.l0_content)
+        # Summaries are optional: raw-only contexts index their original text.
+        index_text = embedding_text(row)
+        if self._indexer and index_text:
+            await self._indexer.update_embedding(db, row["id"], index_text)
 
         result = self._row_to_context(row)
 
@@ -274,7 +276,7 @@ class ContextService:
         content_changed = False
         for field in ("l0_content", "l1_content", "l2_content", "file_path"):
             val = getattr(body, field)
-            if val is not None:
+            if field in body.model_fields_set:
                 sets.append(f"{field} = ${idx}")
                 args.append(val)
                 idx += 1
@@ -330,14 +332,18 @@ class ContextService:
             new_status = row["status"]
             if new_status == "archived":
                 await self._indexer.clear_embedding(db, row["id"])
-            elif row["l0_content"] and new_status in ("active", "stale") and content_changed:
-                await self._indexer.update_embedding(db, row["id"], row["l0_content"])
+            elif new_status in ("active", "stale") and content_changed:
+                # Clear before regenerating so a failed embedding cannot leave
+                # the previous content's vector attached to the new version.
+                await self._indexer.clear_embedding(db, row["id"])
+                if index_text := embedding_text(row):
+                    await self._indexer.update_embedding(db, row["id"], index_text)
 
         result = self._row_to_context(row)
 
         if self._audit:
             changed = [f for f in ("l0_content", "l1_content", "l2_content", "file_path", "tags", "status")
-                        if getattr(body, f, None) is not None]
+                        if f in body.model_fields_set]
             await self._audit.log_strict(
                 db, ctx.agent_id, "update", uri, "success",
                 metadata={"changed_fields": changed},

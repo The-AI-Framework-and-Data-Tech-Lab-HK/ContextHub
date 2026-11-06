@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contexthub.db.repository import ScopedRepo
+from contexthub.retrieval.content import RAW_CONTENT_SQL
 
 
 async def vector_search(
@@ -59,6 +60,7 @@ async def vector_search(
         SELECT id, uri, context_type, scope, owner_space, status, version,
                validity_status, validity_reason,
                l0_content, l1_content, tags, file_path,
+               {RAW_CONTENT_SQL} AS raw_content,
                1 - (l0_embedding <=> $1::vector) AS cosine_similarity
         FROM contexts
         WHERE {where}
@@ -82,6 +84,7 @@ async def vector_search(
             "validity_reason": r.get("validity_reason"),
             "l0_content": r["l0_content"],
             "l1_content": r["l1_content"],
+            "snippet": r.get("raw_content"),
             "tags": list(r["tags"] or []),
             "file_path": r.get("file_path"),
             "cosine_similarity": float(r["cosine_similarity"]),

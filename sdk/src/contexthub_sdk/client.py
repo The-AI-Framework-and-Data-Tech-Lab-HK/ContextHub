@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Literal, Union
 
 import httpx
 
@@ -587,6 +587,7 @@ class ContextHubClient:
         level: ContextLevel = ContextLevel.L1,
         include_stale: bool = False,
         include_stale_notices: bool = False,
+        original_fusion: Literal["rrf", "weighted"] = "weighted",
     ) -> SearchResponse:
         body: dict[str, Any] = {
             "query": query,
@@ -594,6 +595,7 @@ class ContextHubClient:
             "level": level.value,
             "include_stale": include_stale,
             "include_stale_notices": include_stale_notices,
+            "original_fusion": original_fusion,
         }
         if scope is not None:
             body["scope"] = [s.value for s in scope]

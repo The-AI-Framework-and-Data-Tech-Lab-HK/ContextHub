@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contexthub.retrieval.content import embedding_text
+
 from enum import StrEnum
 import hashlib
 import json
@@ -320,7 +322,7 @@ class LifecycleService:
         context_id: UUID,
         ctx: RequestContext,
     ) -> None:
-        row = await self._fetch_context_row(db, context_id, extra_columns=("l0_content",))
+        row = await self._fetch_context_row(db, context_id, extra_columns=("l0_content", "l1_content", "l2_content"))
         if row["status"] != "archived":
             return
 
@@ -337,12 +339,12 @@ class LifecycleService:
         if result == "UPDATE 0":
             return
 
-        if row["l0_content"]:
+        if index_text := embedding_text(row):
             if self._indexer is None:
                 raise RuntimeError(
                     "LifecycleService requires IndexerService to recover archived contexts with embeddings"
                 )
-            success = await self._indexer.update_embedding(db, context_id, row["l0_content"])
+            success = await self._indexer.update_embedding(db, context_id, index_text)
             if not success:
                 raise RuntimeError(
                     f"Failed to restore embedding for archived context {context_id}"
